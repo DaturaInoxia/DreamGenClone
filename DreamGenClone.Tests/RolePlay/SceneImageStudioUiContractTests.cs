@@ -65,10 +65,22 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("Selected Moment &amp; production context", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("Prompt input (what the compiler receives)", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("BuildPromptOverrides", CompositionComposerSource, StringComparison.Ordinal);
-        // Removal uses two-way binding (the previous checked + @onchange pattern inverted the logic),
-        // and removed characters are derived from the bound group state.
-        Assert.Contains("@bind=\"row.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("@bind=\"group.Removed\"", CompositionComposerSource, StringComparison.Ordinal);
+        // Every inspector row must address a member the payload ACTUALLY has. "Visual description" was keyed
+        // `moment.visualDescription`, which the compiled brief does not contain, so the box was always empty and typing
+        // into it wrote a property nothing reads (reported 2026-10-22). The element keys now live in the ONE cluster
+        // table (PromptElementClusters) the inspector reads, so the contract here is that the page consumes that table
+        // and never names a key the table does not own.
+        Assert.Contains("PromptElementClusters.Scene", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("AddClusterRow", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("AddPromptRow", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("moment.visualDescription", CompositionComposerSource, StringComparison.Ordinal);
+        // Removal is a CASCADE, not two-way binding: the whole-character tick must drive every section, and releasing a
+        // section must release the character, or the two controls disagree (the group tick silently swallowed the
+        // row untick in BuildPromptOverrides).
+        Assert.Contains("SetGroupRemoved(group, (bool?)args.Value == true)", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("SetRowRemoved(group, row, (bool?)args.Value == true)", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("private void SetGroupRemoved(PromptGroup group, bool removed)", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("private void SetRowRemoved(PromptGroup group, PromptFieldRow row, bool removed)", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("RemovedCharacterKeys", CompositionComposerSource, StringComparison.Ordinal);
         // B-130: the approved-reference panel is replaced by the ONE composer, which presents the step's slot list.
         Assert.Contains("ImageStepComposer Blueprint=\"CompositionBlueprint\"", CompositionComposerSource, StringComparison.Ordinal);
@@ -76,7 +88,10 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("SetCompositionDispositionAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ApproveCompositionAttemptAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ConfirmDeleteCompositionAsync", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("Regenerate Sibling", CompositionComposerSource, StringComparison.Ordinal);
+        // The step's own action rides in the card's footer now, so the marker is the command and its title rather than a
+        // bespoke button label.
+        Assert.Contains("RegenerateCompositionAsync", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("title=\"Regenerate a sibling Composition from this image's inputs\"", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("OnModelChangedAsync", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("ProductionGroupId = _productionGroup!.Id", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("CompiledMediaBriefId = _compiledMediaBrief!.Id", CompositionComposerSource, StringComparison.Ordinal);
@@ -273,22 +288,27 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("<dt>Disposition</dt>", Source, StringComparison.Ordinal);
         Assert.Contains("<dt>Approval</dt>", Source, StringComparison.Ordinal);
 
-        var attemptLoop = IndexOf("@foreach (var attempt in stageAttempts)");
-        var attemptEnd = IndexOf("</section>", attemptLoop);
-        var attemptMarkup = Source[attemptLoop..attemptEnd];
-        Assert.Contains("@attempt.Status", attemptMarkup, StringComparison.Ordinal);
-        Assert.Contains("@attempt.Disposition", attemptMarkup, StringComparison.Ordinal);
-        Assert.Contains("? \"Approved\" : \"Not approved\"", attemptMarkup, StringComparison.Ordinal);
+        // The attempts render the SHARED card, so the three facts are kept apart by the projection that feeds it: an
+        // execution status, a disposition badge, and an approval badge, each read from its own field. A projection that
+        // folded two of them together is exactly how "shortlisted" would start reading as "approved".
+        Assert.Contains("StatusText = img.Status.ToString(),", Source, StringComparison.Ordinal);
+        Assert.Contains("DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected", Source, StringComparison.Ordinal);
+        Assert.Contains("ApprovalBadgeText = isApproved ? \"Production frame\" : null,", Source, StringComparison.Ordinal);
     }
 
     [Fact]
     public void ProductionAttempts_ShowEveryStageAcrossTheFullWorkspaceWithAnEditorLink()
     {
-        Assert.Contains("new[] { SceneImageProductionStage.Composition, SceneImageProductionStage.Identity, SceneImageProductionStage.Finish }", Source, StringComparison.Ordinal);
-        Assert.Contains("href=\"/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id\"", Source, StringComparison.Ordinal);
-        Assert.Contains("var editAttempts = _productionAttempts", Source, StringComparison.Ordinal);
-        Assert.Contains("aria-label=\"Image edits\"", Source, StringComparison.Ordinal);
-        Assert.Contains("title=\"Open this edit in the image editor\"", Source, StringComparison.Ordinal);
+        // Every list is derived in one place and every one of them renders the SAME card, so two lists cannot disagree
+        // about what an attempt is.
+        Assert.Contains("(\"Image edits\", _productionAttempts.Where(attempt => attempt.Operation == SceneImageOperation.Edit).ToList())", Source, StringComparison.Ordinal);
+        Assert.Contains("(\"Composition\", AttemptsAtStage(SceneImageProductionStage.Composition))", Source, StringComparison.Ordinal);
+        Assert.Contains("(\"Identity\", AttemptsAtStage(SceneImageProductionStage.Identity))", Source, StringComparison.Ordinal);
+        Assert.Contains("(\"Finish\", AttemptsAtStage(SceneImageProductionStage.Finish))", Source, StringComparison.Ordinal);
+        Assert.Contains("@foreach (var group in ProductionAttemptGroups())", Source, StringComparison.Ordinal);
+        Assert.Contains("<ImageCard Model=\"CardModel(attempt, _selectedProductionAttemptId == attempt.Id)\"", Source, StringComparison.Ordinal);
+        Assert.Contains("EditRequested=\"() => OpenProductionAttemptInEditor(attempt)\"", Source, StringComparison.Ordinal);
+        Assert.Contains("/roleplay/image-editor/{sessionId}/{interactionId}/{attempt.Id}", Source, StringComparison.Ordinal);
         Assert.Contains(".scene-production-attempts {\r\n    grid-row: 6;", SceneImageStudioStylesheet, StringComparison.Ordinal);
         Assert.Contains(".scene-production-canvas-actions,\r\n.scene-production-attempts {\r\n    grid-column: 1 / -1;", SceneImageStudioStylesheet, StringComparison.Ordinal);
     }
@@ -468,7 +488,10 @@ public sealed class SceneImageStudioUiContractTests
     [Fact]
     public void AttemptTreeAndCompare_ExposeLineageMarkersAndPersistedDifferences()
     {
-        Assert.Contains("has-parent", Source, StringComparison.Ordinal);
+        // The lineage marker is the card's own body line now, in words rather than a CSS class: which attempt an image
+        // came from is a fact the operator reads, not a style hook.
+        Assert.Contains("Root attempt", Source, StringComparison.Ordinal);
+        Assert.Contains("From {parentId}", Source, StringComparison.Ordinal);
         Assert.Contains("BranchFromAttemptAsync", Source, StringComparison.Ordinal);
         Assert.Contains("Identity-stale", Source, StringComparison.Ordinal);
         Assert.Contains("CompareDifferences()", Source, StringComparison.Ordinal);
@@ -479,13 +502,23 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("aria-label=\"Attempt @(compareIndex == 0 ? \"A\" : \"B\")\"", Source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Approval states its reason and demands only what makes it EXACT. The stage ladder is deliberately NOT a
+    /// precondition: it used to be written here, in the approval service and on the composition page, each with its own
+    /// version, which is why the same attempt was approvable on one surface and not another.
+    /// </summary>
     [Fact]
     public void ApprovalSurface_StatesGateReasonAndRequiresExactCompletedAttempt()
     {
         Assert.Contains("ApprovalReason(_selectedProductionAttempt)", Source, StringComparison.Ordinal);
         Assert.Contains("CanApprove(_selectedProductionAttempt)", Source, StringComparison.Ordinal);
-        Assert.Contains("Identity required - this attempt has no completed identity pass.", Source, StringComparison.Ordinal);
+        // One gate, in the domain, for every surface that offers the action.
+        Assert.Contains("SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is null", Source, StringComparison.Ordinal);
+        Assert.Contains("SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is { } blocker", Source, StringComparison.Ordinal);
         Assert.Contains("new decision version", Source, StringComparison.Ordinal);
+        // Identity-staleness is stated as information rather than enforced as a blocker.
+        Assert.Contains("approving it is still yours to decide", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Identity required - this attempt has no completed identity pass.", Source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -600,13 +633,142 @@ public sealed class SceneImageStudioUiContractTests
         Assert.Contains("BindBackdropAsync", Source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The Location stage is per-POV, and it says so: Omniscient and each character bind their own image, the moment's
+    /// location link is keyed on that POV, and the stage resolves THAT POV's production group instead of binding onto
+    /// whichever group happened to exist (which was a silent no-op when none did).
+    /// </summary>
+    [Fact]
+    public void ProductionStudio_LocationStage_BindsOneImagePerPov()
+    {
+        Assert.Contains("this POV's own binding", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("shared across this moment's POVs", Source, StringComparison.Ordinal);
+
+        // The stage resolves the POV's group through the ONE creation call the composer button uses, and a re-enrichment
+        // restores this POV's recorded binding into that new group.
+        Assert.Contains("EnsurePovProductionGroupAsync", Source, StringComparison.Ordinal);
+        Assert.Contains("await LocationService.RestoreBackdropAsync(_productionGroup.Id)", Source, StringComparison.Ordinal);
+        Assert.Contains("RequireProductionLineage();", Source, StringComparison.Ordinal);
+        // The lineage guard exists once, so the stage and the composer button cannot disagree about "ready to produce".
+        Assert.Equal(1, CountOccurrences(Source, "Exact completed Catalogue, Beat Production Plan, Moment Set, Moment enrichment, and production POV are required."));
+
+        // A bind that cannot be recorded fails loudly; it must never return quietly and look like it worked.
+        Assert.Contains("so its location binding has nowhere to be recorded", Source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (_productionGroup is null)\r\n            return;", Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The stage's list is the MATCHED location's images, and only those. The rest of the library is reached through the
+    /// full image search — which is the shared picker, in its bindable, searchable, groupable mode, and which binds
+    /// through the same single path as the inline list.
+    /// </summary>
+    [Fact]
+    public void ProductionStudio_LocationStage_ListsOnlyTheMatchedLocationAndSearchesTheRestThroughTheSharedPicker()
+    {
+        Assert.Contains("private SceneAsset? MatchedLocationContainer => _locationSuggestion?.Container;", Source, StringComparison.Ordinal);
+        Assert.Contains("if (MatchedLocationContainer is not { } container)", Source, StringComparison.Ordinal);
+        Assert.Contains("_locationImagesByAsset[container.Id] = (await AssetService.ListImagesAsync(container.Id)).ToList();", Source, StringComparison.Ordinal);
+        // No "every Location asset and every image of each" load remains in the stage.
+        Assert.DoesNotContain("asset.Type == SceneAssetType.Location", Source, StringComparison.Ordinal);
+
+        Assert.Contains("Search all image assets", Source, StringComparison.Ordinal);
+        Assert.Contains("OpenLocationAssetSearchAsync", Source, StringComparison.Ordinal);
+        Assert.Contains("<InAppImagePicker Visible=\"_locationAssetSearchOpen\"", Source, StringComparison.Ordinal);
+        Assert.Contains("AssetTypeFilter=\"SceneAssetType.Location\"", Source, StringComparison.Ordinal);
+        Assert.Contains("RequireBindableImage=\"true\"", Source, StringComparison.Ordinal);
+        Assert.Contains("BindPickedLocationAssetAsync", Source, StringComparison.Ordinal);
+        // The modal binds by the SAME write the inline list uses, so there is one bind path rather than two.
+        Assert.Contains("await BindBackdropAsync(identity.ImageId);", Source, StringComparison.Ordinal);
+
+        // Whether an image can be bound is the domain's rule, so the list cannot offer one the bind would refuse.
+        Assert.Contains("SceneImageLocationBindGate.BlockerFor(image)", Source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A bind is a write the operator asked for, so the stage reports its outcome. Rebinding the image already bound
+    /// leaves the stage looking identical, so success has to be said out loud; and a bind that cannot be recorded shows
+    /// its reason in the stage — never as an exception escaping the click handler, which left the operator with a
+    /// Bind button that appeared to do nothing.
+    /// </summary>
+    [Fact]
+    public void ProductionStudio_LocationStage_ReportsTheOutcomeOfEveryBind()
+    {
+        Assert.Contains("private string? _locationStageNotice;", Source, StringComparison.Ordinal);
+        Assert.Contains("? $\"Bound '{bound.Label}' as this POV's location backdrop.\"", Source, StringComparison.Ordinal);
+        Assert.Contains("<div class=\"alert alert-success py-2 small\" role=\"status\">@_locationStageNotice</div>", Source, StringComparison.Ordinal);
+
+        // The group guard lives INSIDE the try, so a missing group is a message the stage shows rather than an
+        // exception thrown out through the picker's Picked callback.
+        var bindStart = Source.IndexOf("private async Task BindBackdropAsync(string imageId)", StringComparison.Ordinal);
+        var bindEnd = Source.IndexOf("private Task OpenLocationAssetSearchAsync()", StringComparison.Ordinal);
+        Assert.True(bindStart >= 0 && bindEnd > bindStart, "BindBackdropAsync could not be located in the studio source.");
+        var bind = Source[bindStart..bindEnd];
+        Assert.Contains("try\r\n        {\r\n            // No silent return", bind, StringComparison.Ordinal);
+        Assert.Contains("?? throw new InvalidOperationException(\"This POV has no production group", bind, StringComparison.Ordinal);
+        Assert.Contains("_locationStageError = exception.Message;", bind, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A binding the stage reports must show the IMAGE it names, not only its label. The stage's candidate list is the
+    /// matched location's images, so a binding made from the full library (or a location that no longer matches) is in
+    /// no list at all — the operator saw "Complete (bound: Indoor Back)" over an empty stage (reported 2026-10-19).
+    /// </summary>
+    [Fact]
+    public void ProductionStudio_LocationStage_ShowsTheBoundImage()
+    {
+        Assert.Contains("Currently bound location backdrop", Source, StringComparison.Ordinal);
+        Assert.Contains("_boundLocationImage is { FileRelativePath: not null }", Source, StringComparison.Ordinal);
+        Assert.Contains("await AssetService.GetImageAsync(backdrop.ImageId)", Source, StringComparison.Ordinal);
+        // A missing row or a missing file is said out loud; a blank box would look like a broken stage.
+        Assert.Contains("no longer exists in the asset library", Source, StringComparison.Ordinal);
+        Assert.Contains("has no stored file, so it cannot be displayed", Source, StringComparison.Ordinal);
+        Assert.Contains("href=\"/locations/@boundBackdrop.AssetId\"", Source, StringComparison.Ordinal);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var count = 0;
+        for (var index = haystack.IndexOf(needle, StringComparison.Ordinal); index >= 0;
+             index = haystack.IndexOf(needle, index + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
+    }
+
     [Fact]
     public void CompositionComposer_SeedsTheLocationSlotFromABoundBackdropAndShowsANotice()
     {
         Assert.Contains("SeedLocationBackdropIfBound", CompositionComposerSource, StringComparison.Ordinal);
-        Assert.Contains("LocationBackdropSlotPrefill.For(", CompositionComposerSource, StringComparison.Ordinal);
+        // The page asks the seed owner, which answers with the MODEL's capability; it must not build the binding
+        // itself, because that is how a reference got attached to a model that cannot carry one (2026-10-13).
+        Assert.Contains("LocationBackdropSlotPrefill.ResolveAsync(", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LocationBackdropSlotPrefill.For(", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("This model cannot carry the location reference", CompositionComposerSource, StringComparison.Ordinal);
         Assert.Contains("_locationSeedNotice", CompositionComposerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Measured 2026-10-14: a Composition draft's pre-processor call hit the DeepSeek provider's 360-second timeout,
+    /// the prompt record went to Failed — and the panel showed "Prompt generation queued" and then nothing at all. The
+    /// pending record was cleared on EVERY terminal status, so the banner that reads it could never render: the same
+    /// load pass that discovered the failure nulled the field. The failure is kept now, and a reopened page reports
+    /// the newest failed draft for its own group and brief.
+    /// </summary>
+    [Fact]
+    public void CompositionComposer_SurfacesAFailedPromptGenerationInsteadOfDiscardingIt()
+    {
+        Assert.Contains("private SceneImagePromptRecord? _failedPrompt;", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("@_failedPrompt.ErrorMessage", CompositionComposerSource, StringComparison.Ordinal);
+        // A terminal non-Complete generation is KEPT, not dropped.
+        Assert.Contains("_failedPrompt = _pendingPrompt;", CompositionComposerSource, StringComparison.Ordinal);
+        // A reopened page explains itself: the newest failed draft for this group and brief is read back.
+        Assert.Contains("RefreshFailedPromptAsync", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("GetLatestPromptAsync(sessionId, interactionId)", CompositionComposerSource, StringComparison.Ordinal);
+        // The banner must no longer be driven by the pending record, which is null by the time it could render.
+        Assert.DoesNotContain(
+            "_pendingPrompt?.Status == SceneImagePromptStatus.Failed", CompositionComposerSource, StringComparison.Ordinal);
     }
 
     private static int IndexOf(string value, int startIndex = 0)

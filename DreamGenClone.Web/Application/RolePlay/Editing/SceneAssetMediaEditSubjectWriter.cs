@@ -437,6 +437,9 @@ public sealed class SceneAssetMediaEditSubjectWriter : IMediaEditSubjectWriter
         image.Height = stored.Height;
         image.ByteLength = stored.ByteLength;
         image.Sha256 = stored.Sha256;
+        // What the editor actually read. The role clause is appended at SEND time, so this differs from the queued
+        // prompt whenever a reference was carried, and without it the row cannot say why an edit came back wrong.
+        image.SentInstructionSnapshot = output.SentInstruction;
         image.ErrorMessage = null;
         image.CompletedUtc = DateTime.UtcNow;
         image.UpdatedUtc = image.CompletedUtc.Value;

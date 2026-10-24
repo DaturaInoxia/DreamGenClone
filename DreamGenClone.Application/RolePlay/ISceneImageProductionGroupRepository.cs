@@ -42,6 +42,16 @@ public interface ISceneImageProductionGroupRepository
         DateTime updatedUtc,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Writes the operator's uncommitted prompt-panel state (source + intent JSON) onto a production group, or clears
+    /// it when <paramref name="promptDraftJson"/> is null — the default panel.
+    /// </summary>
+    Task<SceneImageProductionGroup> SetPromptDraftAsync(
+        string groupId,
+        string? promptDraftJson,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<SceneImageProductionGroup>> ListByInteractionAsync(
         string sessionId,
         string interactionId,

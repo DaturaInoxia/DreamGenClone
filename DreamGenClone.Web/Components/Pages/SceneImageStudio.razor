@@ -969,11 +969,40 @@
                                                         <span class="fw-semibold">Location</span>
                                                         <span class="text-muted small ms-2">@_productionPov POV · @LocationBackdropLabel()</span>
                                                     </div>
-                                                    <span class="text-muted small">shared across this moment's POVs</span>
+                                                    <span class="text-muted small">this POV's own binding — Omniscient and each character keep theirs separately</span>
                                                 </div>
+                                                @if (BoundLocationBackdrop is { } boundBackdrop)
+                                                {
+                                                    <div class="d-flex gap-3 align-items-start border rounded p-2 mb-3" aria-label="Currently bound location backdrop">
+                                                        @if (_boundLocationImage is { FileRelativePath: not null } boundBackdropImage)
+                                                        {
+                                                            <img src="/scene-images/@boundBackdropImage.FileRelativePath"
+                                                                 class="border rounded" style="width:220px;height:150px;object-fit:cover;background:#101010;"
+                                                                 alt="Bound location backdrop: @boundBackdrop.Label" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="border rounded d-flex align-items-center justify-content-center text-muted small"
+                                                                 style="width:220px;height:150px;">@boundBackdrop.Label</div>
+                                                        }
+                                                        <div class="small">
+                                                            <div class="fw-semibold">Bound backdrop: @boundBackdrop.Label</div>
+                                                            <div class="text-muted">This POV's location image — the one a render carries.</div>
+                                                            @if (!string.IsNullOrWhiteSpace(_boundLocationImageError))
+                                                            {
+                                                                <div class="text-danger mt-1">@_boundLocationImageError</div>
+                                                            }
+                                                            <a class="small" href="/locations/@boundBackdrop.AssetId">Open in Location Studio</a>
+                                                        </div>
+                                                    </div>
+                                                }
                                                 @if (!string.IsNullOrWhiteSpace(_locationStageError))
                                                 {
                                                     <div class="alert alert-danger py-2 small">@_locationStageError</div>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(_locationStageNotice))
+                                                {
+                                                    <div class="alert alert-success py-2 small" role="status">@_locationStageNotice</div>
                                                 }
                                                 @if (_locationStageBusy)
                                                 {
@@ -1010,45 +1039,62 @@
                                                         <div class="small text-muted mb-3">@_locationSuggestion.MatchReason</div>
                                                     }
 
-                                                    <div class="mb-2">
-                                                        <label class="form-label small mb-1" for="location-search">Search locations</label>
-                                                        <CommittedTextInput id="location-search" type="search" class="form-control form-control-sm"
-                                                                            Live="@_locationSearchText" LiveChanged="args => _locationSearchText = args ?? string.Empty"
-                                                                            placeholder="Filter by container or image name" />
-                                                    </div>
-                                                    @if (_locationSearchCards.Count == 0)
+                                                    @if (MatchedLocationContainer is { } matchedContainer)
                                                     {
-                                                        <div class="small text-muted">No locations yet — create one from this moment.</div>
+                                                        @* The list is the MATCHED location's own images, and nothing else: a grid of every
+                                                           place's images is not a list of candidates for this moment, it is the whole library
+                                                           wearing a location's label. Searching beyond it is the button below. *@
+                                                        <div class="small text-muted mb-2">
+                                                            Images of <span class="fw-semibold">@matchedContainer.Name</span> — the location asset this moment matched.
+                                                        </div>
+                                                        <div class="mb-2">
+                                                            <label class="form-label small mb-1" for="location-search">Search this location's images</label>
+                                                            <CommittedTextInput id="location-search" type="search" class="form-control form-control-sm"
+                                                                                Live="@_locationSearchText" LiveChanged="args => _locationSearchText = args ?? string.Empty"
+                                                                                placeholder="Filter by image name" />
+                                                        </div>
+                                                        @if (_locationSearchCards.Count == 0)
+                                                        {
+                                                            <div class="small text-muted">No image of this location matches.</div>
+                                                        }
+                                                        else
+                                                        {
+                                                            <div class="d-flex flex-wrap gap-2" aria-label="Location image results">
+                                                                @foreach (var card in _locationSearchCards)
+                                                                {
+                                                                    <div class="card" style="width:200px;">
+                                                                        @if (card.Image is { FileRelativePath: not null } image)
+                                                                        {
+                                                                            <img src="/scene-images/@image.FileRelativePath" class="card-img-top" style="height:110px;object-fit:cover;background:#101010;" alt="@card.ImageName" />
+                                                                        }
+                                                                        <div class="card-body p-2 small">
+                                                                            <div class="text-truncate fw-semibold" title="@card.ImageName">@card.ImageName</div>
+                                                                            <div class="text-muted text-truncate" title="@card.ContainerName">@card.ContainerName</div>
+                                                                            @if (card.Selectable)
+                                                                            {
+                                                                                <button type="button" class="btn btn-sm btn-primary py-0 mt-1" disabled="@_locationStageBusy" @onclick="() => BindBackdropAsync(card.ImageId)">Bind</button>
+                                                                            }
+                                                                            else
+                                                                            {
+                                                                                <div class="text-muted mt-1">@card.Reason</div>
+                                                                                <a class="small" href="/locations/@card.ContainerId">Finish in Location Studio</a>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                }
+                                                            </div>
+                                                        }
                                                     }
                                                     else
                                                     {
-                                                        <div class="d-flex flex-wrap gap-2" aria-label="Location search results">
-                                                            @foreach (var card in _locationSearchCards)
-                                                            {
-                                                                <div class="card" style="width:200px;">
-                                                                    @if (card.Image is { FileRelativePath: not null } image)
-                                                                    {
-                                                                        <img src="/scene-images/@image.FileRelativePath" class="card-img-top" style="height:110px;object-fit:cover;background:#101010;" alt="@card.ImageName" />
-                                                                    }
-                                                                    <div class="card-body p-2 small">
-                                                                        <div class="text-truncate fw-semibold" title="@card.ImageName">@card.ImageName</div>
-                                                                        <div class="text-muted text-truncate" title="@card.ContainerName">@card.ContainerName</div>
-                                                                        @if (card.Selectable)
-                                                                        {
-                                                                            <button type="button" class="btn btn-sm btn-primary py-0 mt-1" disabled="@_locationStageBusy" @onclick="() => BindBackdropAsync(card.ImageId)">Bind</button>
-                                                                        }
-                                                                        else
-                                                                        {
-                                                                            <div class="text-muted mt-1">@card.Reason</div>
-                                                                            <a class="small" href="/locations/@card.ContainerId">Finish in Location Studio</a>
-                                                                        }
-                                                                    </div>
-                                                                </div>
-                                                            }
+                                                        <div class="small text-muted mb-2">
+                                                            No existing location asset matches this moment's place, so there is no image list for it yet.
+                                                            Search the whole image library below, or create the location from this moment.
                                                         </div>
                                                     }
 
                                                     <div class="d-flex flex-wrap gap-2 mt-3">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm" disabled="@_locationStageBusy" @onclick="OpenLocationAssetSearchAsync"><i class="bi bi-search me-1"></i>Search all image assets</button>
                                                         <button type="button" class="btn btn-primary btn-sm" disabled="@_locationStageBusy" @onclick="CreateLocationFromMomentAsync"><i class="bi bi-plus-lg me-1"></i>Create location from this moment</button>
                                                         <button type="button" class="btn btn-outline-secondary btn-sm" disabled="@_locationStageBusy" @onclick="SkipLocationAsync">Skip — text-only location</button>
                                                     </div>
@@ -1072,6 +1118,18 @@
                                                     }
                                                 }
                                             </div>
+                                            @* The full image search is a modal form ON TOP of the stage rather than a second
+                                               list inside it: the stage's own list is the matched location, and everything else in
+                                               the library is one deliberate step away. It is the shared app image browser, so an
+                                               operator who has picked an image anywhere else in the app already knows this form. *@
+                                            <InAppImagePicker Visible="_locationAssetSearchOpen"
+                                                              Title="Search every image asset"
+                                                              PickLabel="Bind as this POV's location backdrop"
+                                                              AssetTypeFilter="SceneAssetType.Location"
+                                                              ShowSearch="true"
+                                                              RequireBindableImage="true"
+                                                              CancelRequested="CloseLocationAssetSearch"
+                                                              Picked="BindPickedLocationAssetAsync" />
                                         </div>
                                     }
 
@@ -1515,132 +1573,92 @@
                                         </div>
                                     }
                                 }
-                                @{ var editAttempts = _productionAttempts
-                                    .Where(attempt => attempt.Operation == SceneImageOperation.Edit)
-                                    .ToList(); }
-                                <section class="scene-production-attempt-stage mt-2" aria-label="Image edits">
-                                    <div class="small fw-semibold mb-1">Image edits <span class="text-muted">(@editAttempts.Count)</span></div>
-                                    @if (editAttempts.Count == 0)
-                                    {
-                                        <div class="small text-muted">No image edits.</div>
-                                    }
-                                    else
-                                    {
-                                        <div class="scene-production-attempt-strip">
-                                            @foreach (var attempt in editAttempts)
-                                            {
-                                                var parentId = attempt.SourceImageId ?? attempt.RegenerateOfId;
-                                                <div class="scene-production-attempt @(_selectedProductionAttemptId == attempt.Id ? "is-selected" : "") @(parentId is null ? "" : "has-parent")">
-                                                    <button class="scene-production-attempt-select" title="Select edit" @onclick="() => SelectProductionAttempt(attempt)">
-                                                        @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
-                                                        {
-                                                            <img src="/scene-images/@attempt.FileRelativePath" alt="Edited production attempt" />
-                                                        }
-                                                        else
-                                                        {
-                                                            <span>@attempt.Status</span>
-                                                        }
-                                                    </button>
-                                                    <div class="small mt-1">
-                                                        <span class="badge text-bg-secondary">@attempt.Status</span>
-                                                        <span class="badge text-bg-info">Edit</span>
-                                                    </div>
-                                                    <div class="small text-muted text-truncate" title="@(parentId is null ? "Source unavailable" : $"Source: {parentId}")">
-                                                        @(parentId is null ? "Source unavailable" : $"From {parentId}")
-                                                    </div>
-                                                    <div class="d-flex flex-wrap gap-1 mt-1">
-                                                        <button class="btn btn-sm btn-outline-light py-0 px-1" title="Select edit" @onclick="() => SelectProductionAttempt(attempt)">Select</button>
-                                                        <a class="btn btn-sm btn-outline-info py-0 px-1" title="Open this edit in the image editor"
-                                                           href="/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id"><i class="bi bi-pencil-square"></i></a>
-                                                        <a class="btn btn-sm btn-outline-dark py-0 px-1" title="Compose a video from this attempt"
-                                                           href="/roleplay/video-studio/session/@sessionId/@interactionId/@attempt.Id"><i class="bi bi-camera-video"></i></a>
-                                                    </div>
-                                                </div>
-                                            }
-                                        </div>
-                                    }
-                                </section>
-                                @foreach (var stage in new[] { SceneImageProductionStage.Composition, SceneImageProductionStage.Identity, SceneImageProductionStage.Finish })
+                                @* Every attempt list renders the SAME card as the asset manager, because a production
+                                   attempt is an image and an image is judged with the same tools wherever it appears. The
+                                   commands below are exactly the ones this page can honour; the actions that belong to
+                                   production alone (compare, branch, identity correction, purge) ride in the card's
+                                   footer, where they act on the image the card is showing. *@
+                                @foreach (var group in ProductionAttemptGroups())
                                 {
-                                    var stageAttempts = _productionAttempts.Where(attempt => attempt.ProductionStage == stage).ToList();
-                                    <section class="scene-production-attempt-stage mt-2" aria-label="@stage attempts">
-                                        <div class="small fw-semibold mb-1">@stage <span class="text-muted">(@stageAttempts.Count)</span></div>
-                                        @if (stageAttempts.Count == 0)
+                                    <section class="scene-production-attempt-stage mt-2" aria-label="@group.Label attempts">
+                                        <div class="small fw-semibold mb-1">@group.Label <span class="text-muted">(@group.Attempts.Count)</span></div>
+                                        @if (group.Attempts.Count == 0)
                                         {
-                                            <div class="small text-muted">No @stage attempts.</div>
+                                            <div class="small text-muted">No @group.Label attempts.</div>
                                         }
                                         else
                                         {
-                                            <div class="scene-production-attempt-strip">
-                                                @foreach (var attempt in stageAttempts)
+                                            <div class="row g-3">
+                                                @foreach (var attempt in group.Attempts)
                                                 {
                                                     var parentId = attempt.SourceImageId ?? attempt.RegenerateOfId;
-                                                    <div class="scene-production-attempt @(_selectedProductionAttemptId == attempt.Id ? "is-selected" : "") @(parentId is null ? "" : "has-parent")">
-                                                        <button class="scene-production-attempt-select" title="Select attempt" @onclick="() => _selectedProductionAttemptId = attempt.Id">
-                                                            @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
-                                                            {
-                                                                <img src="/scene-images/@attempt.FileRelativePath" alt="Production attempt thumbnail" />
-                                                            }
-                                                            else
-                                                            {
-                                                                <span>@attempt.Status</span>
-                                                            }
-                                                        </button>
-                                                        <div class="small mt-1">
-                                                            <span class="badge text-bg-secondary">@attempt.Status</span>
-                                                            <span class="badge text-bg-info">@attempt.Disposition</span>
-                                                            <span class="badge @(_currentApproval?.SceneImageId == attempt.Id ? "text-bg-success" : "text-bg-secondary")">@(_currentApproval?.SceneImageId == attempt.Id ? "Approved" : "Not approved")</span>
-                                                            @if (attempt.IdentityStale)
-                                                            {
-                                                                <span class="badge text-bg-warning">Identity-stale</span>
-                                                            }
-                                                        </div>
-                                                        <div class="small text-muted text-truncate" title="@(parentId is null ? "Root attempt" : $"Parent/source: {parentId}")">
-                                                            @(parentId is null ? "Root attempt" : $"From {parentId}")
-                                                        </div>
-                                                        <div class="d-flex flex-wrap gap-1 mt-1">
-                                                            <button class="btn btn-sm btn-outline-light py-0 px-1" title="Select attempt" @onclick="() => SelectProductionAttempt(attempt)">Select</button>
-                                                            @if (attempt.Disposition == SceneImageAttemptDisposition.Active)
-                                                            {
-                                                                <button class="btn btn-sm btn-outline-warning py-0 px-1" title="Shortlist attempt" disabled="@_busy"
-                                                                        @onclick="() => SetProductionDispositionAsync(attempt, SceneImageAttemptDisposition.Shortlisted)"><i class="bi bi-star"></i></button>
-                                                            }
-                                                            else if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
-                                                            {
-                                                                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Return attempt to Active" disabled="@_busy"
-                                                                        @onclick="() => SetProductionDispositionAsync(attempt, SceneImageAttemptDisposition.Active)"><i class="bi bi-star-fill"></i></button>
-                                                            }
-                                                            @if (attempt.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted)
-                                                            {
-                                                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Mark attempt Rejected" disabled="@_busy"
-                                                                        @onclick="() => SetProductionDispositionAsync(attempt, SceneImageAttemptDisposition.Rejected)"><i class="bi bi-x-circle"></i></button>
-                                                            }
-                                                            @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.Sha256))
-                                                            {
-                                                                <button class="btn btn-sm btn-outline-primary py-0 px-1" title="Add attempt to compare" disabled="@_busy"
-                                                                    @onclick="() => ToggleProductionCompareAttempt(attempt)"><i class="bi bi-layout-split"></i></button>
-                                                                <button class="btn btn-sm btn-outline-success py-0 px-1" title="Approve this exact completed attempt" disabled="@_busy"
-                                                                        @onclick="() => ApproveProductionAttemptAsync(attempt)"><i class="bi bi-check2-circle"></i></button>
-                                                            }
+                                                    <div class="col-6 col-md-4 col-xl-3">
+                                                        <ImageCard Model="CardModel(attempt, _selectedProductionAttemptId == attempt.Id)"
+                                                                   Busy="_busy"
+                                                                   ShowName="true"
+                                                                   NameChanged="name => NameProductionImageAsync(attempt, name)"
+                                                                   SelectRequested="() => SelectProductionAttempt(attempt)"
+                                                                   AcceptRequested="@(CanApprove(attempt)
+                                                                       ? EventCallback.Factory.Create(this, () => ApproveProductionAttemptAsync(attempt))
+                                                                       : default(EventCallback))"
+                                                                   AcceptTitle="@ApprovalReason(attempt)"
+                                                                   ShortlistRequested="() => ToggleProductionShortlistAsync(attempt)"
+                                                                   RejectRequested="@(attempt.Disposition is SceneImageAttemptDisposition.Active or SceneImageAttemptDisposition.Shortlisted
+                                                                       ? EventCallback.Factory.Create(this, () => SetProductionDispositionAsync(attempt, SceneImageAttemptDisposition.Rejected))
+                                                                       : default(EventCallback))"
+                                                                   ReviewRequested="OpenProductionReview"
+                                                                   EditRequested="() => OpenProductionAttemptInEditor(attempt)"
+                                                                   DownloadRequested="() => OpenProductionAttemptDownload(attempt)"
+                                                                   VideoRequested="() => OpenProductionAttemptInVideoStudio(attempt)"
+                                                                   LoadIntoGeneratorRequested="@(attempt.Status == SceneImageStatus.Complete
+                                                                       ? EventCallback.Factory.Create(this, () => OpenCompositionWithReloadedInputs(attempt))
+                                                                       : default(EventCallback))"
+                                                                   LoadIntoGeneratorTitle="Reload the prompt, model, references, LoRAs and pose that made this Composition"
+                                                                   UseAsReferenceRequested="() => OpenCompositionWithLocationReference(attempt)"
+                                                                   UseAsReferenceTitle="Use as reference: reload what made this Composition, and bind this image itself as the composition's Location reference"
+                                                                   DeleteRequested="() => RequestDeleteImageAsync(attempt)">
+                                                            <BodyContent>
+                                                                <div class="small text-muted text-truncate" title="@(parentId is null ? "Root attempt" : $"Parent/source: {parentId}")">
+                                                                    @(parentId is null ? "Root attempt" : $"From {parentId}")
+                                                                </div>
+                                                                @if (attempt.IdentityStale)
+                                                                {
+                                                                    <div class="badge text-bg-warning mt-1">Identity-stale</div>
+                                                                }
+                                                                @if (_pendingDeleteImageId == attempt.Id)
+                                                                {
+                                                                    <div class="d-flex gap-2 mt-1 align-items-center">
+                                                                        <small class="text-danger">Delete this attempt?</small>
+                                                                        <button class="btn btn-sm btn-danger py-0 px-2" disabled="@_busy"
+                                                                                @onclick="() => ConfirmDeleteImageAsync(attempt)">Delete</button>
+                                                                        <button class="btn btn-sm btn-outline-secondary py-0 px-2" disabled="@_busy"
+                                                                                @onclick="CancelDeleteImage">Keep</button>
+                                                                    </div>
+                                                                }
+                                                            </BodyContent>
+                                                            <FooterContent>
+                                                                @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.Sha256))
+                                                                {
+                                                                    <button type="button" class="btn btn-sm py-0 px-1 @(_compareAttemptIds.Contains(attempt.Id) ? "btn-primary" : "btn-outline-primary")"
+                                                                            title="Add attempt to compare" disabled="@_busy"
+                                                                            @onclick="() => ToggleProductionCompareAttempt(attempt)"><i class="bi bi-layout-split"></i></button>
+                                                                }
                                                                 @if (attempt.Status == SceneImageStatus.Complete)
                                                                 {
-                                                                <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Branch a sibling Composition from this attempt when applicable" disabled="@_busy"
-                                                                    @onclick="() => BranchFromAttemptAsync(attempt)"><i class="bi bi-diagram-3"></i></button>
-                                                                <a class="btn btn-sm btn-outline-info py-0 px-1" title="Edit this exact attempt in the image editor"
-                                                                   href="/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id"><i class="bi bi-pencil-square"></i></a>
-                                                                <a class="btn btn-sm btn-outline-dark py-0 px-1" title="Compose a video from this exact attempt"
-                                                                   href="/roleplay/video-studio/session/@sessionId/@interactionId/@attempt.Id"><i class="bi bi-camera-video"></i></a>
-                                                                <button class="btn btn-sm btn-outline-success py-0 px-1" title="Apply face-only identity correction to this attempt" disabled="@_busy"
-                                                                    @onclick="() => OpenIdentityEdit(attempt)"><i class="bi bi-person-badge"></i></button>
+                                                                    <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Branch a sibling Composition from this attempt when applicable" disabled="@_busy"
+                                                                            @onclick="() => BranchFromAttemptAsync(attempt)"><i class="bi bi-diagram-3"></i></button>
+                                                                    <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Apply face-only identity correction to this attempt" disabled="@_busy"
+                                                                            @onclick="() => OpenIdentityEdit(attempt)"><i class="bi bi-person-badge"></i></button>
                                                                 }
-                                                            @if (attempt.Disposition == SceneImageAttemptDisposition.Rejected
-                                                                && attempt.BytesPurgedUtc is null
-                                                                && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
-                                                            {
-                                                                <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Purge rejected image bytes; keep metadata" disabled="@_busy"
-                                                                        @onclick="() => PurgeProductionAttemptAsync(attempt)"><i class="bi bi-trash3"></i></button>
-                                                            }
-                                                        </div>
+                                                                @if (attempt.Disposition == SceneImageAttemptDisposition.Rejected
+                                                                    && attempt.BytesPurgedUtc is null
+                                                                    && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
+                                                                {
+                                                                    <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Purge rejected image bytes; keep metadata" disabled="@_busy"
+                                                                            @onclick="() => PurgeProductionAttemptAsync(attempt)"><i class="bi bi-trash3"></i></button>
+                                                                }
+                                                            </FooterContent>
+                                                        </ImageCard>
                                                     </div>
                                                 }
                                             </div>
@@ -1747,11 +1765,17 @@
                                     <option value="512x512">512 x 512</option>
                                     <option value="768x768">768 x 768</option>
                                     <option value="1024x1024">1024 x 1024</option>
+                                    @* Wide canvases for rooms and other settings: a full-room view cannot fit a square
+                                       frame. All three divide by 16, which the Qwen / Krea / FLUX VAEs need. *@
+                                    <option value="1344x768">1344 x 768 (wide)</option>
+                                    <option value="1536x1024">1536 x 1024 (wide)</option>
+                                    <option value="1664x928">1664 x 928 (16:9)</option>
                                 </select>
                             </div>
                             <div class="col-md-4">
-                                <label class="form-label">Aspect Ratio (optional)</label>
+                                <label class="form-label">Aspect Ratio hint (optional)</label>
                                 <input type="text" class="form-control form-control-sm" @bind="_settings.AspectRatio" placeholder="e.g. 16:9" />
+                                <div class="form-text">Written into the prompt only; it does not change the canvas — pick the size above for that.</div>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Seed (optional, blank = random)</label>
@@ -2102,7 +2126,19 @@
                                     <div class="col-6 col-md-4 col-xl-3">
                                         <ImageCard Model="CardModel(img)"
                                                    Busy="_busy"
+                                                   ShowName="true"
+                                                   NameChanged="name => NameProductionImageAsync(img, name)"
+                                                   ReviewRequested="@(_productionGroup is not null
+                                                       ? EventCallback.Factory.Create(this, OpenProductionReview)
+                                                       : default(EventCallback))"
                                                    EditRequested="() => OpenImageEditor(img)"
+                                                   DownloadRequested="() => NavigateToAdditionalImageDownload(img)"
+                                                   VideoRequested="() => NavigateToAdditionalImageVideo(img)"
+                                                   LoadIntoGeneratorRequested="() => ContinueFromImageAsync(img)"
+                                                   UseAsReferenceRequested="@(_productionGroup is not null
+                                                       ? EventCallback.Factory.Create(this, () => OpenCompositionWithLocationReference(img))
+                                                       : default(EventCallback))"
+                                                   UseAsReferenceTitle="Use as reference: reload what made this Composition, and bind this image itself as the composition's Location reference"
                                                    DeleteRequested="() => RequestDeleteImageAsync(img)">
                                             <BodyContent>
                                                 @if (img.Status is SceneImageStatus.Generating or SceneImageStatus.Pending)
@@ -2688,45 +2724,207 @@
     private string? _additionalImageFilter;
 
     /// <summary>The additional-image strip's filter: its own cards decide which decisions are on offer.</summary>
-    private IReadOnlyList<ImageCardFilterOption> _additionalImageFilterOptions => ImageCardStatus.Build(_additionalImages.Select(CardModel));
+    private IReadOnlyList<ImageCardFilterOption> _additionalImageFilterOptions => ImageCardStatus.Build(_additionalImages.Select(img => CardModel(img)));
 
     private IEnumerable<SceneImageRecord> VisibleAdditionalImages =>
         _additionalImages.Where(img => ImageCardStatus.Matches(CardModel(img), _additionalImageFilter));
 
-    private SceneImageCardModel CardModel(SceneImageRecord img) => new()
+    /// <summary>
+    /// One rendered image as the shared card. The page owns the facts — the group's current approval, the attempt's
+    /// disposition, its execution status — and the card owns the presentation, so a production attempt and an asset
+    /// image look and behave like the same kind of thing, which they are.
+    /// </summary>
+    private SceneImageCardModel CardModel(SceneImageRecord img, bool isSelected = false)
     {
-        Id = img.Id,
-        FileRelativePath = img.FileRelativePath,
-        StatusText = img.Status.ToString(),
-        StatusBadgeClass = img.Status switch
+        var isApproved = _currentApproval?.SceneImageId == img.Id;
+        return new SceneImageCardModel
         {
-            SceneImageStatus.Complete => "text-bg-success",
-            SceneImageStatus.Failed => "text-bg-danger",
-            _ => "text-bg-secondary"
-        },
-        IsComplete = img.Status == SceneImageStatus.Complete,
-        ErrorMessage = img.ErrorMessage,
-        Subtitle = (img.Style, img.ImageSize) switch
-        {
-            (null or "", null or "") => null,
-            _ => $"{img.Style} · {img.ImageSize}"
-        },
-        DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected
-            ? img.Disposition.ToString()
-            : null,
-        DecisionKey = img.Status switch
-        {
-            SceneImageStatus.Pending or SceneImageStatus.Generating => ImageCardStatus.Pending,
-            SceneImageStatus.Failed => ImageCardStatus.Failed,
-            _ => img.Disposition switch
+            Id = img.Id,
+            FileRelativePath = img.FileRelativePath,
+            StatusText = img.Status.ToString(),
+            StatusBadgeClass = img.Status switch
             {
-                SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
-                SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
-                SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
-                _ => ImageCardStatus.Undecided
+                SceneImageStatus.Complete => "text-bg-success",
+                SceneImageStatus.Failed => "text-bg-danger",
+                _ => "text-bg-secondary"
+            },
+            IsComplete = img.Status == SceneImageStatus.Complete,
+            ErrorMessage = img.ErrorMessage,
+            Subtitle = (img.Style, img.ImageSize) switch
+            {
+                (null or "", null or "") => null,
+                _ => $"{img.Style} · {img.ImageSize}"
+            },
+            DisplayName = img.DisplayName,
+            // Both facts are shown, and neither is inferred from the other: an attempt may be the group's approved frame
+            // while another is shortlisted, and "Accepted" is never read as "approved".
+            ApprovalBadgeText = isApproved ? "Production frame" : null,
+            IsProductionApproved = isApproved,
+            IsSelected = isSelected,
+            DecisionBadgeText = img.Disposition is SceneImageAttemptDisposition.Shortlisted or SceneImageAttemptDisposition.Rejected
+                ? img.Disposition.ToString()
+                : null,
+            DecisionKey = img.Status switch
+            {
+                SceneImageStatus.Pending or SceneImageStatus.Generating => ImageCardStatus.Pending,
+                SceneImageStatus.Failed => ImageCardStatus.Failed,
+                _ => img.Disposition switch
+                {
+                    SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
+                    SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
+                    SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
+                    _ => isApproved ? ImageCardStatus.Approved : ImageCardStatus.Undecided
+                }
             }
+        };
+    }
+
+    /// <summary>
+    /// The attempt lists the workbench shows: the image edits, then one list per production stage.
+    ///
+    /// <para>
+    /// Derived here rather than written into the markup because every one of them renders the SAME card, and a second
+    /// list with its own card markup is how two lists start disagreeing about what an attempt is. The grouping itself is
+    /// unchanged: an edit is listed among the edits, and again under the stage it was produced at.
+    /// </para>
+    /// </summary>
+    private IReadOnlyList<(string Label, IReadOnlyList<SceneImageRecord> Attempts)> ProductionAttemptGroups()
+        =>
+        [
+            ("Image edits", _productionAttempts.Where(attempt => attempt.Operation == SceneImageOperation.Edit).ToList()),
+            ("Composition", AttemptsAtStage(SceneImageProductionStage.Composition)),
+            ("Identity", AttemptsAtStage(SceneImageProductionStage.Identity)),
+            ("Finish", AttemptsAtStage(SceneImageProductionStage.Finish))
+        ];
+
+    private IReadOnlyList<SceneImageRecord> AttemptsAtStage(SceneImageProductionStage stage)
+        => _productionAttempts.Where(attempt => attempt.ProductionStage == stage).ToList();
+
+    /// <summary>
+    /// Names one rendered image. The row is updated in place rather than by reloading the production group: a name is not
+    /// a reason to re-read the attempts, the approvals and the brief, and a reload would also drop the operator's
+    /// selection.
+    /// </summary>
+    private async Task NameProductionImageAsync(SceneImageRecord image, string? name)
+    {
+        try
+        {
+            var named = await ImageService.SetDisplayNameAsync(sessionId, image.Id, name);
+            var index = _images.FindIndex(item => string.Equals(item.Id, image.Id, StringComparison.Ordinal));
+            if (index >= 0)
+            {
+                _images[index] = named;
+            }
+
+            var attemptIndex = _productionAttempts.FindIndex(item => string.Equals(item.Id, image.Id, StringComparison.Ordinal));
+            if (attemptIndex >= 0)
+            {
+                _productionAttempts[attemptIndex] = named;
+            }
+
+            _statusMessage = string.IsNullOrWhiteSpace(named.DisplayName)
+                ? "Cleared this image's name."
+                : $"This image is named '{named.DisplayName}'.";
         }
-    };
+        catch (Exception exception)
+        {
+            _errorMessage = exception.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// The card's one shortlist control, which both shortlists an attempt and returns it to Active: a star that could
+    /// only be switched on would leave "I did not mean that" with no way back.
+    /// </summary>
+    private Task ToggleProductionShortlistAsync(SceneImageRecord attempt)
+        => SetProductionDispositionAsync(
+            attempt,
+            attempt.Disposition == SceneImageAttemptDisposition.Shortlisted
+                ? SceneImageAttemptDisposition.Active
+                : SceneImageAttemptDisposition.Shortlisted);
+
+    private void OpenProductionReview()
+    {
+        if (_productionGroup is null)
+        {
+            _errorMessage = "Choose a POV and a Moment before opening the review deck for this production group.";
+            return;
+        }
+
+        Nav.NavigateTo($"/review-deck/studio/{_productionGroup.Id}");
+    }
+
+    private void OpenProductionAttemptInEditor(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{attempt.Id}");
+
+    private void OpenProductionAttemptDownload(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/scene-images/{attempt.Id}/download");
+
+    private void NavigateToAdditionalImageDownload(SceneImageRecord image)
+        => Nav.NavigateTo($"/roleplay/scene-images/{image.Id}/download");
+
+    private void NavigateToAdditionalImageVideo(SceneImageRecord image)
+        => Nav.NavigateTo($"/roleplay/video-studio/session/{sessionId}/{interactionId}/{image.Id}");
+
+    private void OpenProductionAttemptInVideoStudio(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/video-studio/session/{sessionId}/{interactionId}/{attempt.Id}");
+
+    /// <summary>
+    /// The card's "use as reference": opens this production group's composition with the image requested as its location
+    /// reference, so the composition is anchored to this frame.
+    ///
+    /// <para>
+    /// It is a HAND-OFF rather than an in-page bind because the Composition step lives on its own surface (this page
+    /// hands the step off rather than re-implementing it), and the request is carried in the URL so the page that
+    /// applies it is the page the operator lands on. The destination restores what made the image and binds it as the
+    /// Location reference — the two halves of the command — and a request that cannot be applied fails there, in view,
+    /// instead of silently doing nothing here.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// The card's "load the prompt and model" on a PRODUCTION attempt: the request travels to the Composition Composer.
+    ///
+    /// <para>
+    /// This page holds no generator for a production attempt — its production canvas points at the Composer for the
+    /// composition prompt, model and references, and its own Additional-tools generator is a different flow — so writing
+    /// the recorded inputs into this page's state, which is what it used to do, changed something the operator could not
+    /// see. The Composer is the surface that can re-apply them, so it is where the request goes.
+    /// </para>
+    /// </summary>
+    private void OpenCompositionWithReloadedInputs(SceneImageRecord attempt)
+    {
+        if (_productionGroup is null)
+        {
+            _errorMessage = "Choose a POV and a Moment before reloading an image's inputs into the Composition Composer.";
+            return;
+        }
+
+        Nav.NavigateTo(
+            $"/roleplay/studio/{sessionId}/{interactionId}/production/{_productionGroup.Id}/composition"
+            + $"?reloadImageId={Uri.EscapeDataString(attempt.Id)}");
+    }
+
+    private void OpenCompositionWithLocationReference(SceneImageRecord attempt)
+    {
+        if (_productionGroup is null)
+        {
+            _errorMessage = "Choose a POV and a Moment before using an image as the composition's location reference.";
+            return;
+        }
+
+        if (attempt.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(attempt.Sha256))
+        {
+            _errorMessage = $"Only a completed image with a recorded checksum can be used as a location reference, and "
+                + $"'{attempt.Id}' is {attempt.Status}.";
+            return;
+        }
+
+        Nav.NavigateTo(
+            $"/roleplay/studio/{sessionId}/{interactionId}/production/{_productionGroup.Id}/composition"
+            + $"?useAsReferenceId={Uri.EscapeDataString(attempt.Id)}");
+    }
 
     private void ToggleStoryMoment() => _storyMomentOpen = !_storyMomentOpen;
 
@@ -2795,16 +2993,18 @@
     private IEnumerable<SceneImageRecord> EligibleFinishParents()
         => _productionAttempts.Where(IsEligibleFinishParent);
 
+    /// <summary>
+    /// Whether an attempt can be a Finish step's parent: any COMPLETE attempt of this group, whatever stage produced it.
+    /// It used to demand an Identity-stage attempt (or a Composition one under a skipped identity policy), which is the
+    /// stage ladder being enforced a second time — the operator picks what a change should start from.
+    /// </summary>
     private bool IsEligibleFinishParent(SceneImageRecord attempt)
-        => attempt.Status == SceneImageStatus.Complete
-            && (attempt.ProductionStage == SceneImageProductionStage.Identity
-                || (attempt.ProductionStage == SceneImageProductionStage.Composition
-                    && _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser));
+        => attempt.Status == SceneImageStatus.Complete;
 
     private string FinishParentReason(SceneImageRecord attempt)
-        => attempt.Status != SceneImageStatus.Complete
-            ? "Parent must be completed."
-            : "Finish requires a completed Identity attempt, or a Composition attempt when identity is skipped.";
+        => attempt.Status == SceneImageStatus.Complete
+            ? "Ready to start a change from."
+            : "Finish starts from a completed attempt.";
 
     private static string SnapshotValue(SceneImageRecord attempt, string propertyName)
     {
@@ -2840,26 +3040,34 @@
         return differences.Count == 0 ? ["No persisted metadata differences."] : differences;
     }
 
+    /// <summary>
+    /// Whether this attempt can become the group's approved frame — asked of the DOMAIN's one gate, so this control and
+    /// the approval itself cannot disagree. It used to encode the stage ladder here as well (Identity-stage, or a
+    /// skipped identity policy, or a cosmetic Finish), which is what made an attempt approvable on one surface and not
+    /// on another.
+    /// </summary>
     private bool CanApprove(SceneImageRecord attempt)
         => _productionGroup is not null
-            && attempt.Status == SceneImageStatus.Complete
-            && !string.IsNullOrWhiteSpace(attempt.Sha256)
-            && !attempt.IdentityStale
-            && (_productionGroup.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser
-                || attempt.ProductionStage == SceneImageProductionStage.Identity
-                || attempt.FinishChangeClass == SceneImageFinishChangeClass.Cosmetic);
+            && SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is null;
 
     private string ApprovalReason(SceneImageRecord attempt)
     {
-        if (attempt.Status != SceneImageStatus.Complete)
-            return "Approval is blocked until this attempt completes.";
-        if (attempt.IdentityStale)
-            return "Identity-stale after a geometry edit; run another identity pass before approval.";
-        if (_productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.Required
-            && attempt.ProductionStage is not SceneImageProductionStage.Identity
-            && attempt.FinishChangeClass != SceneImageFinishChangeClass.Cosmetic)
-            return "Identity required - this attempt has no completed identity pass.";
-        return "Ready for approval. The decision records this attempt checksum and creates a new decision version.";
+        if (_productionGroup is null)
+        {
+            return "Choose a Moment and a POV before approving a frame.";
+        }
+
+        if (SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is { } blocker)
+        {
+            return blocker.Message;
+        }
+
+        // Identity-staleness is stated, never enforced: the operator approves an identity-stale frame knowingly rather
+        // than being stopped by a rule that decides for them.
+        return attempt.IdentityStale
+            ? "Ready for approval. This attempt is identity-stale after a geometry edit, so its identity pass no longer "
+                + "matches the current geometry — approving it is still yours to decide."
+            : "Ready for approval. The decision records this attempt checksum and creates a new decision version.";
     }
 
     private void SelectProductionAttempt(SceneImageRecord attempt)
@@ -2994,10 +3202,9 @@
         SceneImageProductionStage.Identity => _productionAttempts.Any(attempt => attempt.Status == SceneImageStatus.Complete)
             ? "Select a completed Moment attempt below, then apply the approved identity references only to selected faces."
             : "Select a completed Moment attempt before applying identity.",
-        SceneImageProductionStage.Finish => _productionAttempts.Any(attempt => attempt.ProductionStage == SceneImageProductionStage.Identity && attempt.Status == SceneImageStatus.Complete)
-            || _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser
-            ? "Select a completed Identity attempt below, or use the recorded identity skip, then describe the final change."
-            : "Finish is locked until a completed Identity attempt exists or identity is explicitly skipped.",
+        SceneImageProductionStage.Finish => _productionAttempts.Any(attempt => attempt.Status == SceneImageStatus.Complete)
+            ? "Select any completed attempt below, then describe the final change."
+            : "Finish starts from a completed attempt — render one first.",
         _ => string.Empty
     };
 
@@ -3016,12 +3223,34 @@
 
     private bool _locationStageSelected;
     private bool _locationStageBusy;
+    private bool _locationAssetSearchOpen;
     private string? _locationStageError;
+
+    /// <summary>
+    /// What the last successful stage action did, shown where the error would be shown. A bind that changes nothing
+    /// visible (rebinding the image already bound) still has to report that it happened.
+    /// </summary>
+    private string? _locationStageNotice;
     private SceneMomentLocationSuggestion? _locationSuggestion;
     private SceneMomentPlaceSeed? _locationSeedNotes;
     private string _locationSearchText = string.Empty;
-    private List<SceneAsset> _locationContainers = [];
     private Dictionary<string, List<SceneAssetImage>> _locationImagesByAsset = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The image this POV bound as its backdrop, looked up by the backdrop's own image id. The stage's candidate list
+    /// holds only the MATCHED location's images, so a binding made from the full library — or a location that no longer
+    /// matches the moment's place — would otherwise be invisible even though the stage reports it as bound.
+    /// </summary>
+    private SceneAssetImage? _boundLocationImage;
+
+    /// <summary>Why the bound image cannot be shown (missing row or missing file), or null when it is shown.</summary>
+    private string? _boundLocationImageError;
+
+    /// <summary>
+    /// The location asset the moment's place resolved to. The stage lists THIS asset's images and nothing else, so a
+    /// null here means there is no list to show — not that the list was filtered away.
+    /// </summary>
+    private SceneAsset? MatchedLocationContainer => _locationSuggestion?.Container;
 
     private SceneImageLocationBackdrop? BoundLocationBackdrop
         => _productionGroup is null || string.IsNullOrWhiteSpace(_productionGroup.LocationBackdropJson)
@@ -3056,36 +3285,51 @@
     private IReadOnlyList<LocationSearchCard> BuildLocationSearchCards()
     {
         var cards = new List<LocationSearchCard>();
-        var query = _locationSearchText?.Trim();
-        foreach (var container in _locationContainers)
+        if (MatchedLocationContainer is not { } container)
         {
-            _locationImagesByAsset.TryGetValue(container.Id, out var images);
-            foreach (var image in images ?? [])
+            return cards;
+        }
+
+        _locationImagesByAsset.TryGetValue(container.Id, out var images);
+        var query = _locationSearchText?.Trim();
+        foreach (var image in images ?? [])
+        {
+            var named = !string.IsNullOrWhiteSpace(image.DisplayName);
+            var matches = string.IsNullOrWhiteSpace(query)
+                || (named && image.DisplayName!.Contains(query, StringComparison.OrdinalIgnoreCase));
+
+            if (!matches)
+                continue;
+
+            // Whether an image can be bound is the DOMAIN's rule, so this list cannot offer an image the bind would
+            // refuse, and the reason it gives is a label over the blocker the bind itself would have raised.
+            var blocker = SceneImageLocationBindGate.BlockerFor(image);
+            cards.Add(new LocationSearchCard
             {
-                var named = !string.IsNullOrWhiteSpace(image.DisplayName);
-                var approved = image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved;
-                var matches = string.IsNullOrWhiteSpace(query)
-                    || container.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
-                    || (named && image.DisplayName!.Contains(query, StringComparison.OrdinalIgnoreCase));
-
-                if (!matches)
-                    continue;
-
-                cards.Add(new LocationSearchCard
-                {
-                    ContainerId = container.Id,
-                    ContainerName = container.Name,
-                    ImageId = image.Id,
-                    ImageName = named ? image.DisplayName! : image.Id,
-                    Image = image,
-                    Selectable = named && approved,
-                    Reason = !named ? "needs a name" : "not approved"
-                });
-            }
+                ContainerId = container.Id,
+                ContainerName = container.Name,
+                ImageId = image.Id,
+                ImageName = named ? image.DisplayName! : image.Id,
+                Image = image,
+                Selectable = blocker is null,
+                Reason = blocker is null ? string.Empty : LocationBlockerLabel(blocker.Code)
+            });
         }
 
         return cards;
     }
+
+    /// <summary>
+    /// The card's short label for a blocker. The DECISION is the domain's; only the wording is this list's, because a
+    /// 200px card is not the place for the diagnostics sentence the bind itself prints.
+    /// </summary>
+    private static string LocationBlockerLabel(SceneImageLocationBindBlockerCode code) => code switch
+    {
+        SceneImageLocationBindBlockerCode.NotApproved => "not approved",
+        SceneImageLocationBindBlockerCode.Unnamed => "needs a name",
+        SceneImageLocationBindBlockerCode.NoChecksum => "no checksum",
+        _ => throw new InvalidOperationException($"Location bind blocker '{code}' has no label.")
+    };
 
     private async Task SelectLocationStageAsync()
     {
@@ -3100,8 +3344,15 @@
 
         _locationStageBusy = true;
         _locationStageError = null;
+        _locationStageNotice = null;
         try
         {
+            // Stage 0 owns the POV's binding, so it needs that POV's own production group on screen. Creating it here —
+            // through the same call the composer's own button makes — is what makes a per-POV binding possible at all;
+            // the group it returns is also where a re-enrichment's recorded binding is restored from.
+            await EnsurePovProductionGroupAsync();
+            await LoadBoundLocationImageAsync();
+
             _locationSeedNotes = SceneMomentPlaceSeedBuilder.Build(_productionFrozenState);
             var scenario = _session is not null && !string.IsNullOrWhiteSpace(_session.ScenarioId)
                 ? await ScenarioService.GetScenarioAsync(_session.ScenarioId)
@@ -3110,16 +3361,12 @@
                 ? await LocationService.ResolveSuggestionAsync(_productionFrozenState, scenario)
                 : null;
 
-            _locationContainers = (await AssetService.ListAssetsAsync())
-                .Where(asset => asset.Type == SceneAssetType.Location)
-                .OrderBy(asset => asset.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
+            // Only the matched location's images: the stage's list is a candidate list for this moment's place, not a
+            // way to browse every place in the library (that is the full image search form).
             _locationImagesByAsset.Clear();
-            foreach (var container in _locationContainers)
+            if (MatchedLocationContainer is { } container)
             {
-                _locationImagesByAsset[container.Id] =
-                    (await AssetService.ListImagesAsync(container.Id)).ToList();
+                _locationImagesByAsset[container.Id] = (await AssetService.ListImagesAsync(container.Id)).ToList();
             }
         }
         catch (Exception exception)
@@ -3132,18 +3379,106 @@
         }
     }
 
-    private async Task BindBackdropAsync(string imageId)
+    /// <summary>
+    /// Loads the image this POV bound as its location backdrop, by the id recorded in the binding. Every other list the
+    /// stage shows is derived from the MATCHED location, so without this the stage could say "bound: Indoor Back" while
+    /// showing no picture at all — the binding was real, it just was not in that list.
+    /// </summary>
+    private async Task LoadBoundLocationImageAsync()
+    {
+        _boundLocationImage = null;
+        _boundLocationImageError = null;
+        if (BoundLocationBackdrop is not { } backdrop)
+        {
+            return;
+        }
+
+        _boundLocationImage = await AssetService.GetImageAsync(backdrop.ImageId);
+        if (_boundLocationImage is null)
+        {
+            _boundLocationImageError = $"The bound image '{backdrop.Label}' no longer exists in the asset library.";
+        }
+        else if (string.IsNullOrWhiteSpace(_boundLocationImage.FileRelativePath))
+        {
+            _boundLocationImageError = $"The bound image '{backdrop.Label}' has no stored file, so it cannot be displayed.";
+        }
+    }
+
+    /// <summary>
+    /// The ONE place this POV's production group is resolved for the Location stage: loaded when it exists, created
+    /// through <see cref="ISceneImageProductionService.GetOrCreateGroupAsync"/> when it does not (the same call the
+    /// composer button makes), and then asked to restore the POV's recorded binding. A pinned production route keeps
+    /// the group it pinned rather than resolving a different one behind the operator's back.
+    /// </summary>
+    private async Task<SceneImageProductionGroup> EnsurePovProductionGroupAsync()
     {
         if (_productionGroup is null)
-            return;
+        {
+            var pov = RequireProductionLineage();
+            _productionGroup = await ProductionService.GetOrCreateGroupAsync(new(
+                sessionId,
+                interactionId,
+                _catalogue!.Id,
+                _selectedCatalogueBeat!.BeatId,
+                _productionPlan!.Id,
+                _productionPlan.Version,
+                _momentSet!.Id,
+                _momentSet.Version,
+                _selectedMoment!.MomentId,
+                _momentEnrichment!.Id,
+                _momentEnrichment.Revision,
+                pov,
+                null));
+        }
 
+        _productionGroup = await LocationService.RestoreBackdropAsync(_productionGroup.Id);
+        return _productionGroup;
+    }
+
+    /// <summary>
+    /// The lineage a production group cannot be created without, and the POV it belongs to. One guard, used by the
+    /// composer button and by the Location stage, so the two cannot disagree about what "ready to produce" means.
+    /// </summary>
+    private string RequireProductionLineage()
+    {
+        if (!IsSelectedMomentEnriched
+            || _catalogue is null
+            || _selectedCatalogueBeat is null
+            || _productionPlan?.Status != SceneBeatCatalogueStatus.Complete
+            || _momentSet?.Status != SceneBeatCatalogueStatus.Complete
+            || _selectedMoment is null
+            || _momentEnrichment is null
+            || string.IsNullOrWhiteSpace(_productionPov))
+        {
+            throw new InvalidOperationException("Exact completed Catalogue, Beat Production Plan, Moment Set, Moment enrichment, and production POV are required.");
+        }
+
+        return _productionPov;
+    }
+
+    private async Task BindBackdropAsync(string imageId)
+    {
         _locationStageBusy = true;
         _locationStageError = null;
+        _locationStageNotice = null;
         try
         {
-            await LocationService.BindBackdropAsync(_productionGroup.Id, imageId);
+            // No silent return: a bind that cannot be recorded says so, and the reason belongs in the stage. The stage
+            // resolves the group, so reaching here without one means the request never came through the stage — which
+            // must be a visible failure, not an exception escaping the event handler with no trace on screen.
+            var group = _productionGroup
+                ?? throw new InvalidOperationException("This POV has no production group, so its location binding has nowhere to be recorded.");
+
+            await LocationService.BindBackdropAsync(group.Id, imageId);
             await LoadProductionGroupAsync();
             await LoadLocationStageAsync();
+
+            // Rebinding the image already bound leaves the stage looking identical, so the bind has to say it happened:
+            // silence is indistinguishable from a dead button.
+            _locationStageNotice = BoundLocationBackdrop is { } bound
+                ? $"Bound '{bound.Label}' as this POV's location backdrop."
+                : throw new InvalidOperationException(
+                    "The backdrop write returned, but this POV's reloaded group records no backdrop, so nothing was bound.");
         }
         catch (Exception exception)
         {
@@ -3157,18 +3492,47 @@
 
     private void DismissLocationSuggestion() => _locationSuggestion = null;
 
+    private Task OpenLocationAssetSearchAsync()
+    {
+        _locationStageError = null;
+        _locationStageNotice = null;
+        _locationAssetSearchOpen = true;
+        return Task.CompletedTask;
+    }
+
+    private void CloseLocationAssetSearch() => _locationAssetSearchOpen = false;
+
+    /// <summary>
+    /// Binds the image picked in the full image search. The pick carries the SAME identity the inline list binds by, so
+    /// the whole library reaches the one bind path instead of a second one growing behind the modal.
+    /// </summary>
+    private async Task BindPickedLocationAssetAsync(InAppPickedImage picked)
+    {
+        _locationAssetSearchOpen = false;
+        _locationStageNotice = null;
+        if (picked.Identity is not { } identity)
+        {
+            _locationStageError = "The picked image carries no asset identity, so it cannot be bound as this POV's location backdrop.";
+            return;
+        }
+
+        await BindBackdropAsync(identity.ImageId);
+    }
+
     private async Task SkipLocationAsync()
     {
-        if (_productionGroup is null)
-            return;
-
         _locationStageBusy = true;
         _locationStageError = null;
+        _locationStageNotice = null;
         try
         {
-            await LocationService.ClearBackdropAsync(_productionGroup.Id);
+            var group = _productionGroup
+                ?? throw new InvalidOperationException("This POV has no production group, so it cannot record a text-only location.");
+
+            await LocationService.ClearBackdropAsync(group.Id);
             await LoadProductionGroupAsync();
             await LoadLocationStageAsync();
+            _locationStageNotice = "Cleared this POV's location backdrop — the location is text-only.";
         }
         catch (Exception exception)
         {
@@ -4061,6 +4425,9 @@
         _productionIdentityReadiness = [];
         _productionIdentityReadinessError = null;
         _locationStageSelected = false;
+        _locationAssetSearchOpen = false;
+        _locationStageError = null;
+        _locationStageNotice = null;
         _locationSuggestion = null;
         _activeProductionStage = SceneImageProductionStage.Composition;
         _selectedParentAttemptId = null;
@@ -4289,34 +4656,13 @@
 
     private async Task CreateOrLoadProductionAsync()
     {
-        if (!IsSelectedMomentEnriched
-            || _catalogue is null
-            || _selectedCatalogueBeat is null
-            || _productionPlan?.Status != SceneBeatCatalogueStatus.Complete
-            || _momentSet?.Status != SceneBeatCatalogueStatus.Complete
-            || _selectedMoment is null
-            || _momentEnrichment is null
-            || string.IsNullOrWhiteSpace(_productionPov))
-        {
-            throw new InvalidOperationException("Exact completed Catalogue, Beat Production Plan, Moment Set, Moment enrichment, and production POV are required.");
-        }
+        RequireProductionLineage();
 
         await RunAsync(async () =>
         {
-            _productionGroup = await ProductionService.GetOrCreateGroupAsync(new(
-                sessionId,
-                interactionId,
-                _catalogue.Id,
-                _selectedCatalogueBeat.BeatId,
-                _productionPlan.Id,
-                _productionPlan.Version,
-                _momentSet.Id,
-                _momentSet.Version,
-                _selectedMoment.MomentId,
-                _momentEnrichment.Id,
-                _momentEnrichment.Revision,
-                _productionPov,
-                null));
+            // The same group resolution the Location stage uses, so a POV that bound its place in stage 0 arrives at
+            // the composer with that group — and with its recorded backdrop restored. Not a second creation path.
+            _productionGroup = await EnsurePovProductionGroupAsync();
             _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
             Nav.NavigateTo($"/roleplay/studio/{sessionId}/{interactionId}/production/{_productionGroup.Id}/composition");
         });
@@ -5318,13 +5664,16 @@
         {
             _continueFromImageId = image.Id;
 
+            var restoredPrompt = false;
             // Restore the prompt that produced this image.
             if (!string.IsNullOrWhiteSpace(image.PromptSnapshot))
             {
                 _editablePrompt = image.PromptSnapshot;
+                restoredPrompt = true;
             }
 
             // Restore the exact settings that produced this image.
+            var restoredSettings = false;
             if (!string.IsNullOrWhiteSpace(image.SettingsJson) && image.SettingsJson != "{}")
             {
                 try
@@ -5334,6 +5683,7 @@
                     {
                         _settings = restored;
                         SyncAngleFromSettings();
+                        restoredSettings = true;
                     }
                 }
                 catch (JsonException ex)
@@ -5352,7 +5702,21 @@
                 _selectedPov = image.Pov;
             }
 
-            _statusMessage = "Loaded prompt + settings from the selected image. Edit and render to continue from it.";
+            // The prompt box this fills lives in the Additional-tools panel, which is COLLAPSED by default: without
+            // opening it, the command's only visible effect was a line of text, which is exactly how it read as "does
+            // nothing".
+            _additionalToolsOpen = true;
+
+            _statusMessage = (restoredPrompt, restoredSettings) switch
+            {
+                (true, true) => "Loaded the prompt and settings that made this image into Additional tools — edit, then "
+                    + "render there to continue from it.",
+                (true, false) => "Loaded the prompt that made this image into Additional tools. This image recorded no "
+                    + "settings, so the current ones are unchanged.",
+                (false, true) => "Loaded the settings that made this image into Additional tools. This image recorded no "
+                    + "prompt.",
+                _ => "This image recorded no prompt and no settings, so there was nothing to load."
+            };
         });
     }
 

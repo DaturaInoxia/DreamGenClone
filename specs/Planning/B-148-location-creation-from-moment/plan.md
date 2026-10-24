@@ -175,8 +175,9 @@ option). Every step below is a *suggestion* the operator confirms; none is a loc
   selectable; unnamed/unapproved images render disabled with a "finish in Location Studio" link.
 - **D12 — Backdrop auto-seeds Composition.** The Location-stage choice becomes the composition's
   `location` reference binding, still editable in the composer.
-- **D13 — Persistence split by scope.** The per-POV backdrop lives on `SceneImageProductionGroup`;
-  the moment→container default lives in an explicit moment-level link.
+- **D13 — Persistence split by scope.** The per-POV backdrop lives on `SceneImageProductionGroup` (the working copy
+  the composer's prefill reads for THIS enrichment); the DURABLE per-POV record is the (moment, POV) link, which is
+  what survives a re-enrichment. *(Revised 2026-10-14: originally one link per moment, shared across POVs.)*
 - **D14 — Resolution rule.** Prefix-match the moment's `location` string against
   `Scenario.Location.Name`; the spot suffix token-suggests a named image; no prefix match → ad-hoc.
   `Sightline` is a hint only, never an auto-selection. Operator always confirms.
@@ -198,11 +199,14 @@ option). Every step below is a *suggestion* the operator confirms; none is a loc
   seeds a binding … names it identically"). A model change clears bindings (existing behaviour);
   the location binding **re-seeds only after re-validation** against the new model's slot plan —
   if the new model declares no location slot, a notice says so. Never a silent drop.
-- **D17 — The moment→container link is keyed on `MomentId`** *(design review)*. Enrichment
-  revisions change `MomentEnrichmentId`; `MomentId` is stable across them. Keying the link on the
-  enrichment id would lose it on every re-enrichment. One **current** link per moment (upsert),
-  carrying the container asset id, the resolved `ScenarioLocationId` (null = ad-hoc), and the
-  link's origin — **operator-confirmed, never auto-written**.
+- **D17 — The moment→container link is keyed on (`MomentId`, `Pov`)** *(design review; amended 2026-10-14)*.
+  Enrichment revisions change `MomentEnrichmentId`; `MomentId` is stable across them, so the moment id is half the
+  key — keying on the enrichment id alone would lose the binding on every re-enrichment. The other half is the POV:
+  Omniscient and each character POV bind their OWN location image, and one POV must never overwrite another's. One
+  **current** link per (moment, POV) (upsert), carrying the container asset id, the resolved `ScenarioLocationId`
+  (null = ad-hoc), the link's origin — **operator-confirmed, never auto-written** — and the bound image
+  (`ImageId`/`Sha256`/`ProductionVersion`/`Label`), which is what a fresh enrichment's group is re-seeded from.
+  *Originally one link per moment, shared across the moment's POVs.*
 - **D18 — Schema changes follow the existing migration patterns; nothing destructive** *(design
   review)*. `SceneAssets` gains its three columns through the repository's existing pragma-guarded
   `ALTER TABLE` list. `SceneImageProductionGroups` has **no such mechanism today** (only
@@ -228,7 +232,7 @@ option). Every step below is a *suggestion* the operator confirms; none is a loc
 | **OQ-4** | Source-agnostic ingest | No new bootstrap ingest is needed: creation happens in `/locations/{id}` through the existing `AddUploadedImageAsync` / `AddGeneratedImageAsync` / edit path (the B-108 candidate batch is retired for locations). |
 | **OQ-5** | Naming at promotion | No promotion parameter: naming happens in the container via `SetImageDisplayNameAsync`, gated by `SceneAssetImageNaming.IsNameRequiredForApproval` (B-145). |
 | **OQ-6** | Per-POV selection | Per-POV backdrop; `Sightline` is a hint only (never auto-selects). One view → that view is the only option and the operator still confirms (D12). |
-| **OQ-7** | Moment→location persistence | Per-POV backdrop on `SceneImageProductionGroup`; the moment→container default in an explicit moment-level link (D13). |
+| **OQ-7** | Moment→location persistence | Per-POV backdrop on `SceneImageProductionGroup`; the per-POV (moment, POV) link carrying the same binding (D13/D17) — each POV keeps its own. |
 | **OQ-8** | Repeat visits | Reuse as the default suggestion (D10); the operator may add views or pick another container. |
 | **OQ-9** | Generate-all-POVs | Out of scope — a follow-on item. |
 | **OQ-10** | Generalisation | Location-only for this item. Character/wardrobe use the existing identity studio (B-121 / B-122). |
@@ -244,7 +248,7 @@ option). Every step below is a *suggestion* the operator confirms; none is a loc
 | `DreamGenClone.Domain/RolePlay/SceneAssetModels.cs` | + `ParentAssetId`, + `ScenarioLocationId`, + `ScenarioId` on `SceneAsset` |
 | `DreamGenClone.Web/Domain/Scenarios/Setting.cs` | + `WorldLocation { AssetContainerId, RenderingDescription }` — **payload-JSON only** (`Scenarios.PayloadJson`); no DB migration; old payloads deserialize null = not configured |
 | `DreamGenClone.Domain/RolePlay/SceneImageProductionGroup.cs` | + per-POV backdrop field(s) — image id + sha256 + production version + label, mirroring the fields `ReferenceApplicationSelection` carries (a bare id is not enough for render revalidation) |
-| new moment→container link record + repository | keyed on `MomentId` (D17); one current link; operator-confirmed |
+| new moment→container link record + repository | keyed on (`MomentId`, `Pov`) (D17); one current link per POV; carries the bound image (id + sha256 + production version + label) so a re-enrichment can restore it; operator-confirmed |
 | `DreamGenClone.Infrastructure/RolePlay/SceneAssetRepository.cs` | + 3 columns via the **existing pragma-guarded `ALTER TABLE` list** (~lines 1535-1555) + hierarchy / scenario-link queries |
 | `DreamGenClone.Infrastructure/RolePlay/SceneImageProductionGroupRepository.cs` | + backdrop column — **and the pragma-guarded ALTER TABLE migration mechanism itself** (today this repo only has `CREATE TABLE IF NOT EXISTS`; a new column would never reach an existing DB) |
 | `DreamGenClone.Web/Application/RolePlay/ImageStep/` — new `LocationBackdropSlotPrefill` | the auto-seed (D16): a sibling of `IdentityPackSlotPrefill`; fills the blueprint's declared `Location` slot; refuses undeclared slots by name |
@@ -252,7 +256,7 @@ option). Every step below is a *suggestion* the operator confirms; none is a loc
 | `DreamGenClone.Web/Application/RolePlay/IReferenceBootstrapService.cs` + `ReferenceBootstrapService.cs` | **retire** `PromoteAcceptedLocationAsync`, the `Location` arm of `MapReferenceKind`, and location batch support (D3) |
 | `DreamGenClone.Infrastructure/RolePlay/ReferenceBootstrapRepository.cs` (+ its interface) | remove the location profile/reference methods; **DB tables left in place** (D18 — dead tables, no destructive migration) |
 | `DreamGenClone.Web/Components/Assets/ReferenceBootstrapPanel.razor` | drop the location branch (the panel itself is mounted nowhere and remains B-121's concern) |
-| `DreamGenClone.Web/Components/Pages/SceneImageStudio.razor` | optional Stage 0 tab + panel (§6); per-POV backdrop; search-as-cards; **page-local workbench stage list** (D15) |
+| `DreamGenClone.Web/Components/Pages/SceneImageStudio.razor` | optional Stage 0 tab + panel (§6); per-POV backdrop and per-POV group resolution; image list scoped to the matched location asset; **Search all image assets** (the shared `InAppImagePicker` in group/search/bindable mode); **page-local workbench stage list** (D15) |
 | `DreamGenClone.Web/Components/Pages/ScenarioEditor.razor` | `WorldLocation` editor in the Setting/World section (~lines 130-171) |
 | `DreamGenClone.Web/Components/Pages/LocationStudio.razor` | `?return=` back-link (the `ReviewDeck.BackUrl/BackLabel` pattern); the created container opens through the existing `AssetStudioView` tooling unchanged |
 | `DreamGenClone.Tests/RolePlay/ReferenceBootstrapRepositoryTests.cs` | remove location-promotion coverage (~line 523) |
@@ -329,11 +333,22 @@ location assets, with results as a **card grid**:
 ### 6.4 Per-POV behaviour
 
 - The panel header shows: the current POV, its bound backdrop (image + operator name) or
-  "Not set — text only", and the moment-level container link ("shared across this moment's POVs").
-- Switching POV loads that POV's group (existing behaviour) and its **own** backdrop choice; the
-  moment-level container link does not change.
-- Binding writes the per-POV backdrop field on the group **and** the moment-level link (D17) —
-  the link is written on the operator's bind action, never automatically.
+  "Not set — text only", and states plainly that the binding is **this POV's own** (Omniscient and each character
+  keep theirs separately). *(Revised 2026-10-14: the panel used to say "shared across this moment's POVs", which
+  described the old moment-level link and contradicted the per-POV backdrop sitting beside it.)*
+- Entering the stage resolves **this POV's** production group through the same
+  `ISceneImageProductionService.GetOrCreateGroupAsync` call the composer button makes, then asks
+  `ISceneMomentLocationService.RestoreBackdropAsync` to seed a fresh group's backdrop from this POV's recorded
+  binding. Before 2026-10-14 the stage bound onto `_productionGroup` with a silent early return when there was
+  none, so on the moment route (no group yet) a bind did nothing at all and looked like it had.
+- Switching POV loads that POV's group and its **own** binding.
+- Binding writes the per-POV backdrop field on the group **and** that POV's (moment, POV) link (D17) — the link is
+  written on the operator's bind action, never automatically.
+- The image list under the header is the **matched location asset's own images**, and nothing else, with the search
+  box filtering those. A moment whose place matches no location asset gets no list (and is told so); the whole image
+  library is reached through **Search all image assets**, which is the shared `InAppImagePicker` in its
+  asset-group/search/bindable mode and binds through the same single write. *(Revised 2026-10-14: the list used to
+  be every Location asset's every image.)*
 
 ### 6.5 Composition auto-seed UX
 

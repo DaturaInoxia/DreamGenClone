@@ -25,21 +25,45 @@ public sealed class StepPromptElementPlanTests
     /// </para>
     /// </summary>
     [Fact]
-    public void ScopesFor_Location_RemovesLocationEnvironmentAndLightingProse()
+    public void ScopesFor_Location_RemovesEveryRoomCarryingElementButKeepsTimeAndMood()
     {
         var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Location, null);
 
-        Assert.Equal(["frozenState.location", "frozenState.environment", "frozenState.lighting"], scopes);
+        Assert.Equal(
+            [
+                "frozenState.location", "frozenState.environment", "frozenState.lighting",
+                "frozenState.objects", "frozenState.visualDescription", "frozenState.continuityState",
+                "moment.frozenState", "moment.compositionRationale",
+                "continuity.start.location", "continuity.start.objectStates", "continuity.start.lighting", "continuity.start.characterStates", "continuity.start.stateSummary",
+                "continuity.end.location", "continuity.end.objectStates", "continuity.end.lighting", "continuity.end.characterStates", "continuity.end.stateSummary"
+            ],
+            scopes);
         Assert.DoesNotContain("frozenState.timeOfDay", scopes);
         Assert.DoesNotContain("frozenState.mood", scopes);
+        // The PEOPLE are never taken from the text: only the room is the image's.
+        Assert.DoesNotContain("moment.visibleAction", scopes);
+        Assert.DoesNotContain("frozenState.characters", scopes);
     }
 
     [Fact]
-    public void ScopesFor_Face_RemovesTheCharactersAppearanceLine()
+    public void ScopesFor_Face_RemovesTheFaceButKeepsTheBuild()
     {
+        // B-166 D10: a face reference supplies the FACE and says nothing about the build, so a face-only binding must
+        // not delete the build prose.
         var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Face, "p-becky");
 
-        Assert.Equal(["character:p-becky.appearance"], scopes);
+        Assert.Equal(["character:p-becky.appearance.face"], scopes);
+    }
+
+    [Fact]
+    public void ScopesFor_Body_RemovesTheFaceAndTheBuild()
+    {
+        // A body reference IS the character: it shows the build and the face together.
+        var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Body, "p-becky");
+
+        Assert.Equal(
+            ["character:p-becky.appearance.face", "character:p-becky.appearance.build"],
+            scopes);
     }
 
     [Fact]
@@ -77,7 +101,12 @@ public sealed class StepPromptElementPlanTests
         var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.CharacterPose, "p-becky");
 
         Assert.Equal(
-            ["character:p-becky.appearance", "character:p-becky.clothing", "character:p-becky.position"],
+            [
+                "character:p-becky.appearance.face",
+                "character:p-becky.appearance.build",
+                "character:p-becky.clothing",
+                "character:p-becky.position"
+            ],
             scopes);
     }
 
@@ -100,11 +129,11 @@ public sealed class StepPromptElementPlanTests
     }
 
     /// <summary>
-    /// Binding a face AND a body for one character means the same thing twice - the appearance prose is supplied by
-    /// images either way - so the plan must clear it ONCE. Duplicates would otherwise be applied twice for no gain.
+    /// Binding a face AND a body for one character means the face is cleared once (both supply it) and the build once
+    /// (only the body supplies it). Duplicates would be applied twice for no gain (B-166 D10).
     /// </summary>
     [Fact]
-    public void Build_FaceAndBodyForOneCharacter_ClearsTheAppearanceLineOnce()
+    public void Build_FaceAndBodyForOneCharacter_ClearsEachAppearanceElementOnce()
     {
         var scopes = StepPromptElementPlan.Build(
         [
@@ -112,7 +141,7 @@ public sealed class StepPromptElementPlanTests
             (ImageStepSlotKind.Body, "p-becky")
         ]);
 
-        Assert.Equal(["character:p-becky.appearance"], scopes);
+        Assert.Equal(["character:p-becky.appearance.face", "character:p-becky.appearance.build"], scopes);
     }
 
     [Fact]
@@ -128,12 +157,28 @@ public sealed class StepPromptElementPlanTests
 
         Assert.Equal(
             [
-                "character:p-becky.appearance",
+                "character:p-becky.appearance.face",
+                "character:p-becky.appearance.build",
                 "character:p-becky.clothing",
                 "character:p-becky.position",
                 "frozenState.location",
                 "frozenState.environment",
                 "frozenState.lighting",
+                "frozenState.objects",
+                "frozenState.visualDescription",
+                "frozenState.continuityState",
+                "moment.frozenState",
+                "moment.compositionRationale",
+                "continuity.start.location",
+                "continuity.start.objectStates",
+                "continuity.start.lighting",
+                "continuity.start.characterStates",
+                "continuity.start.stateSummary",
+                "continuity.end.location",
+                "continuity.end.objectStates",
+                "continuity.end.lighting",
+                "continuity.end.characterStates",
+                "continuity.end.stateSummary",
                 "character:p-dean.clothing"
             ],
             scopes);
@@ -178,5 +223,113 @@ public sealed class StepPromptElementPlanTests
                 Assert.Contains(prefix, accepted);
             }
         }
+    }
+
+    /// <summary>
+    /// Every scope the plan can emit must also be NAMED, because the User Intent path has no brief to strip — its only
+    /// protection is telling the compiler which elements the images own. A scope with no name would be one an intent
+    /// draft silently describes itself, which is how an invented fence-and-posts setting overrode a bound location
+    /// plate (SceneImage 2ecd4862, 2026-10-17).
+    /// </summary>
+    [Fact]
+    public void Describe_NamesEveryScopeThePlanCanEmit()
+    {
+        var described = new List<string>();
+
+        foreach (var slotKind in Enum.GetValues<ImageStepSlotKind>())
+        {
+            var requirement = ImageStepSlotBlueprint.ActorKeyRequirementFor(slotKind);
+            var actor = requirement == ImageStepActorKeyRequirement.Required || requirement == ImageStepActorKeyRequirement.Optional
+                ? "p-probe"
+                : null;
+
+            foreach (var scope in StepPromptElementPlan.ScopesFor(slotKind, actor))
+            {
+                var text = StepPromptElementPlan.Describe(scope);
+
+                Assert.False(string.IsNullOrWhiteSpace(text));
+                Assert.DoesNotContain("prompt element", text, StringComparison.OrdinalIgnoreCase);
+                described.Add(text);
+            }
+        }
+
+        // A per-character scope is addressed to the character, so its name is too.
+        Assert.Contains("p-probe's clothing", described);
+        Assert.Contains("p-probe's appearance — face, features, hair and skin tone", described);
+        Assert.Contains("p-probe's build — height, body shape and proportions", described);
+
+        // A scene-level scope belongs to nobody, so it carries no owner prefix.
+        Assert.Contains("the setting — its structure, surfaces and objects", described);
+        Assert.Contains("the lighting", described);
+    }
+
+    [Fact]
+    public void Describe_UnknownScope_FailsFastRatherThanPassingItOverInSilence()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => StepPromptElementPlan.Describe("frozenState.somethingNew"));
+
+        Assert.Contains("has no readable description", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every scope must also carry an OWNERSHIP rule, because the two halves are not the same: a setting an image owns
+    /// must stay out of the prose, while an outfit an image owns has to be named and put on the figure. A blanket
+    /// "do not describe" produced a nude render (SceneImage c0d77b66, 2026-10-18).
+    /// </summary>
+    [Fact]
+    public void Ownership_EveryScopeResolvesAndClothingIsTheOnlyWornElement()
+    {
+        var worn = new List<string>();
+
+        foreach (var slotKind in Enum.GetValues<ImageStepSlotKind>())
+        {
+            var requirement = ImageStepSlotBlueprint.ActorKeyRequirementFor(slotKind);
+            var actor = requirement == ImageStepActorKeyRequirement.Required || requirement == ImageStepActorKeyRequirement.Optional
+                ? "p-probe"
+                : null;
+
+            foreach (var scope in StepPromptElementPlan.ScopesFor(slotKind, actor))
+            {
+                var ownership = StepPromptElementPlan.OwnershipOf(scope);
+                if (ownership == StepPromptElementPlan.PromptElementOwnership.SuppliedWorn)
+                {
+                    worn.Add(scope);
+                }
+            }
+        }
+
+        Assert.Single(worn.Distinct(StringComparer.Ordinal));
+        Assert.Equal("character:p-probe.clothing", worn[0]);
+        Assert.Equal(
+            StepPromptElementPlan.PromptElementOwnership.SuppliedSilently,
+            StepPromptElementPlan.OwnershipOf("frozenState.location"));
+    }
+
+    [Fact]
+    public void Ownership_UnknownScope_FailsFast()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => StepPromptElementPlan.OwnershipOf("frozenState.somethingNew"));
+
+        Assert.Contains("has no ownership rule", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A prop replaces NO brief element, deliberately: the only candidate is the whole <c>scene.objects</c> list, so
+    /// removing it because one prop is bound would delete every unrelated object the brief describes. The slot is still
+    /// supported, and asking for its scopes with or without an actor must not throw.
+    /// </summary>
+    [Fact]
+    public void Scopes_PropReplacesNoBriefElement()
+    {
+        Assert.Empty(StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Prop, null));
+        Assert.Empty(StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Prop, "p-probe"));
+    }
+
+    [Fact]
+    public void Describe_BlankScope_FailsFast()
+    {
+        Assert.Throws<InvalidOperationException>(() => StepPromptElementPlan.Describe("  "));
     }
 }

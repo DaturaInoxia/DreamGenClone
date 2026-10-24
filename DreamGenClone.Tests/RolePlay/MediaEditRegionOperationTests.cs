@@ -30,13 +30,16 @@ public sealed class MediaEditRegionOperationTests
     }
 
     /// <summary>
-    /// A confined edit needs a feather, and the refusal names the setting: the host rounds the mask it confines with to
-    /// 0/1, so a zero feather IS a hard-edged rectangle - the edit is confined correctly and the edge stays visible in
-    /// the render as an outline (CASE-25). Fail fast here, not in the picture.
+    /// A confined edit needs a feather WIDER than the host's own mask-edge band, and the refusal names the setting: the
+    /// host rounds the mask it confines with to 0/1 and decodes its edge as a smear about one latent block wide, so a
+    /// fade that fits inside that band leaves the edge visible in the render as a seam (CASE-25). Fail fast here, not
+    /// in the picture.
     /// </summary>
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
+    [InlineData(4)]
+    [InlineData(MediaEditRegionOperation.HostBoundaryBandPixels)]
     public void AConfinedEditWithoutAPositiveFeatherIsRefusedByName(int featherPixels)
     {
         var region = new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 8, featherPixels);
@@ -55,7 +58,7 @@ public sealed class MediaEditRegionOperationTests
     [InlineData(10, 80, 10, 30, "inside the frame")]
     public void GeometryTheGraphCannotHonourIsRefused(double left, double top, double width, double height, string expected)
     {
-        var region = new MediaEditRegionOperation(left, top, width, height, GrowMaskBy: 0, FeatherPixels: 8);
+        var region = new MediaEditRegionOperation(left, top, width, height, GrowMaskBy: 0, FeatherPixels: 16);
 
         var exception = Assert.Throws<InvalidOperationException>(region.Validate);
 
@@ -71,7 +74,7 @@ public sealed class MediaEditRegionOperationTests
     [InlineData(65)]
     public void AGrowValueOutsideTheHostsOwnBoundIsRefused(int growMaskBy)
     {
-        var region = new MediaEditRegionOperation(10, 10, 10, 10, growMaskBy, FeatherPixels: 8);
+        var region = new MediaEditRegionOperation(10, 10, 10, 10, growMaskBy, FeatherPixels: 16);
 
         var exception = Assert.Throws<InvalidOperationException>(region.Validate);
 
@@ -85,12 +88,12 @@ public sealed class MediaEditRegionOperationTests
     [Fact]
     public void ARegionEditCarriesItsRegionAndDescribesIt()
     {
-        var operation = MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+        var operation = MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 16));
 
         operation.Validate();
 
         Assert.Equal(MediaEditOperationKind.MaskedRegion, operation.Kind);
-        Assert.Equal("region rect=10,20 30x40% grow=2 feather=3", operation.Describe());
+        Assert.Equal("region rect=10,20 30x40% grow=2 feather=16", operation.Describe());
     }
 
     /// <summary>A region kind with no region is a wiring mistake, not a whole-frame edit.</summary>
@@ -109,7 +112,7 @@ public sealed class MediaEditRegionOperationTests
     public void RegionParametersOnAnotherKindAreRefused()
     {
         var operation = new MediaEditOperation(
-            MediaEditOperationKind.Mirror, null, null, new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 8));
+            MediaEditOperationKind.Mirror, null, null, new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 16));
 
         var exception = Assert.Throws<InvalidOperationException>(operation.Validate);
 

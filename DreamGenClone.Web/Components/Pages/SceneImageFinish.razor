@@ -49,8 +49,10 @@
         {
             _group = await ProductionService.GetGroupAsync(productionGroupId) ?? throw new InvalidOperationException("The requested production group was not found.");
             if (!string.Equals(_group.SessionId, sessionId, StringComparison.Ordinal) || !string.Equals(_group.InteractionId, interactionId, StringComparison.Ordinal)) throw new InvalidOperationException("The requested production group does not belong to this Studio Moment.");
-            _eligibleParents = (await ProductionService.ListAttemptsAsync(_group.Id)).Where(item => item.Status == SceneImageStatus.Complete && (item.ProductionStage == SceneImageProductionStage.Identity || (item.ProductionStage == SceneImageProductionStage.Composition && _group.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser))).ToList();
-            if (!_eligibleParents.Any(item => item.Id == sourceImageId)) throw new InvalidOperationException("Finish requires a completed Identity parent, or a Composition parent after an explicit identity skip.");
+            // Any COMPLETE attempt of this group can be the parent: which attempt a change starts from is the operator's
+            // decision, not a stage the app expects them to have reached.
+            _eligibleParents = (await ProductionService.ListAttemptsAsync(_group.Id)).Where(item => item.Status == SceneImageStatus.Complete).ToList();
+            if (!_eligibleParents.Any(item => item.Id == sourceImageId)) throw new InvalidOperationException($"Finish starts from a completed attempt of this group, and '{sourceImageId}' is not one of them.");
         }
         catch (Exception exception) { _errorMessage = exception.Message; }
     }

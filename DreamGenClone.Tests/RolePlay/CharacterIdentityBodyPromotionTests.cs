@@ -173,8 +173,13 @@ public sealed class CharacterIdentityBodyPromotionTests
         }
     }
 
+    /// <summary>
+    /// An unaccepted view's readiness reason reports its STATUS and its own recorded failure — and deliberately does
+    /// not quote its findings, which stopped being a condition of acceptance (operator decision, 2026-10-11). Naming
+    /// checks here would send the operator to record reviews that unblock nothing.
+    /// </summary>
     [Fact]
-    public async Task Readiness_QuotesTheFindingsOfAViewThatIsNotAccepted()
+    public async Task Readiness_ReportsTheStatusOfAViewThatIsNotAccepted_WithoutQuotingFindings()
     {
         var world = CreateWorld();
         try
@@ -192,7 +197,8 @@ public sealed class CharacterIdentityBodyPromotionTests
             Assert.False(front.Ready);
             var reason = Assert.Single(readiness.BlockingReasons, item => item.StartsWith("Clothed Front:", StringComparison.Ordinal));
             Assert.Contains("Complete, not Accepted", reason, StringComparison.Ordinal);
-            Assert.Contains("body shape and proportions (not reviewed)", reason, StringComparison.Ordinal);
+            Assert.DoesNotContain("not reviewed", reason, StringComparison.Ordinal);
+            Assert.DoesNotContain("Its findings are", reason, StringComparison.Ordinal);
         }
         finally
         {

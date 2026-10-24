@@ -76,22 +76,88 @@ public sealed class SceneImageProductionServiceTests
         Assert.Null(cleared.IdentitySkipReason);
     }
 
+    /// <summary>
+    /// Approval no longer walks a stage ladder. It used to require a completed Identity attempt (or an explicit identity
+    /// skip), which made approval mean "this attempt reached the stage the app expected" instead of "this is the frame
+    /// the operator wants". Which frame is final is the operator's decision, and this Composition-stage attempt with
+    /// identity still Required is the case that used to be refused.
+    /// </summary>
     [Fact]
-    public async Task Approval_BlocksCompositionUntilIdentityIsSkipped()
+    public async Task Approval_AcceptsAnyCompletedAttemptWhateverStageProducedIt()
     {
         await using var fixture = await Fixture.CreateAsync();
         var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
-        var image = fixture.CreateImage("composition-gated", group.Id, SceneImageAttemptDisposition.Active, Now);
+        var image = fixture.CreateImage("composition-frame", group.Id, SceneImageAttemptDisposition.Active, Now);
+        await fixture.Images.InsertImageAsync(image);
+
+        Assert.Equal(SceneImageIdentityPolicy.Required, group.IdentityPolicy);
+
+        var approval = await fixture.Service.ApproveAsync(
+            group.Id, image.Id, image.Sha256!, "reviewer", null);
+
+        Assert.Equal(ApprovedSceneFrameDecisionState.Approved, approval.Decision);
+        Assert.Equal(image.Id, approval.SceneImageId);
+    }
+
+    /// <summary>
+    /// What approval still refuses is an attempt that is not EXACT: the decision names bytes, and a row with no checksum
+    /// cannot prove which bytes those are. The rule lives in the domain gate, so this refusal and every control that
+    /// offers the action state the same reason.
+    /// </summary>
+    [Fact]
+    public async Task Approval_RefusesAnAttemptWithNoRecordedChecksum()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
+        var image = fixture.CreateImage("no-checksum", group.Id, SceneImageAttemptDisposition.Active, Now);
+        image.Sha256 = null;
         await fixture.Images.InsertImageAsync(image);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.ApproveAsync(
-            group.Id, image.Id, image.Sha256!, "reviewer", null));
-        Assert.Contains("completed Identity attempt", error.Message, StringComparison.Ordinal);
+            group.Id, image.Id, "whatever", "reviewer", null));
 
-        await fixture.Service.SkipIdentityAsync(group.Id, "Composition-only approval is intentional for this frame.");
-        var approval = await fixture.Service.ApproveAsync(
-            group.Id, image.Id, image.Sha256!, "reviewer", null);
-        Assert.Equal(ApprovedSceneFrameDecisionState.Approved, approval.Decision);
+        Assert.Contains("no recorded checksum", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The group's approval can be withdrawn, leaving it with none — the same act the asset route has always been able
+    /// to perform on a candidate decision, which is what makes the review deck's two halves offer one set of verdicts.
+    /// The history keeps both rows: the approval is superseded, not erased, and the withdrawal is a decision of its own.
+    /// </summary>
+    [Fact]
+    public async Task RevokeApproval_WithdrawsTheCurrentApprovalAndKeepsTheHistory()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
+        var image = fixture.CreateImage("composition-frame", group.Id, SceneImageAttemptDisposition.Active, Now);
+        await fixture.Images.InsertImageAsync(image);
+        var approval = await fixture.Service.ApproveAsync(group.Id, image.Id, image.Sha256!, "reviewer", null);
+
+        var revoked = await fixture.Service.RevokeApprovalAsync(group.Id, "reviewer-2", "wrong frame");
+
+        Assert.Equal(ApprovedSceneFrameDecisionState.Revoked, revoked.Decision);
+        Assert.Equal(image.Id, revoked.SceneImageId);
+        Assert.Equal(image.Sha256, revoked.Sha256);
+
+        var history = await fixture.Service.ListApprovalDecisionsAsync(group.Id);
+        Assert.Contains(history, decision => decision.Id == approval.Id
+            && decision.Decision == ApprovedSceneFrameDecisionState.Superseded);
+    }
+
+    /// <summary>
+    /// Withdrawing has to have something to withdraw: a group with no current approval is refused by name rather than
+    /// silently recording a decision that names nothing.
+    /// </summary>
+    [Fact]
+    public async Task RevokeApproval_WithNothingApproved_FailsExplicitly()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var group = await fixture.Service.GetOrCreateGroupAsync(CreateGroupRequest());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => fixture.Service.RevokeApprovalAsync(group.Id, "reviewer", null));
+
+        Assert.Contains("no current approval", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

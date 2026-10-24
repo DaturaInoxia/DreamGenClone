@@ -12,8 +12,9 @@ namespace DreamGenClone.Tests.RolePlay;
 ///
 /// The mask is HARD-EDGED and that is the point: the host rounds it to 0/1 before it confines anything with it
 /// (<c>VAEEncodeForInpaint.encode</c> rounds both the pixel path and the sampler's noise mask), so a soft ramp painted
-/// into the mask is discarded and the confined area is a rectangle with a one-pixel step at its edge. The softening
-/// therefore lives in the alpha, whose transparent end meets the mask's white edge.
+/// into the mask is discarded and the confined area is a rectangle with a decoded step at its edge. The softening
+/// therefore lives in the alpha, whose transparent end meets the mask's white edge - and stops short of it by the
+/// host's own boundary band, because the host decodes that boundary as an ~8 px smear.
 /// </summary>
 public sealed class ImageRegionMaskEngineTests
 {
@@ -59,38 +60,71 @@ public sealed class ImageRegionMaskEngineTests
     [Fact]
     public void TheGrowValueWidensTheWhiteRectangle()
     {
-        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 5, FeatherPixels: 1);
+        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 5, FeatherPixels: 9);
 
         using var mask = Image.Load<L8>(_engine.Build(region, 100, 100));
 
-        Assert.Equal(255, mask[19, 19].PackedValue);    // grew 5px past the drawn corner, plus the single feather pixel
-        Assert.Equal(0, mask[18, 18].PackedValue);
+        Assert.Equal(255, mask[11, 11].PackedValue);    // grew 5px past the drawn corner, plus the feather
+        Assert.Equal(0, mask[10, 10].PackedValue);
         Assert.Equal(255, mask[50, 50].PackedValue);    // the middle is still white
     }
 
     /// <summary>
     /// The alpha is what the operator's feather actually means: opaque over everything the region may change (the drawn
-    /// rectangle grown by the grow value), then a linear fade to nothing across the feather - reaching zero exactly on
-    /// the mask's white edge, which is where the host's hard step sits.
+    /// rectangle grown by the grow value), then a linear fade to nothing. The fade stops SHORT of the mask's white edge
+    /// by the host's own boundary band, because the host decodes that boundary as an ~8 px smear and ramping across it
+    /// would blend the smear back in - which is the seam CASE-25's follow-up measured on a real outpaint.
     /// </summary>
     [Fact]
-    public void TheAlphaIsOpaqueInsideTheRegionAndFadesToNothingAtTheMasksEdge()
+    public void TheAlphaIsOpaqueInsideTheRegionAndFadesToNothingBeforeTheMasksEdge()
     {
-        // Drawn 25..75, so the host may change 20..80 and the mask is white over 15..85. A feather of 5 makes every
-        // step of the ramp a whole number (255/5 = 51).
-        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 5, FeatherPixels: 5);
+        // Drawn 25..75, so the host may change 20..80 and the mask is white over 4..96. A feather of 16 leaves a
+        // ramp of 8 (feather - the host's 8 px band), so every step of the ramp is 255/8.
+        var region = new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 5, FeatherPixels: 16);
 
         using var alpha = Image.Load<L8>(_engine.BuildCompositeAlpha(region, 100, 100));
 
         Assert.Equal(255, alpha[50, 50].PackedValue);   // deep inside the region
         Assert.Equal(255, alpha[20, 20].PackedValue);   // the last fully opaque pixel
-        Assert.Equal(204, alpha[19, 19].PackedValue);   // one pixel into the fade
-        Assert.Equal(153, alpha[18, 18].PackedValue);
-        Assert.Equal(102, alpha[17, 17].PackedValue);
-        Assert.Equal(51, alpha[16, 16].PackedValue);
-        Assert.Equal(0, alpha[15, 15].PackedValue);     // the mask's white edge: fully the source again
+        Assert.Equal(223, alpha[19, 19].PackedValue);   // one pixel into the fade
+        Assert.Equal(191, alpha[18, 18].PackedValue);
+        Assert.Equal(159, alpha[17, 17].PackedValue);
+        Assert.Equal(128, alpha[16, 16].PackedValue);
+        Assert.Equal(96, alpha[15, 15].PackedValue);
+        Assert.Equal(64, alpha[14, 14].PackedValue);
+        Assert.Equal(32, alpha[13, 13].PackedValue);
+        Assert.Equal(0, alpha[12, 12].PackedValue);     // the fade is over; the host's band starts here
+        Assert.Equal(0, alpha[11, 11].PackedValue);     // inside the host's boundary band
+        Assert.Equal(0, alpha[4, 4].PackedValue);       // the mask's white edge
         Assert.Equal(0, alpha[0, 0].PackedValue);       // and everything outside it stays the source
         Assert.Equal(0, alpha[99, 99].PackedValue);
+    }
+
+    /// <summary>
+    /// The host's boundary band is the whole reason the ramp is shortened: the fade is over BEFORE the mask's white edge,
+    /// so the smear the host leaves at that edge is never multiplied into the result.
+    /// </summary>
+    [Fact]
+    public void TheAlphaIsZeroAcrossTheHostsBoundaryBandAtTheMasksEdge()
+    {
+        // Drawn 20..80 on a 200px frame, grown by 0, so the editable rectangle is 40..160 and the mask is white over
+        // 16..184. A feather of 24 leaves a ramp of 16, so the fade ends at 160 + 16 - 1 = 175 and the white area keeps
+        // 8 transparent pixels past it - one host latent block.
+        var region = new MediaEditRegionOperation(20, 20, 60, 60, GrowMaskBy: 0, FeatherPixels: 24);
+
+        using var alpha = Image.Load<L8>(_engine.BuildCompositeAlpha(region, 200, 200));
+        using var mask = Image.Load<L8>(_engine.Build(region, 200, 200));
+
+        Assert.Equal(255, mask[183, 100].PackedValue);  // the mask's last white pixel on the right
+        Assert.Equal(0, mask[184, 100].PackedValue);
+
+        Assert.Equal(255, alpha[159, 100].PackedValue); // the last fully opaque pixel (the editable rectangle ends at 160)
+        Assert.Equal(239, alpha[160, 100].PackedValue); // one pixel into the fade
+        Assert.Equal(16, alpha[174, 100].PackedValue);  // its last non-zero step
+        for (var x = 175; x < 184; x++)
+        {
+            Assert.Equal(0, alpha[x, 100].PackedValue); // transparent across the host's band, though the mask is white
+        }
     }
 
     /// <summary>
@@ -100,15 +134,16 @@ public sealed class ImageRegionMaskEngineTests
     [Fact]
     public void ARegionFlushWithTheFrameEdgeFadesInwardOnly()
     {
-        var region = new MediaEditRegionOperation(0, 0, 50, 50, GrowMaskBy: 0, FeatherPixels: 4);
+        var region = new MediaEditRegionOperation(0, 0, 50, 50, GrowMaskBy: 0, FeatherPixels: 16);
 
         using var alpha = Image.Load<L8>(_engine.BuildCompositeAlpha(region, 100, 100));
 
         Assert.Equal(255, alpha[0, 0].PackedValue);     // the drawn edge itself is still fully the render
         Assert.Equal(255, alpha[49, 49].PackedValue);
-        Assert.Equal(191, alpha[50, 50].PackedValue);   // 255 * (1 - 1/4), fading into the untouched side
-        Assert.Equal(128, alpha[51, 51].PackedValue);
-        Assert.Equal(0, alpha[54, 54].PackedValue);
+        Assert.Equal(223, alpha[50, 50].PackedValue);   // 255 * (1 - 1/8), fading into the untouched side
+        Assert.Equal(191, alpha[51, 51].PackedValue);
+        Assert.Equal(96, alpha[54, 54].PackedValue);
+        Assert.Equal(0, alpha[58, 58].PackedValue);     // inside the host's boundary band
         Assert.Equal(0, alpha[99, 99].PackedValue);
     }
 
@@ -136,7 +171,7 @@ public sealed class ImageRegionMaskEngineTests
     [Fact]
     public void ARegionTooSmallForTheFrameIsRefusedRatherThanEmittedAsAnAllBlackMask()
     {
-        var region = new MediaEditRegionOperation(10, 10, 0.1, 0.1, GrowMaskBy: 0, FeatherPixels: 8);
+        var region = new MediaEditRegionOperation(10, 10, 0.1, 0.1, GrowMaskBy: 0, FeatherPixels: 16);
 
         var exception = Assert.Throws<InvalidOperationException>(() => _engine.Build(region, 32, 32));
 
@@ -144,9 +179,10 @@ public sealed class ImageRegionMaskEngineTests
     }
 
     /// <summary>
-    /// A zero feather is refused, by name: the host rounds the mask it confines with to 0/1, so a zero feather confines
-    /// the edit to a hard-edged rectangle and that edge shows in the render as an outline (CASE-25). Refusing it here
-    /// means the operator hears about it before a render is paid for, rather than seeing the box in the picture.
+    /// A feather that does not clear the host's own boundary band is refused, by name: the host rounds the mask it
+    /// confines with to 0/1 and decodes its edge as a smear about one latent block wide, so a fade that starts inside
+    /// that band leaves the edge visible as a seam (CASE-25). Refusing it here means the operator hears about it before
+    /// a render is paid for, rather than seeing the seam in the picture.
     /// </summary>
     [Fact]
     public void AConfinedEditWithoutAFeatherIsRefusedByName()
@@ -156,13 +192,13 @@ public sealed class ImageRegionMaskEngineTests
         var exception = Assert.Throws<InvalidOperationException>(() => _engine.Build(region, 100, 100));
 
         Assert.Contains("RegionFeatherPixels", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("outline", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("seam", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void AFrameWithoutASizeIsRefused()
     {
-        var region = new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 8);
+        var region = new MediaEditRegionOperation(10, 10, 10, 10, GrowMaskBy: 0, FeatherPixels: 16);
 
         Assert.Throws<InvalidOperationException>(() => _engine.Build(region, 0, 100));
     }

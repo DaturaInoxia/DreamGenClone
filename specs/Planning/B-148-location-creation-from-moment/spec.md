@@ -67,15 +67,28 @@ images are produced only through the B-145 container + approved, named, versione
 The operator must be able to choose, per POV of the moment, which named location image is that
 POV's backdrop. The moment's `Sightline` data may *suggest* a view, but must never silently select
 one — the operator always confirms. The chosen backdrop **auto-seeds the Composition's location
-reference**, remaining editable in the composer.
+reference**, remaining editable in the composer. Omniscient and each character POV keep their own
+binding: the stage resolves THAT POV's production group, one POV's bind never overwrites another's,
+and the stage says so on screen rather than claiming the binding is shared.
+
+### FR-B148-07a — The stage lists the matched location's images *(amended 2026-10-14)*
+The image list in Stage 0 is the images of the location asset the moment's place resolved to, and
+nothing else, with the search box filtering those images. A moment whose place matches no location
+asset has no image list and is told why. Reaching the rest of the image library is one deliberate
+action — **Search all image assets** — which is the shared in-app image browser in its asset-group,
+search and bindable-only modes, and which binds through the same single write the inline list uses.
 
 ### FR-B148-08 — The moment→location link is created, not assumed
 The link between a moment and its location container is established **after** the location exists,
 and persists so that subsequent POVs of the same moment inherit it. The per-POV backdrop lives on
-the production group; the moment→container default lives in an explicit moment-level link,
-**keyed on the moment id** (stable across enrichment revisions — a link keyed on the enrichment
-id would be lost on every re-enrichment) and written **only by the operator's bind action**,
-never automatically.
+the production group — the working copy the composer's prefill reads for the CURRENT enrichment —
+and the DURABLE record is an explicit link **keyed on (moment id, POV)**: the moment id is stable
+across enrichment revisions (a link keyed on the enrichment id would be lost on every re-enrichment),
+and the POV is half the key because Omniscient and each character keep their own binding (a link
+keyed on the moment alone would collapse every POV into one). That link carries the bound image's
+id, checksum, production version and operator label, because it is what a fresh enrichment's group
+backdrop is restored from, and it is written **only by the operator's bind action** — never
+automatically. *Amended 2026-10-14: originally one link per moment, shared across the moment's POVs.*
 
 ### FR-B148-09 — Fail loudly
 If a required value is missing (location name, an image name at approval, a bound reference that
@@ -106,8 +119,11 @@ named image) is offered as the **default**, but the operator may bind any approv
 unrelated one — to any POV.
 
 ### FR-B148-14 — Search-as-cards with disabled non-selectable images
-The location search shows containers and their images as cards. Approved, named images are
-selectable; unnamed/unapproved images render **disabled** with a "finish in Location Studio" link.
+The location list shows the matched location's own images as cards. Approved, named, checksummed
+images are selectable; every other image renders **disabled** with its reason and a "finish in
+Location Studio" link. The eligibility decision is the domain's single rule
+(`SceneImageLocationBindGate.BlockerFor`), so the list and the bind cannot disagree. *(Amended
+2026-10-14: the list used to span every location container.)*
 
 ### FR-B148-15 — Location resolution rule
 The moment's composite `location` string resolves by **prefix-match** against

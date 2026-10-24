@@ -462,6 +462,86 @@ public sealed class SceneImageRepositoryTests
         }
     }
 
+    /// <summary>
+    /// A rendered image's tags round-trip through its OWN row, written by the image id and read back with it.
+    ///
+    /// <para>
+    /// This is what makes a production frame taggable exactly as a library asset is: the review deck shows one tag
+    /// editor for both, and the editor is handed a target and an id rather than a row, so the store has to be able to
+    /// write and read tags by id alone.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task SetTagsAsync_RoundTripsTagsOnTheRenderedRow()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a woman on a bed",
+                Status = SceneImageStatus.Complete,
+                FileRelativePath = "s1/render.png",
+                Sha256 = "ABC123"
+            };
+            await repo.InsertImageAsync(image);
+
+            Assert.Null((await repo.GetImageAsync(image.Id))!.TagsJson);
+
+            var stored = await repo.SetTagsAsync(
+                image.Id, ["stance:kneeling", "nsfw:true"], DateTime.UtcNow);
+
+            Assert.NotNull(stored.TagsJson);
+            Assert.Contains("stance:kneeling", stored.TagsJson, StringComparison.Ordinal);
+
+            var loaded = await repo.GetImageAsync(image.Id);
+            Assert.Equal(stored.TagsJson, loaded!.TagsJson);
+
+            // The row is addressed by its own id: no session is needed to write or read a tag, because the store it
+            // lives in is the one the id came from. An empty list is a real edit — the tags were cleared.
+            Assert.Equal("[]", (await repo.SetTagsAsync(image.Id, [], DateTime.UtcNow)).TagsJson);
+            Assert.Equal("[]", (await repo.GetImageAsync(image.Id))!.TagsJson);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    /// <summary>
+    /// A shape that is not a tag at all is refused by the store, so a row can never hold something no search could
+    /// find. The store checks only the STRUCTURE — which prefixes exist is the catalog's business, in the Web layer —
+    /// and both stores apply the same rule from the same place.
+    /// </summary>
+    [Fact]
+    public async Task SetTagsAsync_RefusesSomethingThatIsNotATag()
+    {
+        var (repo, dbPath) = CreateRepo();
+        try
+        {
+            var image = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = "p1",
+                PromptSnapshot = "a woman",
+                Status = SceneImageStatus.Complete
+            };
+            await repo.InsertImageAsync(image);
+
+            var refused = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => repo.SetTagsAsync(image.Id, ["kneeling"], DateTime.UtcNow));
+            Assert.Contains("prefix:value", refused.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     [Fact]
     public async Task InsertImage_StatusTransitions_Count_List_Delete()
     {

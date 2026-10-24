@@ -117,8 +117,13 @@ public sealed class SceneImageEditPromptCompilerResolverTests
     }
 
     [Theory]
-    [InlineData("qwen-edit-rules-v3", typeof(QwenSceneImageEditPromptCompiler))]
+    [InlineData(QwenSceneImageEditPromptCompiler.SystemPromptVersion, typeof(QwenSceneImageEditPromptCompiler))]
+    [InlineData(QwenImage21EditPromptCompiler.SystemPromptVersion, typeof(QwenImage21EditPromptCompiler))]
+    // Historical: an attempt queued before a 2.1 compiled-prompt contract change still resolves, so it fails with
+    // the explicit "contract changed after this attempt was queued" diagnostic instead of "no compiler registered".
     [InlineData("qwen-edit-2.1-rules-v1", typeof(QwenImage21EditPromptCompiler))]
+    [InlineData("qwen-edit-2.1-rules-v2", typeof(QwenImage21EditPromptCompiler))]
+    [InlineData("qwen-edit-2.1-rules-v3", typeof(QwenImage21EditPromptCompiler))]
     public void ResolveByVersion_ReturnsTheCompilerThatStampedIt(string version, Type expectedType)
     {
         var compiler = NewResolver().ResolveByVersion(version);
@@ -144,8 +149,10 @@ public sealed class SceneImageEditPromptCompilerResolverTests
     [Fact]
     public void BothCompilers_ShareTheSameSchemaAndParseContract()
     {
-        // N2 is the structural split: the schema and response contract are still shared (the 2.1 contract diverges in
-        // N3). Both compilers must parse the same ready response to the same result.
+        // N2 is the structural split: the schema and response contract are still shared, and both compilers must parse
+        // the same ready response to the same STRUCTURED result. What deliberately differs (v5, 2026-10-15) is the
+        // assembled instruction: the 2.1 instruction records preservation in `preserve` and the application states it,
+        // while the 2511 instruction states it in its own prose and gets nothing appended.
         const string response = """
             {
               "schemaVersion": "scene-image-edit-compiler-v1",
@@ -165,9 +172,19 @@ public sealed class SceneImageEditPromptCompilerResolverTests
         var via2511 = new QwenSceneImageEditPromptCompiler().Parse(response);
         var via21 = new QwenImage21EditPromptCompiler().Parse(response);
 
-        Assert.Equal(via2511.CompiledPrompt, via21.CompiledPrompt);
         Assert.Equal(via2511.Status, via21.Status);
         Assert.Single(via2511.Targets);
         Assert.Single(via21.Targets);
+        Assert.Equal(via2511.Preserve, via21.Preserve);
+
+        // The 2511 instruction is left exactly as the model wrote it…
+        Assert.Equal(
+            "Remove the glasses from the woman on the left; keep her face and the room unchanged.",
+            via2511.CompiledPrompt);
+        // …and the 2.1 instruction gains the sentence built from the same structured `preserve`.
+        Assert.Equal(
+            "Remove the glasses from the woman on the left; keep her face and the room unchanged. "
+            + "Hold the identity and setting at input fidelity. Change nothing else.",
+            via21.CompiledPrompt);
     }
 }

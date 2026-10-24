@@ -31,6 +31,7 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
     private readonly IImageEditorModelResolver _modelResolver;
     private readonly IImageEditingClient _imageEditingClient;
     private readonly IImageRegionMaskEngine _regionMaskEngine;
+    private readonly ISceneLoraResolver? _sceneLoraResolver;
     private readonly ILogger<MediaEditImageEditingJobHandler> _logger;
 
     public MediaEditImageEditingJobHandler(
@@ -39,7 +40,8 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
         IImageEditorModelResolver modelResolver,
         IImageEditingClient imageEditingClient,
         IImageRegionMaskEngine regionMaskEngine,
-        ILogger<MediaEditImageEditingJobHandler> logger)
+        ILogger<MediaEditImageEditingJobHandler> logger,
+        ISceneLoraResolver? sceneLoraResolver = null)
     {
         _writers = writers;
         _operations = operations;
@@ -47,6 +49,7 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
         _imageEditingClient = imageEditingClient;
         _regionMaskEngine = regionMaskEngine;
         _logger = logger;
+        _sceneLoraResolver = sceneLoraResolver;
     }
 
     public string JobType => BackgroundJobTypes.MediaEditImageEditing;
@@ -138,19 +141,36 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
                     "Adult-content Finish edits are unavailable because the resolved editor model does not allow them.");
             }
 
+            // Scene LoRAs (non-identity: unlock / act / anatomy / style), the operator's multi-select. The stack is
+            // carried on the payload and re-validated HERE, against the editor model's own family, rather than trusted:
+            // an edit queued with a LoRA the catalogue no longer offers, or one from another family, must fail instead
+            // of rendering something that looks like success. No selection leaves the resolved model untouched and its
+            // graph byte-identical to one built before edit-mode LoRA selection existed.
+            var sceneLoras = await ResolveSceneLorasAsync(resolved, payload.SceneLorasJson, cancellationToken);
+            if (sceneLoras.Count > 0)
+            {
+                resolved = resolved with { SceneLoras = sceneLoras };
+            }
+
             await using var source = await OpenSourceAsync(plan, cancellationToken);
             // The references are NAMED in the instruction, numbered from the image AFTER the source: the 2.1 edit
             // graph puts the source in slot 1, so the first reference is <image2>. Composed here, from the references
             // actually being sent, so a reference revalidation dropped cannot leave a tag pointing at nothing.
-            var instruction = ReferenceRoleClauses.AppendToEditInstruction(
+            //
+            // B-157: the block comes from the ONE plan owner, so the edit offset has a single definition. An edit has
+            // no compiled brief, so it carries no frame-space blocking; that is deliberate, not missing.
+            var instruction = FinalImagePromptPlanBuilder.BuildEditInstruction(
                 parts.Prompt,
-                [.. parts.References.Select(reference => (reference.SlotKind, reference.Description))]);
+                [.. parts.References.Select(reference => (reference.SlotKind, reference.Description, reference.AssetContainerId, reference.Directions))]);
             var bytes = await ExecuteAsync(plan, instruction, parts.References, resolved, source, cancellationToken);
             stopwatch.Stop();
 
             await writer.CompleteAsync(plan, new MediaEditRunOutput(
                 bytes, MediaEditOperationKind.Edit,
-                resolved.ModelIdentifier, resolved.ProviderName, resolved.ContentPolicy), cancellationToken);
+                resolved.ModelIdentifier, resolved.ProviderName, resolved.ContentPolicy,
+                // Recorded because this is the only text the editor reads and it is NOT the queued prompt: the role
+                // clause is appended here, at send time, from the references that survived validation.
+                SentInstruction: instruction), cancellationToken);
 
             _logger.LogInformation(
                 "Media edit image completed: Subject={SubjectKind}, ImageId={ImageId}, SourceImageId={SourceImageId}, Model={Model}, DurationMs={DurationMs}, References={References}, Scope={Scope}",
@@ -255,6 +275,35 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
             throw new InvalidOperationException(
                 "A crop run must not carry an editor resolution, a prompt or references.");
         }
+    }
+
+    /// <summary>
+    /// The NON-identity scene LoRAs this edit applies, resolved through the SAME catalogue validation the compose path
+    /// uses: family match against the editor model's own family, an enabled catalog row, and an explicit strength. No
+    /// selection returns an empty list without asking the catalogue, so the ordinary edit costs nothing; an edit that
+    /// DID select one fails fast when the resolver is not registered, because rendering without the stack the operator
+    /// picked produces a different image and looks exactly like success.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedSceneLora>> ResolveSceneLorasAsync(
+        ResolvedImageEditorModel resolved,
+        string? sceneLorasJson,
+        CancellationToken cancellationToken)
+    {
+        // Malformed JSON throws here, inside the run's failure scope, so the queued image is marked failed rather than
+        // silently rendered without the stack that was asked for.
+        var selections = SceneLoraSelectionWire.Read(sceneLorasJson);
+        if (selections.Count == 0)
+        {
+            return [];
+        }
+
+        var resolver = _sceneLoraResolver
+            ?? throw new InvalidOperationException(
+                "This edit selects scene LoRA(s), but the scene-LoRA resolver is not available, so the selected LoRAs "
+                + "cannot be applied. Rendering without them would produce a different image from the one requested.");
+
+        return await resolver.ResolveAsync(
+            resolved.SceneImageModelFamily, resolved.ModelIdentifier, selections, cancellationToken);
     }
 
     private async Task<byte[]> ExecuteAsync(
@@ -437,8 +486,8 @@ public sealed class MediaEditImageEditingJobHandler : IDurableBackgroundJobHandl
     /// <summary>
     /// Blends the render back over the frame it started from, through the region's feather ramp: the render's pixels
     /// where the operator may change the picture, the untouched source where they may not, and a fade between the two.
-    /// This is what removes the visible rectangle - the host's hard mask edge lies where the ramp has already reached
-    /// zero, and everything outside the region is handed back byte for byte as the source had it.
+    /// This is what removes the visible rectangle - the ramp stops short of the host's mask edge by that host's own
+    /// boundary band, so the smear it leaves is handed back as the source byte for byte.
     /// </summary>
     private byte[] CompositeConfinedRender(ConfinedFrame frame, byte[] renderedBytes)
     {

@@ -8,13 +8,23 @@ namespace DreamGenClone.Web.Application.RolePlay;
 public sealed record ScenePromptPayload(
     CompiledMediaBrief Brief,
     IReadOnlyDictionary<string, string> AppearanceOverrides,
-    IReadOnlySet<string> RemovedCharacters);
+    IReadOnlySet<string> RemovedCharacters,
+    IReadOnlyDictionary<string, string>? AppearanceElementOverrides = null);
 
-/// <summary>The transformed semantic snapshot plus the appearance/removal side-channels.</summary>
+/// <summary>
+/// The transformed semantic snapshot plus the appearance/removal side-channels.
+/// </summary>
+/// <param name="AppearanceElementOverrides">
+/// Per-ELEMENT appearance state, keyed <c>&lt;identity&gt;|face</c> or <c>&lt;identity&gt;|build</c>, where an empty
+/// value means "a reference image supplies this element, do not describe it" and a non-empty value is the text that
+/// replaces it. B-166 D10: a face reference supplies the FACE and says nothing about the BUILD, so the two have to be
+/// removable independently. Null means no element-level override was requested at all.
+/// </param>
 public sealed record ScenePromptEffectiveSnapshot(
     string SnapshotJson,
     IReadOnlyDictionary<string, string> AppearanceOverrides,
-    IReadOnlySet<string> RemovedCharacters);
+    IReadOnlySet<string> RemovedCharacters,
+    IReadOnlyDictionary<string, string>? AppearanceElementOverrides = null);
 
 /// <summary>
 /// Applies <see cref="ScenePromptOverrides"/> to the compiled Still brief's semantic snapshot as HARD
@@ -38,7 +48,34 @@ public static class ScenePromptOverridesApplier
         return new ScenePromptPayload(
             brief with { SemanticInputSnapshotJson = effective.SnapshotJson },
             effective.AppearanceOverrides,
-            effective.RemovedCharacters);
+            effective.RemovedCharacters,
+            effective.AppearanceElementOverrides);
+    }
+
+    /// <summary>
+    /// The OPERATOR-authored character facts alone, applied to a snapshot.
+    /// </summary>
+    /// <remarks>
+    /// A surface that reads a character's own fields (the POV projection composes its in-frame facts from
+    /// <c>frozenState.characters</c>) must see the text the operator typed, not the enrichment's original. Applying the
+    /// WHOLE override set there would also apply the suppression half — the room is removed because a location image
+    /// supplies it — and the frame would be derived from a scene with no place in it. So only non-removed
+    /// <c>character:{key}.*</c> values are applied here; removals stay the projection's own decision.
+    /// </remarks>
+    public static string ApplyOperatorCharacterEdits(string semanticInputSnapshotJson, ScenePromptOverrides? overrides)
+    {
+        ArgumentNullException.ThrowIfNull(semanticInputSnapshotJson);
+        if (overrides is null || overrides.IsEmpty) return semanticInputSnapshotJson;
+
+        var characterEdits = overrides.Fields
+            .Where(field => !field.Removed
+                && field.ElementKey.StartsWith("character:", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (characterEdits.Count == 0) return semanticInputSnapshotJson;
+
+        return ApplySnapshot(
+            semanticInputSnapshotJson,
+            new ScenePromptOverrides { Fields = characterEdits }).SnapshotJson;
     }
 
     /// <summary>Applies overrides/removals to a raw semantic snapshot JSON string (testable core).</summary>
@@ -48,6 +85,7 @@ public static class ScenePromptOverridesApplier
 
         var removed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var appearanceOverrides = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string>? appearanceElementOverrides = null;
         if (overrides is null || overrides.IsEmpty)
             return new ScenePromptEffectiveSnapshot(semanticInputSnapshotJson, NoAppearanceOverrides, removed);
 
@@ -70,13 +108,33 @@ public static class ScenePromptOverridesApplier
             if (key.StartsWith("character:", StringComparison.OrdinalIgnoreCase))
             {
                 var rest = key["character:".Length..];
-                var dot = rest.LastIndexOf('.');
-                if (dot <= 0) continue;
-                var characterKey = rest[..dot];
-                var property = rest[(dot + 1)..];
+                var (characterKey, property) = SplitCharacterElement(rest);
+                if (property.Length == 0) continue;
+
+                // B-166 D10: `appearance.face` / `appearance.build` are independently ownable. A face reference
+                // supplies the face and says nothing about the build, so a face-only binding must not delete the
+                // build prose (the defect the operator reported as "the characters are off a little").
+                if (property.StartsWith("appearance.", StringComparison.OrdinalIgnoreCase))
+                {
+                    var element = property["appearance.".Length..];
+                    appearanceElementOverrides ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    appearanceElementOverrides[
+                        $"{SuppressionIdentityOf(frozen, characterKey, field.ElementKey)}|{element}"] =
+                        field.Removed ? string.Empty : (field.Value ?? string.Empty);
+                    continue;
+                }
+
                 if (string.Equals(property, "appearance", StringComparison.OrdinalIgnoreCase))
                 {
-                    appearanceOverrides[characterKey] = field.Removed ? string.Empty : (field.Value ?? string.Empty);
+                    // The suppression is written against the character's RESOLVED identity, never the raw key.
+                    // CanonicalCharacterAppearance reads this map by a frozen character's `characterId` and then its
+                    // name, so a key that resolves to neither suppressed NOTHING — silently — and the DEPICTED
+                    // CHARACTER APPEARANCE block went on describing the very appearance a reference image was
+                    // supplying. Measured live 2026-10-12: the removal carried the character's identity-owner id
+                    // while the brief addresses participants as `p0`/`p1`, so the prompt ordered the model to forget
+                    // an appearance it was still being handed.
+                    appearanceOverrides[SuppressionIdentityOf(frozen, characterKey, field.ElementKey)] =
+                        field.Removed ? string.Empty : (field.Value ?? string.Empty);
                 }
                 else
                 {
@@ -120,7 +178,27 @@ public static class ScenePromptOverridesApplier
         if (removed.Count > 0)
             RemoveCharacters(root, frozen, moment, continuity, removed);
 
-        return new ScenePromptEffectiveSnapshot(root.ToJsonString(), appearanceOverrides, removed);
+        return new ScenePromptEffectiveSnapshot(root.ToJsonString(), appearanceOverrides, removed, appearanceElementOverrides);
+    }
+
+    /// <summary>
+    /// Splits <c>&lt;characterKey&gt;.&lt;property&gt;</c>, honouring the two-part appearance properties
+    /// (<c>appearance.face</c>, <c>appearance.build</c>) whose character key would otherwise be read as
+    /// <c>p0.appearance</c>. One parser, so the applier cannot disagree with the plan about what a key addresses.
+    /// </summary>
+    private static (string CharacterKey, string Property) SplitCharacterElement(string rest)
+    {
+        foreach (var element in (string[])["appearance.face", "appearance.build"])
+        {
+            var suffix = "." + element;
+            if (rest.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (rest[..^suffix.Length], element);
+            }
+        }
+
+        var dot = rest.LastIndexOf('.');
+        return dot <= 0 ? (rest, string.Empty) : (rest[..dot], rest[(dot + 1)..]);
     }
 
     private static void ApplyScalar(JsonObject? target, string property, ScenePromptFieldOverride field)
@@ -191,6 +269,58 @@ public static class ScenePromptOverridesApplier
             if (node is JsonObject character && CharacterMatches(character, characterKey)) return character;
         }
         return null;
+    }
+
+    /// <summary>
+    /// The key an appearance suppression has to be written against: the depicted character's <c>characterId</c>, or
+    /// its name when it carries none.
+    ///
+    /// <para>
+    /// <see cref="CanonicalCharacterAppearance"/> reads the suppression map by exactly those two properties. A key
+    /// that resolves to neither suppresses nothing, and it does so SILENTLY - which is how a bound face and a bound
+    /// body lost to the appearance block that re-described them. An unresolvable key means the caller is addressing a
+    /// character the brief does not contain, so this fails fast and names both the key and the characters the brief
+    /// does contain rather than emitting a suppression that does nothing.
+    /// </para>
+    /// </summary>
+    private static string SuppressionIdentityOf(JsonObject? frozen, string characterKey, string elementKey)
+    {
+        var character = FindCharacter(frozen, characterKey)
+            ?? throw new InvalidOperationException(
+                $"Prompt element key '{elementKey}' addresses character '{characterKey}', which the compiled Still "
+                + $"brief does not contain; it addresses {DescribeCharacters(frozen)}. A removal that resolves to "
+                + "nobody suppresses nothing, and the prompt would go on describing an element a reference image "
+                + "already supplies.");
+
+        foreach (var property in (string[])["characterId", "name"])
+        {
+            if (StringProperty(character, property) is { Length: > 0 } identity) return identity.Trim();
+        }
+
+        throw new InvalidOperationException(
+            $"Character '{characterKey}' in the compiled Still brief carries neither a characterId nor a name, so "
+            + $"prompt element key '{elementKey}' cannot be addressed.");
+    }
+
+    /// <summary>The brief's own characters, as the keys a removal may address them by, for a refusal message.</summary>
+    private static string DescribeCharacters(JsonObject? frozen)
+    {
+        if (frozen?["characters"] is not JsonArray characters || characters.Count == 0)
+        {
+            return "no frozen characters at all";
+        }
+
+        var described = new List<string>();
+        foreach (var node in characters)
+        {
+            if (node is not JsonObject character) continue;
+            var profileKey = StringProperty(character, "profileKey");
+            if (string.IsNullOrWhiteSpace(profileKey)) continue;
+            var name = StringProperty(character, "name");
+            described.Add(string.IsNullOrWhiteSpace(name) ? profileKey : $"{profileKey} ({name})");
+        }
+
+        return described.Count == 0 ? "no frozen characters at all" : string.Join(", ", described);
     }
 
     /// <summary>

@@ -185,6 +185,18 @@ Quoting tip: rather than fight `ssh` + `cmd` quoting, pipe a script to the host
 - Measure render progress with `GET /internal/logs/raw` (`entries[].t/.m`) — it carries the live
   `Sampling: n%|…| x/28 [mm:ss<mm:ss, s/it]` line even when no console is attached.
 - Restart is safe only when `GET /queue` shows `running=0 pending=0` twice, ~20 s apart.
+- **A GPU timeout (TDR) poisons ComfyUI's CUDA context — restart the task, not the app.** After an
+  `nvlddmkm` TDR storm (System log Event ID 153 `Restarting TDR occurred on GPUID:100`; 110 of them hit on
+  2026-10-20 20:00–21:00) every following prompt fails *instantly* at whichever node touches CUDA first
+  (`exc_type torch.AcceleratorError`, `CUDA error: unknown error … Sticky error detected … from
+  cuCtxSynchronize_v2`), and `GET /system_stats` returns **500** because `cudaMemGetInfo` fails too. The GPU
+  itself is fine (`nvidia-smi` reports the card normally) — the sticky error lives in the process's context,
+  so `Stop-ScheduledTask 'ComfyUI 8188'` → wait for port 8188 to free → `Start-ScheduledTask` restores it.
+  Recurring TDRs are a driver/clock/power problem on the host, not a workflow problem: reboot if a restart
+  does not clear it, and do not "fix" it by retuning prompts.
+- The app now reports the failing node in its own error (`comfyui_edit_error` carries the
+  `execution_error` message), so a 400-level workflow failure no longer needs this host's console log to
+  diagnose — but `GET /history/<prompt_id>` remains the authoritative record.
 
 ## Why this checkpoint
 

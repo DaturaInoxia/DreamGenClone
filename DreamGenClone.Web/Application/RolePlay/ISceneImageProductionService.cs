@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -51,6 +52,26 @@ public interface ISceneImageProductionService
         string groupId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Saves the operator's UNCOMMITTED prompt-panel state — the source they picked, the intent they typed, and the
+    /// per-element edits from the Prompt Input inspector — on the group, so work they have not compiled yet survives a
+    /// reload.
+    /// </summary>
+    /// <remarks>
+    /// Generate Prompt is not the only save point any more. It stores a COMPILE; this stores the panel, which is what
+    /// an operator expects a reload to bring back. The inspector edits were the last piece missing: they lived only in
+    /// the page's memory, so a reload discarded them and the next Generate sent no overrides at all.
+    /// </remarks>
+    Task<SceneImageProductionGroup> SavePromptDraftAsync(
+        string groupId,
+        SceneImagePromptSource source,
+        string? userIntent,
+        ScenePromptOverrides? overrides = null,
+        SceneImageExplicitness explicitness = SceneImageExplicitness.Explicit,
+        CameraHolderPartsMode cameraHolderParts = CameraHolderPartsMode.None,
+        string? cameraHolderPartsText = null,
+        CancellationToken cancellationToken = default);
+
     Task<SceneImageProductionGroup?> GetCurrentGroupAsync(
         string momentEnrichmentId,
         string pov,
@@ -79,6 +100,21 @@ public interface ISceneImageProductionService
         string groupId,
         string imageId,
         string sha256,
+        string decidedBy,
+        string? note,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Withdraw the group's CURRENT approval, leaving it with none.
+    ///
+    /// <para>
+    /// It exists so the review deck's two routes offer one set of verdicts: an asset candidate has always been
+    /// revocable, and a production frame was not, so the same operator gesture on two halves of one deck did two
+    /// different things. It is refused by name when the group has no current approval to withdraw, or is archived.
+    /// </para>
+    /// </summary>
+    Task<ApprovedSceneFrameDecision> RevokeApprovalAsync(
+        string groupId,
         string decidedBy,
         string? note,
         CancellationToken cancellationToken = default);

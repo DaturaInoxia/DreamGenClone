@@ -254,6 +254,11 @@ leadingImages`. `MediaEditReference.Ordinal` keeps meaning "send order within th
 
 ### D5 — The edit blueprint gains the pack on the BUILD, and keeps its deliberate face exclusion
 
+> **⚠️ SUPERSEDED 2026-10-15 by §11.** The operator asked again for face parity and named it explicitly together with
+> body and pose; the face slot IS now declared on `ForEditElements`. The reasoning below is kept because it records
+> why the slot was originally withheld (the workspace's own Identity tab is a separate face-only run) — see §11 for
+> the resolution and for what happens to the two mechanisms now that both exist.
+
 `ForEditElements` mirrors `ForPackIdentityComposition` for the build only: per actor a **Body** slot accepting
 `[ApprovedSceneAsset, IdentityPackAsset]`, then **Wardrobe** (multi, shared sources). Location stays as it is
 (multi, shared).
@@ -400,3 +405,84 @@ what the surface does implement; the pack-build channel; wardrobe-by-name; scrat
 image, the negative count, and that the handler applies the clause) + 1 blueprint test.
 
 **Verification:** `dotnet build DreamGenClone.Web` 0 errors; **full suite 3860 passed / 0 failed**.
+
+---
+
+## 11. Implementation record — S5: face + pose parity, character pack selection, source-reference prefill (2026-10-15)
+
+**Operator request:** *"The Image Edit for 2.1 needs to have all of the same features as the image composition, the
+character faces, body, pose, it will need to have a character pack selection if no character can be derived, when an
+image is loaded for edit it needs to look and see what references were loaded for that image creating or edit and
+automatically set the references ready for the Edit."*
+
+Approved as one plan before any code was touched (repo rule: RP-engine changes need a plan and one confirmation).
+S1–S4 above are unchanged by this stage; S4 (edit-side LoRAs) stays deferred, and deliberately: `ImageStepProfile`
+already grants `Edit` the LoRA feature, but the edit run discards the selection (`MediaEditImageEditingJobHandler`
+never touches `SceneLorasJson`), so wiring the picker would add a dead control — worse than an absent one.
+
+### Root cause of each half
+
+| # | Finding |
+|---|---|
+| F1 | `ForEditElements` declared per actor only `Body` + `Wardrobe` and a frame-wide `Location`; `ForPackIdentityComposition` declares per actor `Face` + `Body` + `Wardrobe` and frame-wide `Location` + `Pose`. The edit surface was literally a smaller control set, by declaration. |
+| F2 | A pose binding was inert on every edit: `MediaEditReferenceResolver.ChannelOfFor` returned `null` for `ReferenceChannel.PoseSkeleton`, documented as "left to `ImageStepPoseBinding`" — true for generation, but no `ImageStepPoseBinding` consumer exists anywhere under `Editing/`. |
+| F3 | `EditCast` came only from `_identityTargetSelections`, which fills only after a vision analysis detects people *and* the operator binds each to a character. With nobody detected, the step declared no per-character slots and there was no way in. |
+| F4 | The workspace never read the source's recorded references, so every edit opened empty. The data already existed: scene → `SceneImages.AppliedReferenceBindingsJson`; asset → `SceneAssetImages.AssociationMetadataJson`. |
+
+### What changed
+
+| File | Change |
+|---|---|
+| `ImageStep/ImageStepBlueprintFactory.cs` | `ForEditElements`: per actor **Face** declared FIRST (`ApprovedSceneAsset`, `IdentityPackAsset`, `ScratchImage`), then Body, then Wardrobe; frame-wide **Location** and **Pose** (`PoseLibrarySkeleton`). Doc comment rewritten to record the reversal and the reason. |
+| `Editing/MediaEditReferenceResolver.cs` | `ChannelOfFor`/`CarriesReferenceImage` are now SURFACE-aware for `PoseSkeleton` — claimed on `Edit`, still `null` on `Generate` (where `ImageStepPoseBinding` owns it and resolving it here would send the skeleton twice). New `ResolvePoseSkeletonAsync` reads the skeleton BY PRESET ID through `IPoseLibraryService`; optional `IPoseLibraryService` constructor parameter (DI already registers it). |
+| `ImageStep/SourceReferenceSlotPrefill.cs` | **NEW.** The one decision about re-binding a source's recorded references: keeps only bindings whose slot the step declares and which the Edit surface can carry, refuses the rest BY NAME, declines the whole seed when it would exceed the model's own budget, and returns the notice sentence. Sibling of `IdentityPackSlotPrefill` / `LocationBackdropSlotPrefill`. |
+| `Editing/SourceReferenceProvenance.cs` | **NEW.** The one reader of a source row's recorded references for both stores, so "unreadable" cannot be reported as "none". |
+| `Editing/ImageEditWorkspaceModels.cs` | `ImageEditSourceReferences` (references + the reason a record cannot be read). |
+| `Editing/IImageEditWorkspaceService.cs` | `GetSourceReferencesAsync(subject)`. |
+| `Editing/SceneImageEditWorkspaceService.cs` | Reads `AppliedReferenceBindingsJson`. |
+| `Editing/SceneAssetImageEditWorkspaceService.cs` | Reads the reference applications out of the job payload `AssociationMetadataJson` preserved. |
+| `Components/Editing/ImageEditWorkspace.razor` | Character-pack multi-select on the Edit tab (the roster the Identity tab already loads); `EditCast` now unions identity targets, picked characters and the actors the source record names; the seed runs at load and after every model change; a notice states what was and was not re-bound; a one-line note says which face mechanism is which. |
+| `ReferenceApplicationSelection.cs` | `SuppliesImage` now counts `PosePresetId`. Already the rule `ReferenceApplicationSelectionValidation` enforces ("the preset ID is what makes it exact"); stating it a second way here is what made a preset-only pose binding look like one that supplies nothing. |
+
+### Deliberate decisions worth re-reading
+
+1. **The face slot reverses B-147 D5.** The Identity tab is a *separate queued run* (its own job, its own prompt), not a
+   second mechanism inside one render — so the original objection does not apply to the Edit tab's own slot. Both now
+   exist, and the workspace says on screen which is which.
+2. **Nothing is trimmed to fit.** When a source's reference set does not fit the chosen model's budget the whole seed is
+   declined with the reason; a partially-seeded set would leave a reference the operator cannot see and therefore
+   cannot clear.
+3. **The prefill is operator-visible, never a job-side inheritance.** The server-side copy was removed on 2026-10-13
+   for a live failure and its guard test (`SourceImageTransformPasses_DoNotInheritTheSourcesReferences`) still stands.
+   The defect was the silence, not the reuse.
+
+### Blast radius as it landed
+
+`ForEditElements` has a second host — the Scene Image Studio's Production **Finish** step (`SceneImageStudio.razor:1361`)
+— so that step gains the same Face and Pose tabs. Same capability, same step kind; flagged rather than hidden.
+`ImageStepComposerUsageContractTests` still passes unchanged: no new composer API was introduced.
+
+### Tests
+
+| Test | Holds |
+|---|---|
+| `ImageStepBlueprintFactoryTests.EditElements_DeclaresTheSameElementsAsTheComposition` | Element-for-element parity with `ForPackIdentityComposition`, face declared first, pose frame-wide (replaces the test that pinned the absence) |
+| `SourceReferenceSlotPrefillTests` (15) | Seeding with recorded order; refusal by name for an undeclared actor, a scratch image, an unqualified strategy, and a second image on a one-image slot; multi slots keep all of them; whole-seed decline past budget; no-reference-capacity named by its setting; `NothingRecorded` vs `NoModelSelected`; text-only neither seeded nor refused; `ActorKeysOf` |
+| `MediaEditImageEditingJobHandlerTests` (+4) | A pose skeleton reaches the model on an edit (read by preset id, named by the recorded artifact); a preset-less pose refuses by name; the channel is claimed on Edit and NOT on Generate |
+| `ImageEditWorkspaceContractTests` (+3) | Both stores answer `GetSourceReferencesAsync` through the one reader; the cast includes the actors the record names; a character can be chosen without a detected person |
+
+### Verification
+
+- `dotnet build DreamGenClone.Tests -c Release` — **0 errors**.
+- Targeted: **174 passed / 0 failed** across the blueprint, prefill, resolver, workspace-contract, pose-consolidation,
+  labelling and role-clause classes. Final focused re-run of the prefill/resolver/blueprint/workspace classes after the
+  duplicate-slot guard: **116 passed / 0 failed**.
+- Full suite: **4311 passed / 27 failed / 0 skipped**. The 27 are the PRE-EXISTING LoRA-coverage failures recorded in
+  the backlog (*"4264 passed / 27 pre-existing LoRA-coverage failures"*): 26 in `CharacterLoraCoveragePlanGeneratorTests`
+  / `CharacterLoraCoverageSchemaTests` and 1 in `CharacterLoraCellTemplateSeedTests`. None of those files references
+  any symbol this stage touched (verified by search), and the count matches the documented baseline exactly.
+- **Also note:** the Debug build could not be completed because `DreamGenClone.Web\bin\Debug\net9.0\DreamGenClone.dll`
+  is locked by a *bin-based* app instance (PID 22332, `dotnet DreamGenClone.dll --urls http://localhost:5177`, started
+  2026-10-14 23:49). Per the repo hard rule, no process was killed; verification was done with a Release build, which
+  does not touch the locked path. The Debug **compile** itself is clean (only the copy to `bin` fails).
+

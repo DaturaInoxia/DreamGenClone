@@ -43,6 +43,7 @@ public sealed class SceneImageService : ISceneImageService
     private readonly IDurableBackgroundJobQueue? _durableJobQueue;
     private readonly IMediaEditCompilationService? _mediaEdits;
     private readonly IImagePresetService? _presets;
+    private readonly IReferenceStrategyResolver? _referenceStrategies;
 
     public SceneImageService(
         ISessionService sessionService,
@@ -102,7 +103,8 @@ public sealed class SceneImageService : ISceneImageService
         IImageEditorEndpointReadiness? imageEditorEndpointReadiness = null,
         IDurableBackgroundJobQueue? durableJobQueue = null,
         IMediaEditCompilationService? mediaEdits = null,
-        IImagePresetService? presets = null)
+        IImagePresetService? presets = null,
+        IReferenceStrategyResolver? referenceStrategies = null)
     {
         _sessionService = sessionService;
         _repository = repository;
@@ -123,6 +125,7 @@ public sealed class SceneImageService : ISceneImageService
         _durableJobQueue = durableJobQueue;
         _mediaEdits = mediaEdits;
         _presets = presets;
+        _referenceStrategies = referenceStrategies;
     }
 
     public Task<SceneImageBeatAnalysisRecord?> GetBeatAnalysisByTurnAsync(
@@ -131,6 +134,12 @@ public sealed class SceneImageService : ISceneImageService
 
     public async Task<SceneImagePromptRecord> EnqueuePromptAsync(ScenePromptRequest request, CancellationToken cancellationToken = default)
     {
+        if (request.PromptSource == SceneImagePromptSource.UserIntent && string.IsNullOrWhiteSpace(request.UserIntent))
+        {
+            throw new InvalidOperationException(
+                "Prompt source 'User Intent' requires the operator's intent text. Add the intent, or choose the 'Scene' "
+                + "source — the compiler never falls back to the scene once User Intent is selected.");
+        }
         var session = await LoadSessionAsync(request.SessionId, cancellationToken);
         var interaction = FindInteraction(session, request.InteractionId);
         var hasProductionGroup = !string.IsNullOrWhiteSpace(request.ProductionGroupId);
@@ -181,6 +190,8 @@ public sealed class SceneImageService : ISceneImageService
             InputExcerpt = request.ExcerptOverride ?? string.Empty,
             RefineInstruction = string.IsNullOrWhiteSpace(request.RefineInstruction) ? null : request.RefineInstruction.Trim(),
             PromptStyle = SceneImagePromptStyleResolver.Effective(request.PromptStyle),
+            PromptSource = request.PromptSource,
+            UserIntent = string.IsNullOrWhiteSpace(request.UserIntent) ? null : request.UserIntent.Trim(),
             Status = SceneImagePromptStatus.Pending
         };
 
@@ -245,8 +256,18 @@ public sealed class SceneImageService : ISceneImageService
             if (resolved.ContentPolicy is ImageContentPolicy.SfwFiltered or ImageContentPolicy.Unknown)
                 throw new InvalidOperationException("Adult-content Finish edits are unavailable because the resolved editor model does not allow them.");
         }
-        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications)
-            ?? parent.AppliedReferenceBindingsJson;
+
+        // A Finish pass carries its OWN bindings when the form bound any, otherwise the source's: an edit that
+        // re-renders the frame conditions on the same references the source did, or the place drifts (B-147). Either
+        // way the set is proved against the model that will run it BEFORE the row exists, so a model that cannot carry
+        // one refuses here, by name, instead of failing inside the job with nothing on the surface to act on.
+        var carriedReferences = request.ReferenceApplications is { Count: > 0 }
+            ? request.ReferenceApplications
+            : ReadReferenceApplications(parent.AppliedReferenceBindingsJson);
+        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+        await RequireReferenceImagesAreCarryableAsync(
+            resolvedEditorModel.RegisteredModelId, resolvedEditorModel.ModelIdentifier, carriedReferences, cancellationToken);
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(carriedReferences);
 
         var record = new SceneImageRecord
         {
@@ -280,7 +301,6 @@ public sealed class SceneImageService : ISceneImageService
             AppliedReferenceBindingsJson = appliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
         return await DispatchEditAsync(
             record,
             new SceneImageEditingJobPayload { SessionId = session.Id, InteractionId = interaction.Id, ImageRecordId = record.Id },
@@ -337,8 +357,16 @@ public sealed class SceneImageService : ISceneImageService
             throw new InvalidOperationException("Identity requires at least one known visible character.");
         var faceOnlyInstruction = BuildFaceOnlyIdentityInstruction(
             bindings.Select(binding => (binding.ordinal, binding.characterName)).ToList());
-        var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications)
-            ?? parent.AppliedReferenceBindingsJson;
+        // An Identity pass carries its OWN bindings when the caller bound any, otherwise the source's, and either way
+        // the set is proved against the model that will run it BEFORE the row exists — a model that cannot carry one
+        // refuses here, by name, instead of failing inside the job with nothing on the surface to act on.
+        var carriedReferences = request.ReferenceApplications is { Count: > 0 }
+            ? request.ReferenceApplications
+            : ReadReferenceApplications(parent.AppliedReferenceBindingsJson);
+        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
+        await RequireReferenceImagesAreCarryableAsync(
+            resolvedEditorModel.RegisteredModelId, resolvedEditorModel.ModelIdentifier, carriedReferences, cancellationToken);
+        var appliedReferenceBindingsJson = SerializeReferenceApplications(carriedReferences);
 
         var record = new SceneImageRecord
         {
@@ -370,7 +398,6 @@ public sealed class SceneImageService : ISceneImageService
             AppliedReferenceBindingsJson = appliedReferenceBindingsJson
         };
         await _repository.InsertImageAsync(record, cancellationToken);
-        var resolvedEditorModel = await ResolveEditorModelForDispatchAsync(cancellationToken);
         return await DispatchEditAsync(
             record,
             new SceneImageEditingJobPayload
@@ -535,8 +562,17 @@ public sealed class SceneImageService : ISceneImageService
         // Proven face-application recipe (base-then-edit-pipeline): short, face-primary, uses
         // "Picture N" for the reference inputs, and ends with an explicit everything-else-unchanged
         // clause. Long hedged instructions make Qwen follow the leading prose instead of swapping faces.
+        //
+        // The locator rides in a PARENTHETICAL, not after the word "at". It is a field the VISION COMPILER fills,
+        // and the 2.1 compiler answered it with a whole direction clause ("on the image left") while this sentence
+        // was written as "the woman at center-left" — so the instruction read "the woman at on the image left", a
+        // target the editor could not bind to a face, and the reference portrait was composited into the frame
+        // instead of swapping the face. Measured 2026-10-13: the same feature produced a clean swap from a v1
+        // analysis, with the SAME reference image and model, on the same source. In a parenthetical the sentence
+        // reads identically whether the locator is a bare place or a phrase, so what the compiler writes here can no
+        // longer mangle the target.
         var mapping = string.Join(" ", selectedPeople.Select(person =>
-            $"Apply the face of the person shown in Picture {person.Ordinal + 1} to the {person.SubjectLabel.Trim()} at {person.VisibleLocator.Trim()}. " +
+            $"Apply the face of the person shown in Picture {person.Ordinal + 1} to the {person.SubjectLabel.Trim()} (position: {person.VisibleLocator.Trim()}). " +
             $"Keep that person's facial identity consistent with Picture {person.Ordinal + 1} for the entire image; do not change anyone else."));
         var faces = selectedPeople.Count > 1 ? "faces" : "face";
         return $"{mapping} Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected {faces}.";
@@ -565,6 +601,8 @@ public sealed class SceneImageService : ISceneImageService
             InputExcerpt = request.ExcerptOverride ?? string.Empty,
             RefineInstruction = string.IsNullOrWhiteSpace(request.RefineInstruction) ? null : request.RefineInstruction.Trim(),
             PromptStyle = SceneImagePromptStyleResolver.Effective(request.PromptStyle),
+            PromptSource = request.PromptSource,
+            UserIntent = string.IsNullOrWhiteSpace(request.UserIntent) ? null : request.UserIntent.Trim(),
             Status = SceneImagePromptStatus.Pending
         };
         await _repository.UpsertPromptAsync(record, cancellationToken);
@@ -791,6 +829,71 @@ public sealed class SceneImageService : ISceneImageService
         return JsonSerializer.Serialize(applications, JsonOptions);
     }
 
+    /// <summary>The bindings a row carries, so a pass that inherits them proves them exactly as it proves its own.</summary>
+    private static IReadOnlyList<ReferenceApplicationSelection> ReadReferenceApplications(string? json)
+        => string.IsNullOrWhiteSpace(json)
+            ? []
+            : JsonSerializer.Deserialize<IReadOnlyList<ReferenceApplicationSelection>>(json, JsonOptions) ?? [];
+
+    /// <summary>
+    /// Proves every reference IMAGE a pass will carry against the model that will RUN it, before the row and the job
+    /// exist.
+    ///
+    /// <para>
+    /// The capability question is the strategy resolver's own — the same declaration + qualification contract the
+    /// render, the editor and the composer ask — so this cannot disagree with them about what a model can carry. It
+    /// replaces a refusal raised deep inside the job, after the row existed and with nothing on the surface naming the
+    /// binding to clear: "Reference strategy 'NativeMultiReference' for 'Location' is unavailable: Model '…' does not
+    /// declare support for 'NativeMultiReference' in Model Manager" (2026-10-13). A binding that travels by another
+    /// route (text-only, a pose skeleton the render consolidates, a pack image the editor resolves itself) is left to
+    /// that route, selected by the resolver's OWN predicate so the two cannot drift.
+    /// </para>
+    ///
+    /// <para>
+    /// Nothing is dropped or downgraded to let the pass proceed: the enqueue is refused, naming the model and the
+    /// element.
+    /// </para>
+    /// </summary>
+    private async Task RequireReferenceImagesAreCarryableAsync(
+        string? registeredModelId,
+        string modelIdentifier,
+        IReadOnlyList<ReferenceApplicationSelection>? applications,
+        CancellationToken cancellationToken)
+    {
+        if (applications is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var strategies = _referenceStrategies
+            ?? throw new InvalidOperationException(
+                "Proving a pass's references against the model that will run it requires the reference strategy resolver.");
+
+        foreach (var application in applications)
+        {
+            if (!MediaEditReferenceResolver.CarriesReferenceImage(
+                    ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, application))
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(registeredModelId))
+            {
+                throw new InvalidOperationException(
+                    "Proving a pass's references against the model that will run it requires the model's registered id.");
+            }
+
+            var resolution = await strategies.ResolveAsync(registeredModelId, application.Strategy, cancellationToken);
+            if (!resolution.IsAvailable)
+            {
+                throw new InvalidOperationException(
+                    $"The '{application.ElementKey}' reference cannot travel with this pass, because the editor model "
+                    + $"'{modelIdentifier}' cannot carry it. {resolution.Reason} Clear that reference, or choose a model "
+                    + "that declares it.");
+            }
+        }
+    }
+
     /// <summary>
     /// The ordered identity-face bindings a NATIVE-REFERENCE render consumes, or null for every other render
     /// mode. Identity on the native route travels as reference images, and the render handler builds them from
@@ -989,6 +1092,13 @@ public sealed class SceneImageService : ISceneImageService
             attempt.SystemPromptVersion,
             resolvedModelSnapshot = JsonSerializer.Deserialize<JsonElement>(attempt.ResolvedModelSnapshotJson)
         }, JsonOptions);
+
+        // The edit form's bindings were intersected with the model selected WHEN THEY WERE BOUND, so a model chosen
+        // afterwards can leave a binding this run cannot carry. Proving it here refuses the enqueue by name, before the
+        // row and the job exist, instead of failing inside the job with nothing on the surface to act on.
+        await RequireReferenceImagesAreCarryableAsync(
+            resolvedEditorModel.RegisteredModelId, resolvedEditorModel.ModelIdentifier,
+            request.ReferenceApplications, cancellationToken);
         var appliedReferenceBindingsJson = SerializeReferenceApplications(request.ReferenceApplications);
 
         var record = new SceneImageRecord
@@ -1127,7 +1237,12 @@ public sealed class SceneImageService : ISceneImageService
             MomentEnrichmentId = source.MomentEnrichmentId,
             MomentEnrichmentRevision = source.MomentEnrichmentRevision,
             TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
-            AppliedReferenceBindingsJson = source.AppliedReferenceBindingsJson
+            // NOT the source's bindings: a preset pass applies an authored, hash-verified instruction to the source
+            // IMAGE, which already holds the place and the identity the source was made from. Carrying them made the
+            // pass re-resolve another render's references against ITS editor model, which for the edit models (all of
+            // them declaring no reference strategy) refused the run outright — a relight could not run at all
+            // (2026-10-13).
+            AppliedReferenceBindingsJson = null
         };
         await _repository.InsertImageAsync(record, cancellationToken);
         return await DispatchEditAsync(
@@ -1227,7 +1342,12 @@ public sealed class SceneImageService : ISceneImageService
             MomentEnrichmentId = source.MomentEnrichmentId,
             MomentEnrichmentRevision = source.MomentEnrichmentRevision,
             TypedReferenceSnapshotJson = source.TypedReferenceSnapshotJson,
-            AppliedReferenceBindingsJson = source.AppliedReferenceBindingsJson
+            // NOT the source's bindings, for the same reason the preset pass above does not carry them: a camera pass
+            // rotates the source IMAGE, and the source already contains the place and the identity it was rendered
+            // with. Inheriting them made the pass re-resolve the COMPOSITION's Location reference against the
+            // multi-angle editor model — which declares no reference strategy — so every camera angle on an image that
+            // had been rendered with a location reference failed before it could render (reported live 2026-10-13).
+            AppliedReferenceBindingsJson = null
         };
         await _repository.InsertImageAsync(record, cancellationToken);
         return await DispatchEditAsync(
@@ -1653,6 +1773,85 @@ public sealed class SceneImageService : ISceneImageService
             sessionId,
             imageId);
     }
+
+    public Task<SceneImageRecord?> GetImageAsync(string imageId, CancellationToken cancellationToken = default)
+        => _repository.GetImageAsync(imageId, cancellationToken);
+
+    public async Task<SceneImageRecord> SetDisplayNameAsync(
+        string sessionId, string imageId, string? displayName, CancellationToken cancellationToken = default)
+    {
+        var image = await _repository.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException($"Scene image '{imageId}' was not found, so it could not be named.");
+
+        // The session is checked from the ROW, not trusted from the caller: a name is written by id, and an id from
+        // another session's page would otherwise silently rename an image the operator cannot see.
+        if (!string.Equals(image.SessionId, sessionId?.Trim(), StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Scene image '{imageId}' does not belong to session '{sessionId}', so it cannot be named here.");
+        }
+
+        var named = await _repository.SetDisplayNameAsync(
+            imageId, displayName, DateTime.UtcNow, cancellationToken);
+        _logger.LogInformation(
+            "Named scene image: SessionId={SessionId}, ImageId={ImageId}, Named={Named}",
+            sessionId,
+            imageId,
+            !string.IsNullOrWhiteSpace(named.DisplayName));
+        return named;
+    }
+
+    public async Task<IReadOnlyList<SceneImageRecord>> ListSearchableImagesAsync(
+        SceneImageSearchScope scope, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        if (string.IsNullOrWhiteSpace(scope.SessionId))
+        {
+            throw new InvalidOperationException("A search for the app's own images needs the session it is confined to.");
+        }
+
+        var images = await _repository.ListImagesBySessionAsync(scope.SessionId.Trim(), cancellationToken);
+        return images.Where(image => IsSearchableAppImage(image, scope)).ToList();
+    }
+
+    /// <summary>
+    /// Whether one rendered image may stand as a reference in this scope. Three facts, all of them things the reference
+    /// resolver re-reads before it conditions on the image: the render finished, the bytes are still there (a rejected
+    /// attempt's bytes can be purged), and a checksum was recorded — that checksum is what proves the bytes do not
+    /// change under the binding.
+    /// </summary>
+    private static bool IsSearchableAppImage(SceneImageRecord image, SceneImageSearchScope scope)
+    {
+        if (image.Status != SceneImageStatus.Complete
+            || string.IsNullOrWhiteSpace(image.FileRelativePath)
+            || string.IsNullOrWhiteSpace(image.Sha256))
+        {
+            return false;
+        }
+
+        return scope.Level switch
+        {
+            SceneImageSearchScopeLevel.Moment => string.Equals(
+                image.MomentId,
+                RequireScopeId(scope.MomentId, "moment", nameof(SceneImageSearchScope.MomentId)),
+                StringComparison.Ordinal),
+            SceneImageSearchScopeLevel.Beat => string.Equals(
+                image.BeatId,
+                RequireScopeId(scope.BeatId, "beat", nameof(SceneImageSearchScope.BeatId)),
+                StringComparison.Ordinal),
+            SceneImageSearchScopeLevel.Session => true,
+            _ => throw new InvalidOperationException(
+                $"Search scope level '{scope.Level}' has no filter. Add one deliberately: a level that silently "
+                + "returned everything would answer a different question than the operator asked.")
+        };
+    }
+
+    private static string RequireScopeId(string? value, string label, string member)
+        => string.IsNullOrWhiteSpace(value)
+            ? throw new InvalidOperationException(
+                $"A {label}-scoped image search needs the {label} id, so '{member}' must be supplied. Widening the "
+                + "search to the whole session instead would answer a different question.")
+            : value.Trim();
 
     private async Task<RolePlaySession> LoadSessionAsync(string sessionId, CancellationToken cancellationToken)
     {

@@ -85,11 +85,15 @@ public sealed class QwenSceneImagePromptBuilderTests
     [Fact]
     public void Qwen21Beat_StatesTheLongFormBudget()
     {
-        // The instruction mirrors the Qwen profile's envelope (MinChars 300 / MaxChars 1600). A budget written into the
-        // instruction text and one enforced by the evaluator that disagree is a cell that can never pass.
+        // The LENGTH the vendor's dialect asks for, and the SHAPE it asks for. The character range lives on the target
+        // checkpoint's profile (MinChars/MaxChars), not in this text: a range written here that disagrees with the
+        // profile is a contract no output can satisfy, and the model resolves it by writing a thin caption that drops
+        // the operator's own element text (measured 2026-10-23).
         var text = SceneImageCompilerSystemPrompts.Qwen21Beat;
 
-        Assert.Contains("300 and 1600 characters", text, StringComparison.Ordinal);
         Assert.Contains("20 sentences", text, StringComparison.Ordinal);
+        Assert.Contains("400-500 words", text, StringComparison.Ordinal);
+        Assert.Contains("ONE continuous paragraph", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("characters, written as one continuous paragraph", text, StringComparison.Ordinal);
     }
 }

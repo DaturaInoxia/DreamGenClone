@@ -150,6 +150,37 @@ internal static class PhysicalAttributesFormatter
     }
 
     /// <summary>
+    /// The FACE half of <see cref="FormatVisualBlock"/>: the traits a face reference image supplies and a body
+    /// reference image does not need to be re-described for. B-166 D10 splits appearance into independently ownable
+    /// FACE and BUILD elements so a face-only binding stops deleting the build prose (and vice versa).
+    /// Height is deliberately BUILD, not FACE: a face plate says nothing about stature.
+    /// </summary>
+    internal static string FormatVisualFace(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var sb = new StringBuilder();
+        Append(sb, "Age", attrs.Age);
+        Append(sb, "Ethnicity", attrs.Ethnicity);
+        Append(sb, "Hair", CombineNotEmpty(attrs.HairStyle, attrs.HairColour, separator: ", "));
+        Append(sb, "Iris color", attrs.EyeColour);
+        Append(sb, "Skin", CombineNotEmpty(attrs.SkinTone, attrs.SkinTexture, separator: ", "));
+        // The face-specific axes exist so a face can be DESCRIBED when no reference supplies one; they belong to the
+        // face half and nowhere else.
+        Append(sb, "Face shape", attrs.FaceShape);
+        Append(sb, "Eyes", attrs.EyeShape);
+        Append(sb, "Eyebrows", attrs.Eyebrows);
+        Append(sb, "Nose", attrs.NoseShape);
+        Append(sb, "Lips", attrs.LipsShape);
+        Append(sb, "Jawline", attrs.Jawline);
+        Append(sb, "Marks", attrs.DistinguishingMarks);
+        Append(sb, "Piercings", attrs.Piercings);
+        Append(sb, "Tattoos", attrs.Tattoos);
+
+        return sb.Length == 0 ? string.Empty : sb.ToString();
+    }
+
+    /// <summary>
     /// The body axes as ONE conditioned line — "average frame, average weight, fuller rear with a soft belly".
     ///
     /// They are joined into a single line rather than emitted as six labelled lines on purpose: the image

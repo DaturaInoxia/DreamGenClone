@@ -6,6 +6,7 @@ using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Domain.StoryAnalysis;
 using DreamGenClone.Web.Application.BackgroundJobs;
+using DreamGenClone.Web.Application.RolePlay.Evaluation;
 using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Application.Scenarios;
@@ -44,6 +45,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     private readonly ISceneImageProductionGroupRepository _productionGroups;
     private readonly ICompiledMediaBriefRepository _compiledMediaBriefs;
     private readonly ISceneMomentEnrichmentRepository _momentEnrichments;
+    private readonly ISceneImageCharacterLoraResolver? _characterLoras;
     private readonly ILogger<SceneImagePromptGenerationJobHandler> _logger;
 
     public SceneImagePromptGenerationJobHandler(
@@ -62,6 +64,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         ISceneImageProductionGroupRepository productionGroups,
         ICompiledMediaBriefRepository compiledMediaBriefs,
         ISceneMomentEnrichmentRepository momentEnrichments,
+        ISceneImageCharacterLoraResolver characterLoras,
         ILogger<SceneImagePromptGenerationJobHandler> logger)
     {
         _sessionService = sessionService;
@@ -79,6 +82,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         _productionGroups = productionGroups;
         _compiledMediaBriefs = compiledMediaBriefs;
         _momentEnrichments = momentEnrichments;
+        _characterLoras = characterLoras;
         _logger = logger;
     }
 
@@ -306,11 +310,24 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 characters = scenario?.Characters;
             }
 
+            // The removals are only legitimate for references this prompt's render will actually SEND, so the resolved
+            // model has to be able to carry every binding they are derived from. A model that carries no references has
+            // no reference to take the element over, and its text MUST keep the full description — that is the whole
+            // difference between Qwen-Image-2.1 and a text-only model such as Krea 2, BigLust or Pony. Leaving this
+            // implicit meant the removal rule assumed every model was reference-capable; a binding the model cannot
+            // carry is now refused by name rather than quietly costing the prompt its description (B-157, 2026-10-12).
+            EnsureReferencesAreCarryable(referenceApplications, resolvedImageModel);
+
             // Apply user-authored element overrides/removals (and whole-character removals) as hard
             // substitutions so the compiler sees exactly one value per element. The render's reference bindings
             // are merged in BEHIND those: an image that supplies an element means the prompt need not describe it
             // either, but a deliberate operator edit always outranks a binding-derived default.
-            var effectiveOverrides = ReferenceBindingPromptRemoval.Merge(settings.PromptOverrides, referenceApplications);
+            // B-166 D6: a character LoRA supplies identity the way a face reference does, so it contributes the same
+            // removal from the ONE table rather than a family special-case.
+            var characterLoraRemovals = ReferenceBindingPromptRemoval.DeriveForCharacterLoras(
+                await ResolveCharacterLorasAsync(resolvedImageModel, settings, cancellationToken));
+            var effectiveOverrides = ReferenceBindingPromptRemoval.Merge(
+                settings.PromptOverrides, referenceApplications, characterLoraRemovals);
             var promptPayload = ScenePromptOverridesApplier.Apply(brief, effectiveOverrides);
 
             // B-132: each depicted character's AUTHORED appearance text, so the pre-processor describes them the way
@@ -318,8 +335,42 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // this is the async, DI-backed point that owns the characters; the prompt builders stay synchronous and
             // receive the texts as data.
             var canonicalAppearance = await ResolveCanonicalAppearanceAsync(characters, cancellationToken);
-            var (systemPrompt, userPrompt) = compiler.PromptBuilder.BuildMessages(
-                promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance, effectiveOverrides, referenceApplications);
+
+            // The POV frame is resolved from the COMPILED brief, never from the payload above: a bound location, pose
+            // or wardrobe image deliberately REMOVES its element from the payload, so projecting from it would read a
+            // scene with no place and no stance (it failed prompt generation outright once a location was bound). The
+            // overrides tell the projection which of those facts the prompt must stop restating. A User Intent prompt
+            // has no brief-backed scene, so no frame is projected for it.
+            SceneImagePovProjection.Projection? povProjection = null;
+            var compiledBlocking = SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson);
+            if (record.PromptSource != SceneImagePromptSource.UserIntent)
+            {
+                // B-166 D7: the Omniscient lean is the profile value snapshotted into the brief at compile time; a
+                // participant POV gets none and an explicit operator framing wins.
+                var omniscientLean = string.Equals(group.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
+                    ? compiledBlocking?.Camera.OmniscientShotSize
+                    : null;
+                var effectiveBlocking = compiledBlocking is null
+                    ? null
+                    : SceneBlockingResolver.ApplyForPrompt(compiledBlocking, settings.SceneBlockingOverride, omniscientLean);
+                // Whether the room comes from a bound image is a fact about the references, not about the removal list:
+                // the same removal can be an operator edit, and the projection must say which one it is.
+                var sceneSuppliedByReference = referenceApplications?.Any(reference =>
+                    ReferenceBindingPromptRemoval.ImpliesRemoval(reference)
+                    && ReferenceBindingShape.SlotKindOf(reference) == ImageStepSlotKind.Location) == true;
+                povProjection = SceneImagePovProjection.Resolve(
+                    brief, group.Pov, effectiveBlocking, effectiveOverrides, sceneSuppliedByReference,
+                    settings.SceneBlockingOverride?.Camera,
+                    settings.CameraHolderParts, settings.CameraHolderPartsText);
+            }
+
+            // ONE decision path for what the compiler reads: the source stored on the record. User Intent passes the
+            // operator's own text and never consults the brief; the scene path passes the validated brief.
+            var (systemPrompt, userPrompt) = record.PromptSource == SceneImagePromptSource.UserIntent
+                ? compiler.PromptBuilder.BuildIntentMessages(
+                    record.UserIntent ?? string.Empty, group.Pov, settings, resolvedImageModel.ContentPolicy, referenceApplications)
+                : compiler.PromptBuilder.BuildMessages(
+                    promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance, effectiveOverrides, referenceApplications, povProjection, promptPayload.AppearanceElementOverrides);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {
@@ -336,13 +387,85 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
             var (rawResponse, reasoning) = await _completionClient.GenerateWithReasoningAsync(
                 systemPrompt, userPrompt, resolvedTextModel, cancellationToken);
-            var parsed = compiler.PromptBuilder.ParseOutput(rawResponse);
-            // The role block is APPENDED rather than left to the pre-processor: the <imageN> tags are Qwen's mandatory
-            // syntax for a request with more than one reference image, and a language model that paraphrases or drops
-            // them leaves the image model to guess which reference is the room. Generated from the bindings the render
-            // will actually send, in send order, so no rewrite can renumber them.
-            record.OutputPrompt = ReferenceRoleClauses.AppendToImagePrompt(
-                parsed.Prompt, ReferenceRoleClauses.RolesFor(referenceApplications));
+
+            // B-166 D2/D9: required content is ENFORCED, not requested — but only where a violation is CERTAINLY wrong.
+            // A person the frame excludes, or a name with nothing to anchor it, refuses the prompt after one corrective
+            // pass. Placement wording and "is the setting named" are prose judgements: they are recorded as diagnostics
+            // and never fail a compile (measured 2026-10-20, three failed records on one composition).
+            var textDescribed = TextDescribedNames(povProjection, promptPayload);
+            var (parsed, effectiveReasoning, contractViolations) = await GenerateWithContractAsync(
+                compiler.PromptBuilder,
+                systemPrompt,
+                userPrompt,
+                resolvedTextModel,
+                rawResponse,
+                reasoning,
+                povProjection,
+                referenceApplications,
+                textDescribed,
+                cancellationToken,
+                record.PromptSource == SceneImagePromptSource.UserIntent ? record.UserIntent : null,
+                group.Pov);
+            reasoning = effectiveReasoning;
+
+            var advisory = contractViolations.Where(violation => !violation.Blocking).ToList();
+            if (advisory.Count > 0)
+            {
+                await WriteDebugEventAsync("SceneImagePromptContractAdvisory", record.SessionId, record.InteractionId, new
+                {
+                    promptRecordId = record.Id,
+                    violations = advisory.Select(violation => new
+                    {
+                        element = violation.Element,
+                        person = violation.Person,
+                        detail = violation.Detail
+                    })
+                }, cancellationToken);
+            }
+            // The operator's FRAMING is an OVERRIDE, so it is stated deterministically at the END of the compiled prompt
+            // rather than left to the pre-processor to paraphrase. Measured 2026-10-21: the operator chose "close shot"
+            // and the compiled prose said "A close-up photograph" — close, but not the value they picked, and nothing
+            // made the model keep it. An override the model may reword is not an override.
+            //
+            // Only a PARTICIPANT POV is appended here: the Omniscient path already gets this same line from
+            // FinalImagePromptPlan at render, and appending both would state two cameras.
+            var framingLine = povProjection is { IsOmniscient: false } participant
+                ? SceneFramingClause.LineFor(participant.Camera is { } camera
+                    ? new SceneBlocking(
+                        "operator-framing",
+                        [],
+                        camera with { Angle = SceneImagePovProjection.CameraAngleText(participant) ?? camera.Angle },
+                        [],
+                        string.Empty)
+                    : null)
+                : record.PromptSource == SceneImagePromptSource.UserIntent && settings.SceneBlockingOverride?.Camera is { } chosen
+                    // A User Intent draft has no projection, so the operator's FRAMING would otherwise depend on the
+                    // intent text mentioning it. The dropdown is a user override and is stated deterministically here
+                    // (measured 2026-10-21: the same composition rendered "medium shot" while the control read
+                    // "close shot").
+                    ? SceneFramingClause.LineFor(new SceneBlocking(
+                        "operator-framing",
+                        [],
+                        new SceneBlockingCamera(
+                            string.IsNullOrWhiteSpace(chosen.Angle) ? compiledBlocking?.Camera.Angle ?? string.Empty : chosen.Angle.Trim(),
+                            chosen.ShotSize.Trim(),
+                            null),
+                        [],
+                        string.Empty))
+                    : string.Empty;
+
+            // The role block is NOT appended here. Composition happens at RENDER time, in
+            // SceneImageRenderingJobHandler, from the images actually about to be sent: that is the only place that
+            // knows the final send order, and it is the catch-all so a prompt generated BEFORE its references were
+            // bound still names them.
+            //
+            // Appending here as well put the SAME block into the model's prompt twice on every render — measured from
+            // the dev DB as an append count of 2 on every native-reference render back to 2026-10-05 (B-157, fixed
+            // 2026-10-11). It also made an EDIT inherit a render-shaped block on top of its own instruction block.
+            // The plan's validation still runs, at the render, which is where the references are known.
+            record.OutputPrompt = framingLine.Length == 0
+                ? parsed.Prompt
+                : $"{parsed.Prompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{framingLine}";
             record.ModelIdentifier = resolvedTextModel.ModelIdentifier;
             record.Status = SceneImagePromptStatus.Complete;
             record.ErrorMessage = null;
@@ -400,6 +523,160 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             throw new InvalidOperationException("Compiled Still brief lineage does not exactly match the production group.");
     }
 
+    /// <summary>
+    /// Resolves the character LoRAs this prompt's render will apply, so their identity can be removed from the prose
+    /// (B-166 D6). A selection that cannot be resolved is a REFUSAL, not an omission: rendering on with the full
+    /// appearance text would describe a person the LoRA is already carrying, and the two would compete.
+    /// </summary>
+    private async Task<IReadOnlyList<ResolvedCharacterLora>> ResolveCharacterLorasAsync(
+        ResolvedImageModel resolvedImageModel,
+        SceneImageStudioSettings settings,
+        CancellationToken cancellationToken)
+    {
+        if (settings.CharacterLoras is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var resolver = _characterLoras
+            ?? throw new InvalidOperationException(
+                "This prompt selects character LoRA(s), but the character LoRA resolver is not available, so the "
+                + "appearance those LoRAs supply cannot be removed from the prompt.");
+
+        return await resolver.ResolveAsync(resolvedImageModel, settings, cancellationToken);
+    }
+
+    /// <summary>
+    /// The in-frame characters whose appearance this prompt still DESCRIBES in words, so naming them is anchored
+    /// (D9). A character whose face and build are both supplied by references is anchored by those references instead.
+    /// </summary>
+    private static IReadOnlySet<string>? TextDescribedNames(
+        SceneImagePovProjection.Projection? projection,
+        ScenePromptPayload payload)
+    {
+        if (projection is null) return null;
+
+        var elementOverrides = payload.AppearanceElementOverrides;
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var character in projection.InFrame)
+        {
+            bool Removed(string element) =>
+                elementOverrides?.ContainsKey($"{character.Name}|{element}") == true
+                || elementOverrides?.ContainsKey($"{character.ProfileKey}|{element}") == true;
+
+            if (!Removed("face") && !Removed("build"))
+            {
+                names.Add(character.Name);
+            }
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// Parses the pre-processor output, then enforces the request contract with at most ONE corrective pass.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two failures are handled here because both are the same thing to the operator — "the compile failed for a reason
+    /// the request did not ask for". An OVERLONG answer gets one shorter rewrite (the cap is a provider constraint, and
+    /// the prompt that arrives over it is usually one paragraph of redundant detail). A BLOCKING contract violation
+    /// gets one corrective rewrite that names it. Advisory violations are returned for the caller to record and never
+    /// cost a second generation.
+    /// </para>
+    /// <para>
+    /// Exactly one retry, never a loop: a model that twice produces the same contradiction is refused with a message
+    /// naming it, so the operator sees a fixable fault instead of a silently wrong image (B-166 D2).
+    /// </para>
+    /// </remarks>
+    private async Task<(
+        SceneImagePreprocessorResult Parsed,
+        string? Reasoning,
+        IReadOnlyList<PromptContractViolation> Violations)> GenerateWithContractAsync(
+        ISceneImageLLMPromptBuilder builder,
+        string systemPrompt,
+        string userPrompt,
+        ResolvedModel resolvedTextModel,
+        string rawResponse,
+        string? reasoning,
+        SceneImagePovProjection.Projection? projection,
+        IReadOnlyList<ReferenceApplicationSelection>? bindings,
+        IReadOnlySet<string>? textDescribed,
+        CancellationToken cancellationToken,
+        string? operatorIntent = null,
+        string? povOfRecord = null)
+    {
+        var parsed = await ParseWithinLengthAsync(builder, systemPrompt, userPrompt, resolvedTextModel, rawResponse, cancellationToken)
+            .ConfigureAwait(false);
+        if (parsed.LengthRetried) reasoning = parsed.Reasoning;
+        var result = parsed.Parsed;
+
+        var violations = SceneImagePromptContractValidator.Validate(result.Prompt, projection, bindings, textDescribed)
+            .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(result.Prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(result.Prompt, projection?.CameraHolderParts))
+            .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(result.Prompt, operatorIntent))
+            .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(result.Prompt, povOfRecord))
+            .ToList();
+        var corrective = SceneImagePromptContractValidator.BuildCorrectiveInstruction(violations);
+        if (corrective.Length == 0)
+        {
+            return (result, reasoning, violations);
+        }
+
+        var retryUserPrompt = userPrompt + corrective;
+        var (retryRaw, retryReasoning) = await _completionClient.GenerateWithReasoningAsync(
+            systemPrompt, retryUserPrompt, resolvedTextModel, cancellationToken).ConfigureAwait(false);
+        var retryLength = await ParseWithinLengthAsync(
+            builder, systemPrompt, retryUserPrompt, resolvedTextModel, retryRaw, cancellationToken).ConfigureAwait(false);
+        if (retryLength.LengthRetried) retryReasoning = retryLength.Reasoning;
+
+        var retryParsed = retryLength.Parsed;
+        var remaining = SceneImagePromptContractValidator.Validate(retryParsed.Prompt, projection, bindings, textDescribed)
+            .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(retryParsed.Prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(retryParsed.Prompt, projection?.CameraHolderParts))
+            .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(retryParsed.Prompt, operatorIntent))
+            .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(retryParsed.Prompt, povOfRecord))
+            .ToList();
+        var blocking = remaining.Where(violation => violation.Blocking).ToList();
+        if (blocking.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "The generated image prompt contradicts the request, and one corrective pass did not fix it: "
+                + string.Join(" ", blocking.Select(violation =>
+                    violation.Person is null ? violation.Detail : $"[{violation.Person}] {violation.Detail}")));
+        }
+
+        return (retryParsed, retryReasoning, remaining);
+    }
+
+    /// <summary>
+    /// Parses the output, and when the ONLY problem is length asks once for a shorter rewrite. Any other parse failure
+    /// propagates unchanged: an empty or refused answer is not a length problem and must not be retried as one.
+    /// </summary>
+    private async Task<(SceneImagePreprocessorResult Parsed, string? Reasoning, bool LengthRetried)> ParseWithinLengthAsync(
+        ISceneImageLLMPromptBuilder builder,
+        string systemPrompt,
+        string userPrompt,
+        ResolvedModel resolvedTextModel,
+        string rawResponse,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return (builder.ParseOutput(rawResponse), null, false);
+        }
+        catch (InvalidOperationException exception) when (exception.Message.Contains("overlong prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            var shorterUserPrompt = userPrompt
+                + $"{Environment.NewLine}{Environment.NewLine}LENGTH: the previous attempt was over the maximum length. "
+                + "Rewrite it to fit the length budget this request states, keeping every required fact, and remove "
+                + "repeated or decorative detail rather than required content.";
+            var (retryRaw, retryReasoning) = await _completionClient.GenerateWithReasoningAsync(
+                systemPrompt, shorterUserPrompt, resolvedTextModel, cancellationToken).ConfigureAwait(false);
+            return (builder.ParseOutput(retryRaw), retryReasoning, true);
+        }
+    }
+
     private async Task FailRecordAsync(SceneImagePromptRecord record, string errorMessage, CancellationToken cancellationToken)
     {
         record.Status = SceneImagePromptStatus.Failed;
@@ -430,6 +707,58 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             promptStyle,
             requestedImageModelId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Refuses a reference the resolved image model cannot carry, before anything is derived from it.
+    ///
+    /// <para>
+    /// A binding records the strategy the composer intersected for the model selected AT THE TIME. Changing the image
+    /// model afterwards leaves bindings that no longer describe what the render can do, and this handler's only use for
+    /// them is to remove the prompt elements they supply - so the prompt would lose the description and the render
+    /// would lose the reference. Membership in the generation surface's implemented set is the SAME predicate the
+    /// render and the editor use, so the three cannot disagree about what a model can carry.
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="ReferenceBindingPromptRemoval.ImpliesRemoval"/> is what decides which bindings this looks at, so a
+    /// binding that implies no removal is left alone here for the same reason it removes nothing there. That is what
+    /// keeps a text-only model's prompt COMPLETE: with no reference actually being sent, nothing takes the character's
+    /// appearance over and the full description has to survive (Krea 2, BigLust, Pony).
+    /// </para>
+    /// </summary>
+    /// <remarks>Internal rather than private so the refusal rule is unit-testable without a handler fixture.</remarks>
+    internal static void EnsureReferencesAreCarryable(
+        IReadOnlyList<ReferenceApplicationSelection>? referenceApplications,
+        ResolvedImageModel resolvedImageModel)
+    {
+        if (referenceApplications is null || referenceApplications.Count == 0)
+        {
+            return;
+        }
+
+        var implemented = ReferenceStrategyCatalogue.ImplementedReferenceStrategiesFor(
+            ReferenceStrategyCatalogue.ReferenceImageSurface.Generate);
+
+        foreach (var application in referenceApplications)
+        {
+            if (!ReferenceBindingPromptRemoval.ImpliesRemoval(application))
+            {
+                continue;
+            }
+
+            if (implemented.Contains(application.Strategy, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            throw new InvalidOperationException(
+                $"Reference strategy '{application.Strategy}' for '{application.ElementKey}' is qualified, but has no "
+                + $"implemented graph in this {ReferenceStrategyCatalogue.Label(ReferenceStrategyCatalogue.ReferenceImageSurface.Generate)} "
+                + $"surface; it implements {string.Join(", ", implemented)}. Image model "
+                + $"'{resolvedImageModel.ModelIdentifier}' cannot carry this reference, so the prompt cannot treat the "
+                + "element it supplies as covered by an image. Clear the reference, or choose a model that carries one.");
+        }
     }
 
     /// <summary>

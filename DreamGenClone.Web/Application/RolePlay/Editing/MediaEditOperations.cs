@@ -55,9 +55,10 @@ public enum MediaEditOperationKind
 /// </summary>
 /// <param name="GrowMaskBy">Pixels to grow the mask by at encode time. The host's own node accepts 0-64, and a seam
 /// shows at a bare rectangle edge, so this is the operator's value rather than one invented here.</param>
-/// <param name="FeatherPixels">Pixels of softening at the region edge. Required and positive: the host rounds the mask
-/// to 0/1 before it is used, so a zero feather IS a hard-edged rectangle and that edge shows in the render as an
-/// outline (CASE-25). The fade is applied after the render by the composite the region engine builds.</param>
+/// <param name="FeatherPixels">Pixels of softening at the region edge. Required and wider than
+/// <see cref="HostBoundaryBandPixels"/>: the host rounds the mask to 0/1 before it is used, so a feather that fits
+/// inside that band IS a hard-edged rectangle and its edge shows in the render as an outline (CASE-25). The fade is
+/// applied after the render by the composite the region engine builds.</param>
 public sealed record MediaEditRegionOperation(
     double LeftPercent,
     double TopPercent,
@@ -66,6 +67,15 @@ public sealed record MediaEditRegionOperation(
     int GrowMaskBy,
     int FeatherPixels)
 {
+    /// <summary>
+    /// The width of the host's own boundary artefact, in frame pixels. <c>VAEEncodeForInpaint</c> confines through a
+    /// latent one eighth of the frame's size, so the boundary between pinned and generated pixels is decoded as a
+    /// smear about one latent block wide (measured on a 1280x1024 outpaint: +80 luminance over the first 8-10 px
+    /// inside the mask's white edge). A fade that begins inside that band multiplies the smear into the result instead
+    /// of away, which is the visible seam the composite exists to remove - so the fade starts after it.
+    /// </summary>
+    public const int HostBoundaryBandPixels = 8;
+
     /// <summary>
     /// Rejects geometry the graph cannot honour, naming why. Nothing is CLAMPED on the way: a rectangle that runs off
     /// the frame, or a grow value the host's node refuses, is a mistake to report rather than a value to quietly fix -
@@ -85,12 +95,13 @@ public sealed record MediaEditRegionOperation(
         if (GrowMaskBy is < 0 or > 64)
             throw new InvalidOperationException(
                 $"A region 'grow' value must be between 0 and 64 pixels (the host node's own bound), but was {GrowMaskBy}.");
-        if (FeatherPixels <= 0)
+        if (FeatherPixels <= HostBoundaryBandPixels)
             throw new InvalidOperationException(
-                $"A confined edit needs a positive region feather, but 'RegionFeatherPixels' is {FeatherPixels}. The host "
-                + "rounds the mask it confines with to 0/1, so a zero feather confines the edit to a hard-edged rectangle "
-                + "whose edge shows in the render as an outline. Set 'RegionFeatherPixels' in the reference workflow "
-                + "settings before confining an edit.");
+                $"A confined edit needs a region feather wider than the host's {HostBoundaryBandPixels} px latent boundary "
+                + $"band, but 'RegionFeatherPixels' is {FeatherPixels}. The host rounds the mask it confines with to 0/1 "
+                + "and decodes its edge as a smear about one latent block wide, so a fade that begins inside that band "
+                + "leaves a visible seam in the render. Set 'RegionFeatherPixels' above "
+                + $"{HostBoundaryBandPixels} in the reference workflow settings before confining an edit.");
     }
 
     /// <summary>The provenance recorded with the produced image - an operation record, not a compiler revision.</summary>
@@ -127,11 +138,14 @@ public sealed record MediaEditOutpaintOperation(
             throw new InvalidOperationException($"An outpaint percent must be between 0 and 200, but was {Percent}.");
         if (GrowMaskBy is < 0 or > 64)
             throw new InvalidOperationException($"An outpaint 'grow' value must be between 0 and 64 pixels, but was {GrowMaskBy}.");
-        if (FeatherPixels <= 0)
+        if (FeatherPixels <= MediaEditRegionOperation.HostBoundaryBandPixels)
             throw new InvalidOperationException(
-                $"An outpaint needs a positive feather, but 'RegionFeatherPixels' is {FeatherPixels}. The host rounds the "
-                + "mask it confines with to 0/1, so a zero feather leaves a hard line where the source ends. Set "
-                + "'RegionFeatherPixels' in the reference workflow settings before extending an image.");
+                $"An outpaint needs a feather wider than the host's {MediaEditRegionOperation.HostBoundaryBandPixels} px "
+                + $"latent boundary band, but 'RegionFeatherPixels' is {FeatherPixels}. The host rounds the mask it "
+                + "confines with to 0/1 and decodes its edge as a smear about one latent block wide, so a fade that "
+                + "begins inside that band leaves a seam where the source ends. Set 'RegionFeatherPixels' above "
+                + $"{MediaEditRegionOperation.HostBoundaryBandPixels} in the reference workflow settings before extending "
+                + "an image.");
     }
 
     public string Describe() => $"outpaint direction={Direction} percent={Percent} grow={GrowMaskBy} feather={FeatherPixels}";

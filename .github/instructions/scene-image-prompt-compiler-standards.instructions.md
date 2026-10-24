@@ -86,6 +86,28 @@ These are hard rules. A compiler change that violates them is a bug, not a fix.
     2026-10-03). The resolver, the asset-create path and the scene render path all select through that
     one helper so the rules cannot drift again.
 
+11. **A prompt compiler must be an unrestricted model, and a refusal is a contract violation — never a prompt.**
+    A prompt-compile call must answer with an image description; an aligned model answers with prose addressed to
+    the operator instead ("I can't write this one…"), and every parse path treats plain text as the prompt. That is
+    how three renders of a refusal's own suggested alternative were produced while the operator believed the prompt
+    had been compiled (SceneImages a597ba82 / aef9f30c / 99fedb9d, 2026-10-18). Assign the prompt-drafting functions
+    (`RolePlaySceneImagePreprocessor`, `RolePlaySceneImageEditPromptCompiler`) to a model that will honour the
+    operator's intent, and let `SceneImagePromptRefusal.EnsureIsPrompt` fail the record by name rather than render a
+    refusal. Also: the intent contract suppresses only the element classes a reference ACTUALLY supplies
+    (`IntentReferenceCoverage`) — a blanket "state nothing about clothing" with no wardrobe plate bound makes a
+    clothing change impossible to write, which is the defect behind the same report.
+
+12. **The length budget has ONE owner: the checkpoint profile.** A family's prompt text states the SHAPE (one
+    continuous paragraph) and the qualitative length the vendor documents ("about 20 sentences / 400-500 words"); the
+    numeric `MinChars` / `MaxChars` / `MaxTokens` live on `ImageCompilerProfile` and nowhere else. A contract that
+    states a range the profile forbids is unsatisfiable, and the compiler model resolves the contradiction by writing
+    the shortest thing that satisfies the hard number — measured 2026-10-23 on Qwen-Image-2.1, where "400-500 words"
+    (~3000 characters) sat beside "between 300 and 1600 characters", and the caption came back at 863 characters with
+    the operator's own element text compressed away. The token allowance has to match the character budget too: 300
+    tokens is ~1200 characters, so a long-form contract under that ceiling cannot be met however the prose is written.
+    The output SHAPE is enforced, not merely requested (`SceneImagePromptContractValidator.ValidateCaptionShape`):
+    never trust a small compiler model to keep a paragraph that was only asked for.
+
 ---
 
 ## 1. The active model & type
@@ -153,11 +175,19 @@ every SDXL-family compiler.
 
 When a compiler projects a canonical Still brief into an SDXL-family prompt, it MUST enforce:
 
-1. **POV framing.** Render strictly from the `PRODUCTION POV` character's viewpoint — render only
-   what that character sees; **never include the POV character in the frame** for a named observer
-   POV. (Omniscient POV = full scene, all characters visible.) The old `BuildCanonicalSystemPrompt`
-   failure put Dean *in* his own POV frame — that is exactly the anti-pattern the model docs warn
-   about (subject/framing confusion).
+1. **POV framing is a projection, not a label.** Render strictly from the `PRODUCTION POV`
+   character's viewpoint: the camera sits at that character's own eye height (from the frozen
+   state's recorded stance) and is aimed along that character's recorded sightline, so a kneeling
+   viewpoint looks up at someone standing over it and a standing viewpoint looks down at someone
+   kneeling. Only the characters that character's `visibleCharacterNames` records are in frame;
+   every other character is explicitly out of frame. The viewpoint is **never shown** — no face,
+   head, or anatomy of the POV character — but the shot still renders what that camera sees.
+   Omniscient POV = full scene, all characters visible, with each person's LEFT/CENTER/RIGHT
+   placement and relative depth stated explicitly from the brief's frame-space blocking.
+   `SceneImagePovProjection` is the ONE decision path that produces this frame for every
+   natural-language and Pony canonical builder. The failure mode to avoid is the opposite of all of
+   the above at once: the same wide brief for every POV with the POV name as the only difference
+   (and, historically, Dean placed inside his own POV frame).
 2. **No names / relations / ownership.** Text-to-image models cannot map "Dean", "Becky", or
    "Ken's shirt". Describe every visible person by **physical appearance** (build, hair style/color,
    clothing type+color, visible pose). Never emit story names, relationships, or property.
@@ -209,7 +239,10 @@ What these external examples encode:
 - **POV exclusion** (POV character never in frame) has no external example because the official
   guides are single-camera shots. The internal B-103 Dean-POV example is the only place it is
   demonstrated, and it follows the same external anatomy (framing first, appearance-only, clothing,
-  lighting, camera cues) — kept as a labeled secondary, aligned reference.
+  lighting, camera cues) — kept as a labeled secondary, aligned reference. `SceneImagePovProjection`
+  now enforces the rule structurally: camera stance/sightline, in-frame cast, out-of-frame cast and
+  the unseen-viewpoint wording all come from the brief's frozen state, not from the system prompt
+  alone.
 
 ### 2.6 Multi-character SDXL scenes (attribute bleed)
 

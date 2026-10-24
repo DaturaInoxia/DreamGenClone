@@ -174,6 +174,35 @@ public sealed class SceneImageProductionGroupRepositoryTests
         }
     }
 
+    [Fact]
+    public async Task SetPromptDraft_RoundTripsAndClears()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var enrichment = await CreateCompletedEnrichmentAsync(fixture, "draft");
+            var group = CreateGroup(enrichment);
+            await fixture.GroupRepository.CreateAsync(group);
+            Assert.Null((await fixture.GroupRepository.GetAsync(group.Id))!.PromptDraftJson);
+
+            const string draftJson = """{"source":1,"userIntent":"She stands at the clothesline."}""";
+            var updated = await fixture.GroupRepository.SetPromptDraftAsync(group.Id, draftJson, DateTime.UtcNow);
+            Assert.Equal(draftJson, updated.PromptDraftJson);
+
+            // Reopened from the store rather than read off the write result: the page reads the ROW.
+            var reopened = await fixture.GroupRepository.GetAsync(group.Id);
+            Assert.Equal(draftJson, reopened!.PromptDraftJson);
+
+            var cleared = await fixture.GroupRepository.SetPromptDraftAsync(group.Id, null, DateTime.UtcNow);
+            Assert.Null(cleared.PromptDraftJson);
+            Assert.Null((await fixture.GroupRepository.GetAsync(group.Id))!.PromptDraftJson);
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
     private static TestFixture CreateFixture()
     {
         var path = Path.Combine(Path.GetTempPath(), $"scene-image-production-group-{Guid.NewGuid():N}.db");

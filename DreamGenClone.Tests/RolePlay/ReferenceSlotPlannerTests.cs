@@ -256,6 +256,35 @@ public sealed class ReferenceSlotPlannerTests
             actorKey, Required: false, AllowsMultiple: allowsMultiple);
 
     /// <summary>
+    /// A prop is planned like a wardrobe — an object reference the operator adds, several allowed — but it names no
+    /// character. The binding it produces must still report the slot it came from, or every downstream switch that maps
+    /// a slot kind to a prompt element, a strategy or an axis would have nothing to map.
+    /// </summary>
+    [Fact]
+    public void Plan_PropSlot_ProducesAnObjectBindingWithNoCharacter()
+    {
+        var slot = new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Prop, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset],
+            ActorKey: null, Required: false, AllowsMultiple: true);
+
+        var bindings = ReferenceSlotPlanner.Plan(
+            Blueprint(slot),
+            [
+                new ImageStepSlotAssignment(ImageStepSlotKind.Prop, null, Source()),
+                new ImageStepSlotAssignment(ImageStepSlotKind.Prop, null, Source())
+            ],
+            maxReferences: 10);
+
+        Assert.Equal(2, bindings.Count);
+        Assert.All(bindings, binding => Assert.Equal("Prop", binding.ElementKey));
+        Assert.All(bindings, binding => Assert.Equal("Prop", binding.Kind));
+        Assert.All(bindings, binding => Assert.Equal("object in frame", binding.SemanticRole));
+        Assert.All(bindings, binding => Assert.Null(binding.ActorKey));
+        Assert.Equal([1, 2], bindings.Select(binding => binding.Ordinal));
+        Assert.All(bindings, binding => Assert.Equal(ImageStepSlotKind.Prop, ReferenceBindingShape.SlotKindOf(binding)));
+    }
+
+    /// <summary>
     /// A wardrobe is the one slot that carries SEVERAL references: a dress and the shoes that go with it are two
     /// garments, so the operator binds two images and both must reach the render. Position decides placement, so the
     /// order they bound them in is the order the model sees.

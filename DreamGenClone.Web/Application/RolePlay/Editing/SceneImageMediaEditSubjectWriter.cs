@@ -422,6 +422,11 @@ public sealed class SceneImageMediaEditSubjectWriter : IMediaEditSubjectWriter
         }
 
         image.Sha256 = Convert.ToHexString(SHA256.HashData(output.Bytes));
+        // What the editor actually read. The role clause is appended at SEND time, so this differs from the queued
+        // prompt whenever any reference was carried — and without it the row cannot answer why an edit came back
+        // wrong (2026-10-15: a bound face reference reached the model unnamed and the row showed only the compiled
+        // prompt, which had never mentioned it).
+        image.SentInstructionSnapshot = output.SentInstruction;
         // The row describes the file that now exists: an operation changes the size (a crop trims, an
         // enhance resamples), so the source's size was only ever a placeholder for these rows.
         image.ImageSize = MediaEditProducedImage.SizeOf(output.Bytes);

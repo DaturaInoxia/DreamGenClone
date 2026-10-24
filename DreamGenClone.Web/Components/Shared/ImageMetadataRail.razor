@@ -1,0 +1,147 @@
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Components.Assets
+
+@*
+    The metadata rail of every review surface: one component, one field order, whichever store the image came from.
+
+    Before this, the review deck rendered three different rails — one per route — so the production-studio route showed
+    less than the asset route about the very same kind of picture: no tags, no record of what the image was generated
+    with. An operator judging a frame had to open a different page to see what the library showed inline. The three
+    rails also drifted independently, which is exactly how they ended up disagreeing.
+
+    What differs per row is DATA, not layout. The row list is the union of what the stores record, and a row is drawn
+    when the row RECORDED a value: "no negative was authored" and "this store has no negative column" both mean there is
+    nothing to show, and printing "—" for both invents a symmetry the two stores do not have. Kind, Status and Model are
+    the exception — every route has a value for those, so they always draw.
+
+    The tag store and the generation-inputs record arrive as parameters because they are the caller's to read: only the
+    caller knows which store issued the id, and only the caller can reload the row after a tag edit.
+*@
+
+<dl class="row small">
+    <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Item.Kind</dd>
+    <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Item.Status</dd>
+
+    @if (Item.Stage is { } stage)
+    {
+        <dt class="col-sm-4">Stage</dt><dd class="col-sm-8">@stage</dd>
+    }
+    @if (Item.ExecutionStatus is { } execution)
+    {
+        <dt class="col-sm-4">Execution</dt><dd class="col-sm-8">@execution</dd>
+    }
+    @if (Item.ReferenceKind is { } referenceKind)
+    {
+        <dt class="col-sm-4">Reference kind</dt><dd class="col-sm-8">@referenceKind</dd>
+    }
+    @if (Item.VisionSource is { } visionSource)
+    {
+        <dt class="col-sm-4">Vision source</dt><dd class="col-sm-8">@visionSource</dd>
+    }
+    @if (!string.IsNullOrWhiteSpace(Item.VisionText))
+    {
+        <dt class="col-sm-4">Vision text</dt><dd class="col-sm-8 text-break">@Item.VisionText</dd>
+    }
+    @if (!string.IsNullOrWhiteSpace(Item.PromptCompiled))
+    {
+        <dt class="col-sm-4">Prompt compiled</dt><dd class="col-sm-8 text-break">@Item.PromptCompiled</dd>
+    }
+    @if (!string.IsNullOrWhiteSpace(Item.PromptEdited))
+    {
+        <dt class="col-sm-4">Prompt edited</dt><dd class="col-sm-8 text-break">@Item.PromptEdited</dd>
+    }
+    @if (!string.IsNullOrWhiteSpace(Item.NegativePrompt))
+    {
+        <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Item.NegativePrompt</dd>
+    }
+    @if (Item.Seed is { } seed)
+    {
+        <dt class="col-sm-4">Seed</dt><dd class="col-sm-8">@seed</dd>
+    }
+
+    <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Item.Model)</dd>
+
+    @if (!string.IsNullOrWhiteSpace(Item.EndpointId))
+    {
+        <dt class="col-sm-4">Endpoint</dt><dd class="col-sm-8 text-break">@Item.EndpointId</dd>
+    }
+    @if (!string.IsNullOrWhiteSpace(Item.IdentityStrategy))
+    {
+        <dt class="col-sm-4">Identity strategy</dt><dd class="col-sm-8 text-break">@Item.IdentityStrategy</dd>
+    }
+    @if (Item.RefusalMode is { } refusalMode)
+    {
+        <dt class="col-sm-4">Refusal mode</dt><dd class="col-sm-8">@refusalMode</dd>
+    }
+</dl>
+
+@* The prompt itself is NOT repeated here: the generation details below already carry the description and the compiled
+   prompt, and two copies of one long text pushed everything else off the rail. *@
+@if (TagTarget is { } tagTarget)
+{
+    <h6>Tags</h6>
+    <div class="mb-3">
+        <ImageTags ImageId="@Item.Id" Target="@tagTarget" TagsJson="@TagsJson" Editable="true" TagsChanged="TagsChanged" />
+    </div>
+}
+
+@if (Details is not null)
+{
+    <h6>How this image was generated</h6>
+    <GenerationDetails Details="Details" />
+}
+
+@if (!string.IsNullOrWhiteSpace(Item.Details))
+{
+    <h6>Details</h6><pre class="font-monospace text-break">@Item.Details</pre>
+}
+@if (!string.IsNullOrWhiteSpace(Item.AppliedReferencesJson))
+{
+    <h6>Applied references</h6><pre class="font-monospace text-break">@Item.AppliedReferencesJson</pre>
+}
+@if (!string.IsNullOrWhiteSpace(Item.CostJson))
+{
+    <h6>Cost</h6><pre class="font-monospace text-break">@Item.CostJson</pre>
+}
+@if (!string.IsNullOrWhiteSpace(Item.ScoreJson))
+{
+    <h6>Score</h6><pre class="font-monospace text-break">@Item.ScoreJson</pre>
+}
+@if (!string.IsNullOrWhiteSpace(Item.CandidateNotes))
+{
+    <h6>Candidate notes</h6><pre class="font-monospace text-break">@Item.CandidateNotes</pre>
+}
+
+@* The two identifiers nobody reads while judging an image, kept for the audit trail and moved out of the way of the
+   data that decides one. *@
+<div class="review-deck-rail-footer">
+    <dl class="row small mb-0">
+        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Item.Sha256)</dd>
+        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Item.CreatedUtc</dd>
+    </dl>
+</div>
+
+@code {
+    /// <summary>The row being judged, in the one shape every route maps into.</summary>
+    [Parameter, EditorRequired] public ReviewDeckItem Item { get; set; } = null!;
+
+    /// <summary>
+    /// Which tag store <see cref="ReviewDeckItem.Id"/> belongs to, or null when this row's store holds no tags — the
+    /// older produced-images table does not, and offering an editor there would refuse every write.
+    /// </summary>
+    [Parameter] public ImageTagTarget? TagTarget { get; set; }
+
+    /// <summary>The row's stored tags, as the tag catalog's JSON. Null means it has never been tagged.</summary>
+    [Parameter] public string? TagsJson { get; set; }
+
+    /// <summary>
+    /// What the image was generated with, or null when this row's store records no inputs. Built by the caller from the
+    /// image's OWN row, because reading that row is the caller's job — this component is handed the facts.
+    /// </summary>
+    [Parameter] public ImageGenerationInputDetails? Details { get; set; }
+
+    /// <summary>Raised after a tag write, so the host reloads the row it is showing rather than keeping stale chips.</summary>
+    [Parameter] public EventCallback<IReadOnlyList<string>> TagsChanged { get; set; }
+
+    private static string Display(object? value) => value?.ToString() ?? "—";
+}

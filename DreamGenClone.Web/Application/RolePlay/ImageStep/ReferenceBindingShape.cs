@@ -18,7 +18,15 @@ public enum ReferenceChannel
     PoseSkeleton = 3,
 
     /// <summary>An unapproved render produced earlier in the same chain.</summary>
-    ScratchImage = 4
+    ScratchImage = 4,
+
+    /// <summary>
+    /// A rendered image out of the app's own scene-image store, addressed by its own id — any image the app holds,
+    /// whatever surface produced it and whatever its approval state. A distinct store from
+    /// <see cref="ApprovedAsset"/>, which is a <c>SceneAssets</c> row: neither resolver can serve the other's
+    /// bindings.
+    /// </summary>
+    AppImage = 5
 }
 
 /// <summary>
@@ -68,12 +76,21 @@ public static class ReferenceBindingShape
                     // A character-pose asset IS an approved scene asset of that type; it is stored, approved and
                     // versioned the same way, so it is served by the same resolver rather than a fifth channel.
                     return ReferenceChannel.ApprovedAsset;
+                case ImageStepReferenceSourceKind.AppImage:
+                    return ReferenceChannel.AppImage;
             }
         }
 
         if (IsIdentityPackBinding(application))
         {
             return ReferenceChannel.IdentityPack;
+        }
+
+        // Classified from the fields actually present too, so a binding written without an explicit Source still lands
+        // in the store that owns its id rather than in the approved-asset resolver, which has no row to look it up in.
+        if (application.UsesAppImage)
+        {
+            return ReferenceChannel.AppImage;
         }
 
         return string.IsNullOrWhiteSpace(application.SkeletonRelativePath)
@@ -99,22 +116,23 @@ public static class ReferenceBindingShape
     }
 
     /// <summary>
-    /// Whether the approved-asset resolver can serve this binding: it carries an approved scene-asset image, and its
-    /// strategy means an image rather than text.
+    /// Whether the reference resolver can serve this binding: it carries a stored image from one of the two stores the
+    /// resolver reads — an approved scene-asset image, or a rendered app image — and its strategy means an image rather
+    /// than text.
     ///
     /// <para>
     /// This is the predicate the resolver SELECTS by, stated once so a caller cannot count the resolver's input with a
-    /// different rule. The three channels are exclusive: a pack image comes out of the pack store, a pose skeleton out
-    /// of the pose library, and only what is left comes out of the approved-asset resolver. Counting "everything that
-    /// is not a pack binding" as the resolver's input is what made a bound pose look like a reference the resolver had
-    /// silently dropped (reported live 2026-10-03), when the pose was in fact added by its own block.
+    /// different rule. The channels are exclusive: a pack image comes out of the pack store, a pose skeleton out of the
+    /// pose library, and only what is left comes out of the asset resolver. Counting "everything that is not a pack
+    /// binding" as the resolver's input is what made a bound pose look like a reference the resolver had silently
+    /// dropped (reported live 2026-10-03), when the pose was in fact added by its own block.
     /// </para>
     /// </summary>
     public static bool IsAssetBacked(ReferenceApplicationSelection application)
     {
         ArgumentNullException.ThrowIfNull(application);
 
-        return application.UsesReference
+        return (application.UsesReference || application.UsesAppImage)
             && !string.Equals(application.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -173,6 +191,7 @@ public static class ReferenceBindingShape
             "Location" => ImageStepSlotKind.Location,
             "Pose" => ImageStepSlotKind.Pose,
             "CharacterPose" => ImageStepSlotKind.CharacterPose,
+            "Prop" => ImageStepSlotKind.Prop,
             _ => null
         };
     }

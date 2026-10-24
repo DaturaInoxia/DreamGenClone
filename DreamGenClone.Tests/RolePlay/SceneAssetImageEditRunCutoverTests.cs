@@ -184,7 +184,7 @@ public sealed class SceneAssetImageEditRunCutoverTests
         Assert.Equal(SceneAssetKind.Edited, persisted!.Kind);
         Assert.Equal(SceneAssetStatus.Pending, persisted.Status);
         Assert.Equal(fixture.SourceImageId, persisted.SourceImageId);
-        Assert.Contains("Apply the face of the person shown in Picture 2 to the man on the left at left third of the frame", persisted.Prompt!, StringComparison.Ordinal);
+        Assert.Contains("Apply the face of the person shown in Picture 2 to the man on the left (position: left third of the frame)", persisted.Prompt!, StringComparison.Ordinal);
 
         var bindings = MediaEditIdentityProvenance.TryRead(persisted.SourceProvenanceJson);
         var binding = Assert.Single(bindings!);
@@ -537,6 +537,9 @@ public sealed class SceneAssetImageEditRunCutoverTests
         public Task<SceneImageProductionGroup> ClearIdentitySkipAsync(string groupId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<SceneImageProductionGroup> SavePromptDraftAsync(string groupId, SceneImagePromptSource source, string? userIntent, ScenePromptOverrides? overrides = null, SceneImageExplicitness explicitness = SceneImageExplicitness.Explicit, CameraHolderPartsMode cameraHolderParts = CameraHolderPartsMode.None, string? cameraHolderPartsText = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<SceneImageProductionGroup?> GetCurrentGroupAsync(string momentEnrichmentId, string pov, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -553,6 +556,9 @@ public sealed class SceneAssetImageEditRunCutoverTests
             => throw new NotSupportedException();
 
         public Task<ApprovedSceneFrameDecision> ApproveAsync(string groupId, string imageId, string sha256, string decidedBy, string? note, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApprovedSceneFrameDecision> RevokeApprovalAsync(string groupId, string decidedBy, string? note, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(CancellationToken cancellationToken = default)

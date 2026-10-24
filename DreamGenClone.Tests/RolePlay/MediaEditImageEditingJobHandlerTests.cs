@@ -216,6 +216,103 @@ public sealed class MediaEditImageEditingJobHandlerTests
     }
 
     /// <summary>
+    /// A bound pose skeleton travels on an EDIT as a reference image. It is the surface's ONLY pose route: a render
+    /// consolidates a pose into its own pose reference (<c>ImageStepPoseBinding</c>), but an edit has no render settings
+    /// to put one in — so declining the channel there, as the resolver used to, left a bound pose silently inert.
+    ///
+    /// <para>
+    /// The skeleton is read by PRESET ID, never from the binding's recorded path, so a stale path cannot make the run
+    /// condition on a different pose than the one the operator picked. Qwen-Image-2.1 reads a skeleton in a reference
+    /// slot as pose guidance (measured 2026-09-23) — the same mechanism the render's own native-pose route uses.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithABoundPoseSkeleton_CarriesIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies(),
+            poses: new StubPoseLibraryService());
+
+        var resolved = await resolver.ResolveAsync(
+            Fixture.EditorModelId, [PoseBinding("preset-1")], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit);
+
+        var reference = Assert.Single(resolved);
+        Assert.Equal(ImageStepSlotKind.Pose, reference.SlotKind);
+        // The recorded artifact's own file name is used when the binding carries one, exactly as the render path does;
+        // the preset id is only the fallback.
+        Assert.Equal("side.png", reference.FileName);
+        Assert.Equal(64, reference.Sha256.Length);
+        await using var bytes = await reference.OpenAsync(CancellationToken.None);
+        Assert.True(bytes.Length > 0);
+    }
+
+    /// <summary>A pose binding that recorded no artifact path still names its file by the preset the skeleton was read
+    /// by — the id is what identifies the pose, the path is only the recorded artifact.</summary>
+    [Fact]
+    public async Task AssetEdit_WithAPoseSkeletonAndNoRecordedPath_NamesTheFileByPreset()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies(),
+            poses: new StubPoseLibraryService());
+
+        var binding = PoseBinding("preset-1");
+        binding.SkeletonRelativePath = null;
+
+        var resolved = await resolver.ResolveAsync(
+            Fixture.EditorModelId, [binding], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit);
+
+        Assert.Equal("preset-1.png", Assert.Single(resolved).FileName);
+    }
+
+    /// <summary>
+    /// A pose binding that names no preset is refused rather than skipped: on an edit the skeleton is the slot's whole
+    /// meaning, so a pose that resolves to nothing is a reference the model never receives.
+    /// </summary>
+    [Fact]
+    public async Task AssetEdit_WithAPoseBindingThatNamesNoPreset_RefusesByName()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var resolver = new MediaEditReferenceResolver(
+            fixture.Assets, fixture.Storage, new QualifiedEditStrategies(),
+            poses: new StubPoseLibraryService());
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => resolver.ResolveAsync(
+            Fixture.EditorModelId, [PoseBinding(presetId: null)], ReferenceStrategyCatalogue.ReferenceImageSurface.Edit));
+
+        Assert.Contains("names no pose library preset", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The channel is claimed on the EDIT surface and NOT on GENERATE, and that is one decision rather than two: a
+    /// render carries its pose through the render's own pose reference, so resolving it here as well would send the
+    /// same skeleton twice. Pinned because widening the edit's route must not quietly change the render's.
+    /// </summary>
+    [Fact]
+    public void APoseBinding_TravelsAsAReferenceImageOnAnEditOnly()
+    {
+        var binding = PoseBinding("preset-1");
+
+        Assert.True(MediaEditReferenceResolver.CarriesReferenceImage(
+            ReferenceStrategyCatalogue.ReferenceImageSurface.Edit, binding));
+        Assert.False(MediaEditReferenceResolver.CarriesReferenceImage(
+            ReferenceStrategyCatalogue.ReferenceImageSurface.Generate, binding));
+    }
+
+    private static ReferenceApplicationSelection PoseBinding(string? presetId) => new()
+    {
+        ElementKey = "Pose",
+        Kind = nameof(ImageStepSlotKind.Pose),
+        SemanticRole = "pose",
+        Source = nameof(ImageStepReferenceSourceKind.PoseLibrarySkeleton),
+        Strategy = ReferenceStrategyCatalogue.NativeMultiReference,
+        Ordinal = 1,
+        SkeletonRelativePath = "poses/skeletons/original/side.png",
+        PosePresetId = presetId
+    };
+
+    /// <summary>
     /// The Asset Manager editor's identity run — the tab the asset store did not have. The row's bound approved
     /// faces are sent as references and the model carried on the job is used as-is: re-resolving a default here
     /// would let the run use a model the user never chose, which is exactly what carrying the chosen model stops.
@@ -253,6 +350,13 @@ public sealed class MediaEditImageEditingJobHandlerTests
         var edited = await fixture.Assets.GetImageAsync(identityImageId);
         Assert.Equal(SceneAssetStatus.Complete, edited!.Status);
         Assert.Contains(Fixture.EditorModelId, edited.ModelSnapshotJson!, StringComparison.Ordinal);
+
+        // The row records the instruction the editor ACTUALLY read, and because this edit sends the source image beside
+        // its one reference, that instruction NAMES the reference: the vendor's multi-image rule counts the images the
+        // model receives (source + reference), not the reference count. Unnamed, the face reference is just a picture
+        // to composite — which is how a bound face came back as a second face in the frame (2026-10-15).
+        Assert.Equal(sent.Instruction, edited.SentInstructionSnapshot);
+        Assert.Contains("<image2>", edited.SentInstructionSnapshot!, StringComparison.Ordinal);
     }
 
     /// <summary>A row that reaches the run without the form's model is a refusal, not a silent default.</summary>
@@ -1170,7 +1274,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         var handler = fixture.BuildRegionHandler(editor);
 
         var operation = MediaEditOperation.ForMaskedRegion(
-            new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+            new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 16));
         var job = new DurableBackgroundJob
         {
             JobType = BackgroundJobTypes.MediaEditImageEditing,
@@ -1191,6 +1295,11 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.Equal(1, editor.Calls);
         Assert.Equal("Change the shirt to red.", Assert.Single(editor.Instructions));
         Assert.True(editor.LastEditMaskPresent, "A region edit must resolve its compiled prompt and pass a mask.");
+
+        // The row records the instruction the editor actually read. It is the compiled revision here because nothing
+        // was bound — the reference role clause is appended at send time, so with references the two differ and only
+        // this column can say which text the model saw.
+        Assert.Equal("Change the shirt to red.", edited.SentInstructionSnapshot);
     }
 
     /// <summary>
@@ -1261,10 +1370,12 @@ public sealed class MediaEditImageEditingJobHandlerTests
         var editor = new RecordingImageEditor { RenderColour = rendered };
         var handler = fixture.BuildRegionHandler(editor);
 
-        // Drawn 16..48 on a 64px frame; the host may change 12..52 and the mask is white over 4..60.
+        // Drawn 16..48 on a 64px frame; the host may change 12..52 and the mask is white over the whole frame at a
+        // feather of 16. The fade stops one host boundary band (8 px) short of that edge, so the last 8 px the mask
+        // leaves open are handed back as the source instead of as the edge smear the host decodes there.
         await handler.HandleAsync(JobForMaskedRegion(
             fixture.EditedImageId,
-            new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 4, FeatherPixels: 8),
+            new MediaEditRegionOperation(25, 25, 50, 50, GrowMaskBy: 4, FeatherPixels: 16),
             MediaEditSubjectKind.AssetImage));
 
         var edited = await fixture.Assets.GetImageAsync(fixture.EditedImageId);
@@ -1275,8 +1386,8 @@ public sealed class MediaEditImageEditingJobHandlerTests
         Assert.Equal(rendered, result[32, 32]);    // deep inside the region: the render, untouched
         Assert.Equal(rendered, result[12, 32]);    // the last fully opaque pixel
         Assert.Equal(new Rgb24(223, 0, 32), result[11, 32]);   // one pixel into the fade: 255/8 of the render
-        Assert.Equal(new Rgb24(128, 0, 127), result[8, 32]);   // halfway through the fade
-        Assert.Equal(source, result[4, 32]);       // the mask's white edge: the source, byte for byte
+        Assert.Equal(new Rgb24(128, 0, 127), result[8, 32]);   // halfway through the eight-pixel ramp
+        Assert.Equal(source, result[4, 32]);       // the ramp is over, one boundary band short of the mask's edge
         Assert.Equal(source, result[0, 0]);        // and everywhere outside it
 
         // Nothing outside the fade may differ from the source at all - that is what "confined to a region" means, and
@@ -1312,19 +1423,128 @@ public sealed class MediaEditImageEditingJobHandlerTests
             new ImageRegionMaskEngine(),
             NullLogger<MediaEditImageEditingJobHandler>.Instance);
 
-        // 50% of 8 = 4px added on the right: a 12x6 canvas, with the strip starting at x=8.
+        // 50% of 32 = 16px added on the right: a 48x8 canvas, with the strip starting at x=32. Grow 2 puts the
+        // host's working edge at 30, and a feather of 16 leaves an eight-pixel ramp after the host's boundary band.
         await handler.HandleAsync(JobForOutpaint(writer.ImageId));
 
         Assert.Equal(["claim", "complete"], writer.Order);
         using var result = Image.Load<Rgb24>(writer.OutputBytes);
 
-        Assert.Equal(12, result.Width);
-        Assert.Equal(6, result.Height);
-        Assert.Equal(rendered, result[11, 3]);     // the new strip: the render, kept whole
-        Assert.Equal(rendered, result[6, 3]);      // the last fully opaque pixel of the seam (strip 8, grown by 2)
-        Assert.Equal(new Rgb24(170, 0, 85), result[5, 3]);   // one pixel into the fade (feather 3)
-        Assert.Equal(source, result[3, 3]);        // the mask's white edge: the source again
+        Assert.Equal(48, result.Width);
+        Assert.Equal(8, result.Height);
+        Assert.Equal(rendered, result[47, 3]);     // the new strip: the render, kept whole
+        Assert.Equal(rendered, result[30, 3]);     // the last fully opaque pixel of the seam (strip 32, grown by 2)
+        Assert.Equal(new Rgb24(223, 0, 32), result[29, 3]);   // one pixel into the fade
+        Assert.Equal(new Rgb24(128, 0, 127), result[26, 3]);  // halfway through the eight-pixel ramp
+        Assert.Equal(source, result[22, 3]);       // the ramp is over, one boundary band short of the mask's edge
         Assert.Equal(source, result[0, 3]);        // and the far side of the original, untouched
+    }
+
+    /// <summary>
+    /// A scene LoRA picked on an EDIT must reach the editor as a resolved stack. Until this was wired the selection was
+    /// serialized onto the queued payload and never read, so every edit ran with no scene LoRA while looking exactly
+    /// like one that had applied it. The stack is resolved against the EDITOR model's own family, never trusted.
+    /// </summary>
+    [Fact]
+    public async Task EditRun_WithASceneLoraSelection_AppliesTheResolvedStack()
+    {
+        var writer = new PlainEditSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var resolver = new StubSceneLoraResolver();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance,
+            resolver);
+
+        await handler.HandleAsync(JobForEdit(writer.ImageId, SceneLoraJson));
+
+        Assert.Equal(["claim", "complete"], writer.Order);
+        var sent = Assert.Single(editor.LastModel!.SceneLoras!);
+        Assert.Equal("FELLATIO-v2.safetensors", sent.FileName);
+        Assert.Equal(1.0, sent.Strength);
+        Assert.Equal(SceneImageModelFamily.QwenImage21, resolver.SeenFamily);
+        Assert.Equal("qwen-image-2.1", resolver.SeenModelIdentifier);
+        Assert.Equal("FELLATIO-v2.safetensors", Assert.Single(resolver.SeenSelections!).FileName);
+    }
+
+    /// <summary>
+    /// No selection is a CONFIGURED state: the catalogue is never consulted and the resolved model keeps a null stack,
+    /// so the graph is the one it would have built before edit-mode LoRA selection existed.
+    /// </summary>
+    [Fact]
+    public async Task EditRun_WithNoSceneLoraSelection_LeavesTheResolvedModelUntouched()
+    {
+        var writer = new PlainEditSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var resolver = new StubSceneLoraResolver();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance,
+            resolver);
+
+        await handler.HandleAsync(JobForEdit(writer.ImageId, sceneLorasJson: null));
+
+        Assert.Equal(["claim", "complete"], writer.Order);
+        Assert.Equal(0, resolver.Calls);
+        Assert.Null(editor.LastModel!.SceneLoras);
+    }
+
+    /// <summary>
+    /// A payload whose stack cannot be read fails the run BEFORE a render is paid for, and the queued row is marked
+    /// failed: quietly rendering without the stack the operator picked produces an image nobody asked for.
+    /// </summary>
+    [Fact]
+    public async Task EditRun_WithMalformedSceneLoraJson_FailsBeforeTheEditorIsCalled()
+    {
+        var writer = new PlainEditSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance,
+            new StubSceneLoraResolver());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            handler.HandleAsync(JobForEdit(writer.ImageId, "{ this is not json")));
+
+        Assert.Equal(0, editor.Calls);
+        Assert.Equal(["claim", "fail"], writer.Order);
+        Assert.Contains("could not be read", writer.Error!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A selection with no resolver registered fails rather than rendering without it — the same posture the compose
+    /// path takes, because a silently dropped stack is indistinguishable from success.
+    /// </summary>
+    [Fact]
+    public async Task EditRun_WithASelectionAndNoResolver_Fails()
+    {
+        var writer = new PlainEditSubjectWriter();
+        var editor = new RecordingImageEditor();
+        var handler = new MediaEditImageEditingJobHandler(
+            new MediaEditSubjectWriterResolver([writer]),
+            new MediaEditOperationExecutorResolver([]),
+            new Qwen21ImageEditorResolver(),
+            editor,
+            new ImageRegionMaskEngine(),
+            NullLogger<MediaEditImageEditingJobHandler>.Instance);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            handler.HandleAsync(JobForEdit(writer.ImageId, SceneLoraJson)));
+
+        Assert.Contains("scene-LoRA resolver is not available", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(0, editor.Calls);
     }
 
     /// <summary>
@@ -1357,7 +1577,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         string imageId, MediaEditSubjectKind subjectKind = MediaEditSubjectKind.SceneImage)
     {
         var operation = MediaEditOperation.ForOutpaint(
-            new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3));
+            new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 16));
         return new DurableBackgroundJob
         {
             JobType = BackgroundJobTypes.MediaEditImageEditing,
@@ -1378,7 +1598,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         MediaEditSubjectKind subjectKind = MediaEditSubjectKind.SceneImage)
     {
         var operation = MediaEditOperation.ForMaskedRegion(
-            region ?? new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3));
+            region ?? new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 16));
         return new DurableBackgroundJob
         {
             JobType = BackgroundJobTypes.MediaEditImageEditing,
@@ -1403,6 +1623,24 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 ImageId = imageId,
                 OperationKind = MediaEditOperationKind.Edit,
                 EditorModelId = Fixture.EditorModelId
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+
+    /// <summary>One scene-LoRA selection in the wire shape both stores use (`SceneLoraSelectionWire`).</summary>
+    private const string SceneLoraJson =
+        """[{"fileName":"FELLATIO-v2.safetensors","strength":1.0}]""";
+
+    private static DurableBackgroundJob JobForEdit(string imageId, string? sceneLorasJson)
+        => new()
+        {
+            JobType = BackgroundJobTypes.MediaEditImageEditing,
+            PayloadJson = JsonSerializer.Serialize(new MediaEditImageEditingJobPayload
+            {
+                SubjectKind = MediaEditSubjectKind.SceneImage,
+                ImageId = imageId,
+                OperationKind = MediaEditOperationKind.Edit,
+                EditorModelId = Fixture.EditorModelId,
+                SceneLorasJson = sceneLorasJson
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
         };
 
@@ -1470,6 +1708,9 @@ public sealed class MediaEditImageEditingJobHandlerTests
     {
         public int Calls { get; private set; }
 
+        /// <summary>The resolved model the editor was handed, so a test can see what the run decided to send.</summary>
+        public ResolvedImageEditorModel? LastModel { get; private set; }
+
         /// <summary>Every instruction the run actually sent, in order.</summary>
         public List<string> Instructions { get; } = [];
 
@@ -1489,6 +1730,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         {
             Calls++;
             Instructions.Add(instruction);
+            LastModel = model;
             LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
@@ -1499,6 +1741,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
         {
             Calls++;
             Instructions.Add(instruction);
+            LastModel = model;
             LastEditMaskPresent = mask is not null;
             if (ThrowOnEdit is not null)
                 throw ThrowOnEdit;
@@ -1824,7 +2067,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 "source-1",
                 _ => Task.FromResult<Stream>(new MemoryStream(SourceBytes)),
                 Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(SourceBytes)),
-                MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 3)),
+                MediaEditOperation.ForMaskedRegion(new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 2, FeatherPixels: 16)),
                 Prompt: "change the shirt to red inside the region",
                 References: [],
                 Editor: new MediaEditEditorResolution(Fixture.EditorModelId, RequiresAdultContentPolicy: false),
@@ -1857,7 +2100,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
     /// </summary>
     private sealed class OutpaintSubjectWriter : IMediaEditSubjectWriter
     {
-        private static readonly byte[] SourceBytes = MakeDecodablePng(8, 6, new Rgb24(0, 0, 255));
+        private static readonly byte[] SourceBytes = MakeDecodablePng(32, 8, new Rgb24(0, 0, 255));
 
         public string ImageId { get; } = "scene-outpaint-1";
         public List<string> Order { get; } = [];
@@ -1875,7 +2118,7 @@ public sealed class MediaEditImageEditingJobHandlerTests
                 _ => Task.FromResult<Stream>(new MemoryStream(SourceBytes)),
                 Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(SourceBytes)),
                 MediaEditOperation.ForOutpaint(
-                    new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3)),
+                    new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 16)),
                 Prompt: "extend the image to the right",
                 References: [],
                 Editor: new MediaEditEditorResolution(Fixture.EditorModelId, RequiresAdultContentPolicy: false),
@@ -1903,6 +2146,98 @@ public sealed class MediaEditImageEditingJobHandlerTests
         }
     }
 
+    /// <summary>
+    /// A minimal plain-edit writer: the handler OWNS model resolution, the scene-LoRA resolution and the editor call,
+    /// so a test only needs a source, a prompt and somewhere to record the outcome.
+    /// </summary>
+    private sealed class PlainEditSubjectWriter : IMediaEditSubjectWriter
+    {
+        private static readonly byte[] SourceBytes = MakeDecodablePng(16, 16, new Rgb24(0, 0, 255));
+
+        public string ImageId { get; } = "scene-edit-1";
+        public List<string> Order { get; } = [];
+        public string? Error { get; private set; }
+
+        public MediaEditSubjectKind Kind => MediaEditSubjectKind.SceneImage;
+
+        public Task<MediaEditRunPlan?> PrepareAsync(
+            MediaEditRunContext context, CancellationToken cancellationToken = default)
+            => Task.FromResult<MediaEditRunPlan?>(new MediaEditRunPlan(
+                ImageId,
+                "source-1",
+                _ => Task.FromResult<Stream>(new MemoryStream(SourceBytes)),
+                Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(SourceBytes)),
+                MediaEditOperation.ForEdit,
+                Prompt: "change the pose",
+                References: [],
+                Editor: new MediaEditEditorResolution(Fixture.EditorModelId, RequiresAdultContentPolicy: false),
+                LogScope: "test"));
+
+        public Task<bool> ClaimAsync(MediaEditRunContext context, CancellationToken cancellationToken = default)
+        {
+            Order.Add("claim");
+            return Task.FromResult(true);
+        }
+
+        public Task CompleteAsync(
+            MediaEditRunPlan plan, MediaEditRunOutput output, CancellationToken cancellationToken = default)
+        {
+            Order.Add("complete");
+            return Task.CompletedTask;
+        }
+
+        public Task FailAsync(
+            MediaEditRunContext context, string error, CancellationToken cancellationToken = default)
+        {
+            Order.Add("fail");
+            Error = error;
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Records what the handler asked the resolver for and echoes the selection back resolved, so a test can prove the
+    /// EDITOR path uses the family/identifier overload (the one owner of scene-LoRA validation) rather than skipping it.
+    /// </summary>
+    private sealed class StubSceneLoraResolver : ISceneLoraResolver
+    {
+        public int Calls { get; private set; }
+        public SceneImageModelFamily SeenFamily { get; private set; } = SceneImageModelFamily.Unknown;
+        public string? SeenModelIdentifier { get; private set; }
+        public IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? SeenSelections
+            { get; private set; }
+
+        public Task<IReadOnlyList<ResolvedSceneLora>> ResolveAsync(
+            ResolvedImageModel model,
+            DreamGenClone.Web.Application.RolePlay.Models.SceneImageStudioSettings? settings,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("The edit path resolves by family, not by a compose settings object.");
+
+        public Task<IReadOnlyList<ResolvedSceneLora>> ResolveAsync(
+            ResolvedImageModel model,
+            IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? selections,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException("The edit path resolves by family, not by a generation model.");
+
+        public Task<IReadOnlyList<ResolvedSceneLora>> ResolveAsync(
+            SceneImageModelFamily family,
+            string modelIdentifier,
+            IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>? selections,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            SeenFamily = family;
+            SeenModelIdentifier = modelIdentifier;
+            SeenSelections = selections;
+            return Task.FromResult<IReadOnlyList<ResolvedSceneLora>>(
+                [.. (selections ?? []).Select(selection => new ResolvedSceneLora(
+                    selection.FileName,
+                    selection.Strength
+                        ?? throw new InvalidOperationException(
+                            $"Selection '{selection.FileName}' carries no strength, which the resolver refuses.")))]);
+        }
+    }
+
     /// <summary>A region edit needs the 2.1 native graph; the shared stub resolves a merged checkpoint.</summary>
     private sealed class Qwen21ImageEditorResolver : IImageEditorModelResolver
     {
@@ -1921,7 +2256,8 @@ public sealed class MediaEditImageEditingJobHandlerTests
         private static ResolvedImageEditorModel Model() => new(
             "http://192.168.0.16:8188", 120, null, "qwen-image-2.1", "Local ComfyUI", ImageContentPolicy.AdultAllowed,
             "diffusion.safetensors", "text_encoder.safetensors", "vae.safetensors", 25, 1.0, "euler", "simple", 1.0, 0.0, 0.0,
-            GraphKind: ImageEditorGraphKind.QwenImage21Native);
+            GraphKind: ImageEditorGraphKind.QwenImage21Native,
+            SceneImageModelFamily: SceneImageModelFamily.QwenImage21);
     }
 
     private static byte[] MakeDecodablePng(int width, int height, Rgb24? colour = null)

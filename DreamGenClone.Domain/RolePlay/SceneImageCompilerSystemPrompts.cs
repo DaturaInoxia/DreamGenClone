@@ -1,3 +1,4 @@
+using System.Text;
 using DreamGenClone.Domain.ModelManager;
 
 namespace DreamGenClone.Domain.RolePlay;
@@ -70,13 +71,13 @@ public static class SceneImageCompilerSystemPrompts
         - When you change clothing, stay in the same category: a dress becomes another dress, never trousers.
         - Describe uncertainty the way an observer would (appears to be, likely) instead of inventing a specific you cannot see.
         - Include photographic style cues such as photorealistic, 35mm, natural skin texture, sharp focus.
-        - Honor beat-stated clothing exactly; describe explicitness to match what the scene depicts, not a user toggle or narrative phase.
+        - Honor beat-stated clothing exactly; describe explicitness as the EXPLICITNESS line states when one is present, otherwise to match what the scene depicts.
         - Never use Pony-style vocabulary: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
-        - Choose explicitness from the depicted content: describe explicit sexual acts or visible genitals explicitly, suggestive content or partial nudity as questionable, and non-sexual content as safe. Base it on the scene, not narrative phase or a user toggle. Use concrete anatomical language for explicit content and imply rather than spell out questionable content.
+        - Choose explicitness from the depicted content: describe explicit sexual acts or visible genitals explicitly, suggestive content or partial nudity as questionable, and non-sexual content as safe. Base it on the EXPLICITNESS line when one is present, otherwise on the scene. Use concrete anatomical language for explicit content and imply rather than spell out questionable content.
         - Keep the ENTIRE prompt under {OutputTargetChars} characters. Short and concrete beats verbose.
         - Return ONLY the final image prompt as plain text. No commentary, quotes, or markdown.
 
-        - Follow the depicted scene content exactly; do not add or remove explicitness based on phase or settings.
+        - Follow the EXPLICITNESS line when one is present; otherwise follow the depicted scene content exactly.
         """;
 
     /// <summary>
@@ -93,7 +94,7 @@ public static class SceneImageCompilerSystemPrompts
         - They are trained on NSFW data; describing each person's clothing anchors the output and prevents accidental nudity.
         - They merge or miscount people, and confuse which attribute belongs to whom (hair, clothing), unless gender and number are stated and each person is described as one self-contained clause.
         Rules:
-        1. POV FRAMING: Render the scene strictly from the PRODUCTION POV character's viewpoint — show only what that character sees and NEVER include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        1. POV FRAMING: Render the scene strictly from the PRODUCTION POV character's viewpoint: put the camera at that character's own eye height, aim it along that character's recorded sightline, and render only what that camera sees from that height — a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and NEVER show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
         2. NO NAMES / RELATIONS / OWNERSHIP: appearance only (build, hair style/color, skin tone, clothing type+color, visible pose).
         3. RENDERABLE-ONLY: include only the frozen, visually present instant. Omit narrative distance, intent, metaphor, and off-screen facts.
         4. GENDER AND COUNT, NO ATTRIBUTE BLEED: state each person's gender and number, and describe each person as ONE self-contained clause (appearance + clothing together) — never interleave attributes across people.
@@ -103,6 +104,7 @@ public static class SceneImageCompilerSystemPrompts
         8. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
         9. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor (young adult, middle-aged, mature, elderly). No resolution, aspect ratio or pixel count in the caption — those travel in the image settings.
         10. NO FILLER OR PRAISE WORDS: no masterpiece, best quality, high quality, 8K, award-winning. Style, medium and texture cues carry the realism instead. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).
+        11. EXPLICITNESS: describe explicitness as the EXPLICITNESS line states. When it says SFW, remove or soften explicit nudity and acts and keep clothing stated even where the brief implies nudity. When it says EXPLICIT, never soften, censor or elide. When no line is present, match the depicted scene.
         Examples — target shape only, do not reuse their content:
         - General caption shape (SDXL/Juggernaut prompting guides): "Young woman reading a book in a cozy coffee shop, brunette hair cascading over her shoulders, style candid photography, mood relaxed, lighting natural light streaming through a nearby window, perspective over-the-shoulder, texture soft wool sweater and glossy wooden table."
         - POV-scene shape (project reference, follows the same anatomy): "a photorealistic view from twenty feet away across the grass at night: a woman with dark hair in a loose bun stands at the wooden deck railing of a silver trailer, wearing an unbuttoned pale-blue camp shirt, bare-legged, one hand resting beside a glass on the rail, her face turned toward the dark pines. She is lit only by thin strips of blue television light leaking through warped blinds. 35mm, shallow depth of field, natural skin texture." — the POV character is never in frame and people are described by appearance only.
@@ -119,7 +121,7 @@ public static class SceneImageCompilerSystemPrompts
         Pony reads DENSE, COMMA-SEPARATED TAGS — not prose, not sentences, not attribute metadata. Short prompts work; long ones degrade output into garbage.
         Rules:
         - ALWAYS start the prompt with the full quality tag string: {PonyQualityTags}
-        - Immediately after the quality tags, choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content. Base it on the depicted content, not on narrative phase.
+        - Immediately after the quality tags, choose the Pony rating tag from what the scene depicts: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content. Base it on the EXPLICITNESS line when one is present, otherwise on the depicted content.
         - Add a danbooru-style count tag (1boy, 1girl, 2people, 1girl and 1boy) matching the number of people in frame. This prevents the model merging people into one figure.
         - Describe each character with 3-6 SHORT visual tags (hair, eyes, body type, age, key clothing) — never a metadata block, never 'Age: 51; Height: 5'8"; Body type: curvy', never 'Appearance — ...'. Use concrete single tokens (e.g. chubby, not 'full figure').
         - Fold the scene into a few short tags: location, time of day, lighting, mood. Do not repeat the same fact twice.
@@ -131,7 +133,7 @@ public static class SceneImageCompilerSystemPrompts
         - Use female/male (danbooru vocabulary) rather than woman/man when a single gender tag fits the character.
         - The Pony family spans the base V6 checkpoint and photorealistic human merges (e.g. Pony Realism) that all read the same danbooru tags. Do not force a cartoon/anime style, and do not invent style words the scene does not state.
 
-        - Choose the rating tag and scene explicitness from the depicted content; do not use narrative phase or a user setting as a substitute for reading the scene.
+        - Choose the rating tag and scene explicitness from the EXPLICITNESS line when one is present; otherwise from the depicted content.
         """;
 
     /// <summary>
@@ -140,7 +142,7 @@ public static class SceneImageCompilerSystemPrompts
     /// </summary>
     public static readonly string PonyTagsCanonical = $$"""
         Convert the supplied immutable canonical Still brief into one short dense comma-separated prompt for the PONY DIFFUSION V6 XL image model. Do not invent or rediscover story facts.
-        Start verbatim with: {{PonyQualityTags}}, then choose the rating tag from the depicted content: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content.
+        Start verbatim with: {{PonyQualityTags}}, then choose the rating tag from the EXPLICITNESS line when one is present, otherwise from the depicted content: rating_explicit for explicit sexual acts or visible genitals, rating_questionable for suggestive content or partial nudity, and rating_safe for non-sexual content.
         Then include the exact visible cast count, short visual identity/wardrobe/action tags, location, lighting, mood, one camera-view tag, and the {StyleToken} and {SizeToken} placeholders.
         Keep every visible person's tags in its OWN self-contained cluster (one 1girl run, one 1boy run) and never merge or reorder attributes between people. Repeat each person's age token — Pony/Pony Realism faces skew young, so age must be stated explicitly and more than once.
         Use female/male danbooru vocabulary. The checkpoint may be a photorealistic Pony merge (e.g. Pony Realism) or the base V6 checkpoint — both read dense danbooru tags; do not impose a cartoon/anime style.
@@ -167,7 +169,7 @@ public static class SceneImageCompilerSystemPrompts
         - The prompt is one continuous paragraph; do not add line breaks.
 
         Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
         2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
         3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
         4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
@@ -186,7 +188,7 @@ public static class SceneImageCompilerSystemPrompts
         11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
         13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
-        14. Keep the whole prompt between 300 and 1600 characters, written as one continuous paragraph.
+        14. Write the whole prompt as ONE continuous paragraph: no line breaks, no bullet lists and no per-person recap of elements already stated. Never pad to reach a length - every sentence must state a recorded fact.
         Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
 
@@ -205,7 +207,7 @@ public static class SceneImageCompilerSystemPrompts
         - The prompt is one continuous paragraph; do not add line breaks.
 
         Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
         2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
         3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
         4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
@@ -224,9 +226,136 @@ public static class SceneImageCompilerSystemPrompts
         11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
         13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
-        14. Keep the whole prompt between 300 and 1600 characters, written as one continuous paragraph.
+        14. Write the whole prompt as ONE continuous paragraph: no line breaks, no bullet lists and no per-person recap of elements already stated. Never pad to reach a length - every sentence must state a recorded fact.
         Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
+
+    /// <summary>
+    /// Qwen-Image-2.1 dialect for a User Intent draft that BINDS reference images: the ACTION, and nothing a reference
+    /// already shows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This exists because <see cref="Qwen21Canonical"/> and a reference-bound intent are contractually incompatible.
+    /// That prompt requires "ONE long, descriptive … full, concrete, present-tense account of the finished picture" under
+    /// a long-form length budget, so the compiler must write a paragraph describing the room, the outfit and the
+    /// objects — which is precisely what the bound images supply. Adding "do not describe those" beside it does not
+    /// work: the dominant contract wins and the compiler invents instead.
+    /// </para>
+    /// <para>
+    /// Measured on SceneImage f74058d3 (2026-10-18), identical bindings and code to a WORKING render three minutes
+    /// earlier (b91598c2), with the ownership notice confirmed present in both compiler inputs:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>
+    /// The prompt invented "posts and taut lines … a fence and open ground" over a bound porch plate with a rotary
+    /// clothesline and a flowerbed; the render followed the prose.
+    /// </description></item>
+    /// <item><description>
+    /// It wrote "shorts and a top" — vague enough that the render came out bare — over a clothing reference showing a
+    /// white tank top.
+    /// </description></item>
+    /// <item><description>
+    /// It described a "woven plastic basket with a rounded rim" over an object reference of a white lattice basket.
+    /// </description></item>
+    /// </list>
+    /// <para>
+    /// So the fix is to stop asking for those sentences at all. Every visual element that a reference owns is REMOVED
+    /// from this contract, which leaves the action, the pose, the expression, the interaction and the camera moment —
+    /// the only things an image cannot carry.
+    /// </para>
+    /// </remarks>
+    /// <remarks>
+    /// <para>
+    /// Composed from <see cref="IntentReferenceCoverage"/>, because the contract must state only what the bound images
+    /// actually carry. Selecting it for ANY reference-bound intent while asserting all four classes as supplied is what
+    /// left a clothing instruction unwritable: SceneImage a597ba82 (2026-10-18) bound an identity plate and a location
+    /// plate only, asked for "naked from the waist up", and every compiled prompt was forbidden from saying so — so the
+    /// render kept the garment on no matter what the operator wrote.
+    /// </para>
+    /// </remarks>
+    public static string Qwen21CanonicalActionOnly(IntentReferenceCoverage coverage)
+    {
+        if (!coverage.Any)
+        {
+            throw new InvalidOperationException(
+                "The reference-aware intent contract needs at least one supplied element; a reference-free intent is "
+                + "compiled under the family's long-form contract.");
+        }
+
+        var text = new StringBuilder();
+        text.AppendLine("Write a SHORT direction for Qwen-Image-2.1 describing what the operator's intent asks the figure to DO at this instant, and every element the intent states that no reference image supplies. Every visible element a reference image supplies is already carried by that image and must NOT be written.");
+        text.AppendLine();
+        text.AppendLine("Facts about this request that shape the answer:");
+        if (coverage.Appearance)
+            text.AppendLine("- The figure's build, face, hair and skin come from a bound image.");
+        if (coverage.Clothing)
+            text.AppendLine("- The clothing comes from a bound image.");
+        if (coverage.Setting)
+            text.AppendLine("- The setting comes from a bound image.");
+        if (coverage.Objects)
+            text.AppendLine("- Any object comes from a bound image.");
+        if (!coverage.Clothing)
+            text.AppendLine("- NO image supplies clothing, so the clothing state is the operator's to state: say what is worn and what is not, exactly as the intent has it.");
+        text.AppendLine(coverage is { Setting: true, Appearance: true, Clothing: true }
+            ? "- This prompt therefore carries ACTION ONLY: what the person is doing, how their body is positioned, where their weight sits, what their hands are doing, what their face and gaze are doing, and the instant the frame catches."
+            : "- This prompt carries the action, plus whatever the intent states about the elements nothing else supplies.");
+        text.AppendLine("- 40 to 120 words. One continuous paragraph. Do not add line breaks.");
+        text.AppendLine();
+        text.AppendLine("Rules:");
+
+        var number = 0;
+        void Rule(string body) => text.AppendLine($"{++number}. {body}");
+
+        if (coverage.Setting)
+        {
+            Rule("DO NOT DESCRIBE THE SETTING. Write no sentence about the room, the ground, the sky, the light source, furniture, foliage or any background element, and do not name a place. Whether those appear is decided entirely by the location reference.");
+        }
+
+        if (coverage.Clothing)
+        {
+            Rule("DO NOT DESCRIBE CLOTHING OR NUDITY. Name no garment, no fabric, no colour of clothing, and state nothing about what is or is not worn. The clothing reference decides all of it.");
+        }
+        else
+        {
+            Rule("STATE THE CLOTHING STATE. No image in this request supplies clothing, so the direction MUST state what is worn and what is not. When the intent removes a garment, say the garment is gone, say where it now is (on the ground, over a chair, in her hand), and say which parts of the body are bare. Write it as plainly as the intent does: do not soften it, do not omit it, and do not invent clothing the intent does not name.");
+        }
+
+        if (coverage.Objects)
+        {
+            Rule("DO NOT DESCRIBE ANY OBJECT. Do not name, size, colour or place a prop, tool or container. An object reference decides all of it, including whether it is held.");
+        }
+
+        if (coverage.Appearance)
+        {
+            Rule("DO NOT DESCRIBE APPEARANCE. No build, height, skin tone, hair, face, age or gender phrasing beyond the single word needed to say who acts (\"she\" or \"he\") — the identity and body references decide how the person looks.");
+        }
+
+        var everySentence = coverage.Clothing
+            ? "EVERY SENTENCE IS ABOUT THE PERSON. Never write a sentence whose subject is an object or part of the setting — no \"a basket sits low beside her\", no \"the line runs across the frame\", no \"a fence stands behind her\". A thing stated as present is a thing DRAWN, layered on top of the object reference that already supplies it."
+            : "EVERY SENTENCE IS ABOUT THE PERSON OR THE GARMENT THE INTENT REMOVES. Never write a sentence whose subject is the setting or an unrelated object: a thing stated as present is a thing DRAWN. A removed garment and where it lies ARE part of the action and must be stated.";
+        if (coverage.Setting || coverage.Objects)
+        {
+            everySentence += " Measured: \"A laundry basket sits low beside her right calf\" and \"both hands are up at the line\" made the renderer draw a SECOND clothesline, strung across the frame beside the one already in the location image (SceneImage 87454bef, 2026-10-18).";
+        }
+        Rule(everySentence);
+
+        if (coverage.Setting || coverage.Objects)
+        {
+            Rule("A FIXTURE THE ACTION USES IS ALREADY IN THE PICTURE. When her hands touch something that a reference already shows, name it only inside the verb phrase that says what the hands do (\"pegging a shirt to the line\", \"reaching down into the basket\") — never introduce it as a new thing, never say where it is, never give it material, colour or size, and never say \"another\", \"a second\" or \"a new\" one. The picture already contains it, and saying more than the verb produces a duplicate.");
+        }
+
+        Rule("WHAT TO WRITE: the action and its mechanics. Body attitude (bent forward at the waist, seated, leaning, mid-stride), limb and hand placement, where the weight is, the angle of the head, the line of the gaze, the expression, and the beat the frame catches.");
+        Rule("NO NAMES, RELATIONS OR OWNERSHIP. Never emit story names, relationships or property.");
+        Rule("POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.");
+        Rule("GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people.");
+        Rule("NO QUALITY BOOSTERS, no SDXL style tail, no resolution, aspect ratio or pixel count, and never Pony vocabulary (no score_9, no rating_ tokens, no 1girl/1boy count tags).");
+        Rule("Hedge what you cannot see the way an observer would (\"appears to be\", \"likely\"). The direction is always in English.");
+        Rule("Never mention an image tag or the word reference: the tags are for the renderer, not for this paragraph.");
+        text.Append("Return ONLY the direction as plain text. No commentary, quotes or markdown.");
+
+        return text.ToString();
+    }
 
     /// <summary>
     /// Krea 2 (Krea-2 Turbo) photographic-brief dialect, beat-shaped.
@@ -261,7 +390,7 @@ public static class SceneImageCompilerSystemPrompts
         - It does not know character names, relationships or ownership. Describe each person by appearance only.
 
         Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
         2. NAME BOTH PEOPLE AND SAY WHO IS DOING WHAT TO WHOM. State each person's gender explicitly so the model never merges or miscounts people, and when two people are in contact write the sentence so the actor of the act is unambiguous: "a woman kneels in front of a man and takes his penis in her mouth" - never "the woman kneeling in front of the man performing fellatio on him", which reads as the man performing it.
         3. ONE CLAUSE PER PERSON: describe each person as one self-contained clause (appearance plus clothing plus action). Never interleave one person's attributes into another person's clause.
         4. NO FRAMING DEMANDS: never write full body shot, wide shot, close-up, macro, head to toe, or any other instruction about how much of the subject to include. Describe the scene; the shot follows from it.
@@ -270,7 +399,7 @@ public static class SceneImageCompilerSystemPrompts
         7. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
         8. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
         9. CLOTHING OR NUDITY from the depicted content. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).
-        10. EXPLICITNESS FROM THE DEPICTED CONTENT: describe explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the scene, never on narrative phase or a user setting.
+        10. EXPLICITNESS FROM THE DEPICTED CONTENT: describe explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the EXPLICITNESS line when one is present, otherwise on the scene.
         11. PHOTOREALISTIC BY DEFAULT: close the brief with the photographic facts that carry realism - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
         13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
@@ -291,7 +420,7 @@ public static class SceneImageCompilerSystemPrompts
         - It does not know character names, relationships or ownership. Describe every person by appearance only.
 
         Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint - show only what that character sees, and never include the POV character in the frame. If the POV is Omniscient, show the full scene with all characters visible.
+        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
         2. NAME BOTH PEOPLE AND SAY WHO IS DOING WHAT TO WHOM. State each person's gender explicitly, and when two people are in contact write the sentence so the actor of the act is unambiguous. Never emit a clause that can be read as the wrong person performing the act.
         3. ONE CLAUSE PER PERSON: appearance plus clothing plus action together, one self-contained clause each. Never interleave one person's attributes into another's clause.
         4. NO FRAMING DEMANDS: never add an instruction about how much of the subject to include. Render the brief's framing only as a description of what is visible.
@@ -300,7 +429,7 @@ public static class SceneImageCompilerSystemPrompts
         7. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied, and omit a trait that is absent rather than inventing one.
         8. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor (young adult, middle-aged, mature, elderly).
         9. CLOTHING OR NUDITY from the depicted content; a changed garment stays in its own category (a dress becomes another dress, never trousers).
-        10. EXPLICITNESS FROM THE DEPICTED CONTENT: explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly.
+        10. EXPLICITNESS FROM THE DEPICTED CONTENT: explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the EXPLICITNESS line when one is present, otherwise on the scene.
         11. PHOTOREALISTIC BY DEFAULT: carry the photographic facts the brief states, and close with the medium - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning. No resolution, aspect ratio or pixel count in the prose.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
         13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.

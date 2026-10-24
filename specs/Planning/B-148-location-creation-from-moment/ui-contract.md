@@ -34,18 +34,19 @@ Rules:
 ```
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ Header: POV · bound backdrop (image + name, or "Not set — text only")     │
-│         · moment location link ("shared across this moment's POVs")       │
+│         · this POV's own binding — Omniscient and each character separate │
 ├───────────────────────────────────────────────────────────────────────────┤
 │ 1 · Suggestion (shown only when a match resolves)                          │
 │   [ container breadcrumb: Trailer Park → Husband and Wife Trailer — … ]   │
 │   [ large spot image card ]  match reason  ·  Sightline (context only)    │
 │   [ Use as backdrop ]  [ Dismiss ]                                         │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ 2 · Search  [____ filter by container / image name]                        │
+│ 2 · Search  [____ filter the matched location's images]                   │
 │   [card] [card] [card] [card] …   (approved+named selectable;              │
 │                                    others disabled with reason + link)     │
 ├───────────────────────────────────────────────────────────────────────────┤
-│ 3 · [ Create location from this moment ]   [ Skip — text-only location ]   │
+│ 3 · [ Search all image assets ]  [ Create location from this moment ]     │
+│     [ Skip — text-only location ]                                         │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -66,24 +67,39 @@ Rules:
 - "No match → ad-hoc" is a **notice, not an error**: the zone states "No scenario location matched
   — this place is new" and points at Zone 3.
 
-## 4. Zone 2 — Search-as-cards
+## 4. Zone 2 — Search-as-cards *(amended 2026-10-14)*
 
-- Filters by container name and image name across all location assets; world containers and their
-  images appear too (a park-level image is a legitimate backdrop).
+- Lists the images of the **matched location asset** — the one the moment's place resolved to — and
+  nothing else. The search box filters those images by their operator-entered names; it no longer
+  searches other containers, because a grid of every place's images is the library, not a candidate
+  list for this moment.
+- When the place matches no location asset there is no list at all (the panel says so), and the
+  library is reached through **Search all image assets** (Zone 3).
 - Each card shows the image, the operator-entered name, the approval badge + production version,
   and the container breadcrumb.
-- Approved + named cards are **selectable**. Every other card renders **disabled with its reason**
-  ("needs a name" / "not approved") and a **Finish in Location Studio** link — a card the render
-  would refuse is never offered as clickable (D11, FR-B148-14).
+- Approved + named + checksummed cards are **selectable** — the eligibility rule is the domain's
+  (`SceneImageLocationBindGate`), so the list can never offer an image the bind would refuse. Every
+  other card renders **disabled with its reason** ("needs a name" / "not approved" / "no checksum")
+  and a **Finish in Location Studio** link (D11, FR-B148-14).
 - Selecting a card binds it immediately (same write path as Zone 1).
 
-## 5. Zone 3 — Create / skip
+## 5. Zone 3 — Search-all / create / skip
 
+- **Search all image assets** opens the shared `InAppImagePicker` (in its asset-group, search and
+  bindable-only modes) as a modal form: choose asset groups, search, view an image full size, and
+  **Bind as this POV's location backdrop**. The bind goes through the SAME single write the inline
+  list uses — the modal is a way to reach the image, not a second bind path.
+  *(Amended 2026-10-19: the picker marks the chosen card — highlight and pressed select button — and
+  its cards carry only the picker's own commands (select + view larger), not the review deck's
+  candidate-batch link. A failed pick or bind states its reason in the modal footer / the Location
+  stage instead of only in the log, and a successful bind reports in the stage — otherwise rebinding
+  the image already bound is silent and the Bind button looks inert.)*
 - **Create location from this moment** calls `CreateAssetAsync` (name defaulted from the location
   string, editable), stores the place-only seed (D4), then navigates to
   `/locations/{asset.Id}?return=<this POV's url>`.
-- **Skip — text-only location** is always available; it clears any bound backdrop for this POV and
-  leaves the composition's location as the picker's existing "Text only" option (D6).
+- **Skip — text-only location** is always available; it clears any bound backdrop for this POV —
+  **and the image on this POV's link**, so a later enrichment does not restore what was just
+  cleared — and leaves the composition's location as the picker's existing "Text only" option (D6).
 
 ## 6. The create-from-moment handoff and return
 
@@ -97,11 +113,19 @@ Rules:
 ## 7. Per-POV behaviour
 
 - The panel header shows: the current POV, its bound backdrop (image + operator name) or "Not set —
-  text only", and the moment-level container link ("shared across this moment's POVs").
-- Switching POV loads that POV's group (existing behaviour) and its **own** backdrop choice; the
-  moment-level container link does not change.
-- Binding writes the per-POV backdrop field on the group **and** the moment-level link keyed on
-  `MomentId` (D17) — the link is written on the operator's bind action, never automatically.
+  text only", and states that the binding is **this POV's own** — Omniscient and each character keep
+  theirs separately. *(Amended 2026-10-14: the header used to say "shared across this moment's POVs",
+  which described the old moment-level link and contradicted the per-POV backdrop beside it.)*
+- Entering the stage resolves **this POV's** production group through the same
+  `ISceneImageProductionService.GetOrCreateGroupAsync` call the composer button makes, then re-seeds a
+  fresh group's backdrop from this POV's recorded binding (`RestoreBackdropAsync`). A bind that cannot
+  be recorded fails with an explicit message; the stage never returns quietly as if it had bound.
+- Switching POV loads that POV's group and its **own** backdrop choice.
+- Binding writes the per-POV backdrop field on the group **and** that POV's link, keyed on
+  (`MomentId`, `POV`) (D17) — the link is written on the operator's bind action, never automatically.
+- The list under the search box is the **matched location asset's own images**. A place that matches
+  no location asset gets no list, and is told so; the rest of the library is behind
+  **Search all image assets**.
 
 ## 8. Composition auto-seed
 

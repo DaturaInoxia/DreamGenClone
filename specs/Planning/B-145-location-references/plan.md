@@ -224,10 +224,20 @@ governance.
 So `SceneAssetApprovalDefaults` (domain) now supplies the recorded values — consent/licence `NotApplicable`, licence
 label `NA`, policy `general`, compatibility `{}`, provenance `{"source":"operator-approved"}` — and the use scope is
 derived from the container type **only where the type settles it** (`Location`, `Wardrobe`, `CharacterFace`,
-`CharacterBody`); it is left empty for a prop, style, playground, character, production frame or character pose, so the
-form still asks for a real answer instead of inventing one. The fields moved into a collapsed
-*"Recorded with this approval"* disclosure with a one-line summary of exactly what will be written, so the record stays
-visible without being a wall of inputs.
+`CharacterBody`, and since 2026-10-17 `Prop` → `ProductionSource`); it is left empty for a style, playground,
+character, production frame or character pose, so the form still asks for a real answer instead of inventing one. The
+fields moved into a collapsed *"Recorded with this approval"* disclosure with a one-line summary of exactly what will
+be written, so the record stays visible without being a wall of inputs.
+
+> **2026-10-17 — the same trap, from the other side.** The operator could not approve a **prop** ("a prop laundry
+> basket"): a prop left the scope empty on purpose, the button refused with *"Choose a use scope."*, and the only
+> picker was inside the collapsed disclosure — so the form named the gap without showing where to close it. A prop's
+> scope is read by nothing (only `CharacterBody` / `CharacterWardrobe` / `CharacterLoraTraining` are consumed), and the
+> one thing an approved prop image is in this app is a reference source, which is exactly
+> `SceneAssetApprovedUseScope.ProductionSource` (the same scope the wardrobe's "use as reference" write and
+> `ProductionWorkloadService` record). `UseScopeFor(Prop)` now returns it, so approving a prop is one click. The
+> remaining unsettled types keep the honest empty scope, and the disabled button now says *where* to choose it. Pinned
+> by `SceneAssetApprovalDefaultsTests.APropIsApprovedAsAProductionSource`.
 
 Approving a location image is now: **type the name → click Approve.** The button's disabled state also names its own
 reason instead of just greying out — the trap that made this step unfindable twice. Pinned by

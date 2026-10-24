@@ -19,7 +19,62 @@ public sealed record ImageStepSlotSource(
     string? PosePresetId = null,
     string? IdentityPackId = null,
     string? ReferenceAssetId = null,
-    string? ReferenceLabel = null);
+    string? ReferenceLabel = null,
+
+    /// <summary>
+    /// The rendered app image this slot supplies, when <see cref="SourceKind"/> is
+    /// <c>ImageStepReferenceSourceKind.AppImage</c>, with its checksum as bound. An id space of its own — see
+    /// <c>ReferenceApplicationSelection.ReferenceImageId</c> — so it is carried here rather than folded into the
+    /// scene-asset fields, which the approved-asset resolver validates against an approval this image never had.
+    /// </summary>
+    string? ReferenceImageId = null,
+
+    string? ReferenceImageSha256 = null,
+
+    /// <summary>
+    /// What the OPERATOR says this reference is doing in this frame (B-159). Carried on the SOURCE rather than added
+    /// after planning, because the planner rebuilds a binding from its source: a value that lived only on the binding
+    /// would be dropped the next time the operator touched any other control, which is the same shape of defect the
+    /// named-argument comment below records.
+    /// </summary>
+    ReferenceDirections? Directions = null)
+{
+    /// <summary>
+    /// This source as rebuilt from a BINDING — the round-trip a re-plan depends on.
+    /// </summary>
+    /// <remarks>
+    /// It lives with the shape it has to preserve, because a field that is not copied here is a field the NEXT
+    /// unrelated edit silently drops: every re-plan (adding another reference, removing one, changing a strategy)
+    /// converts the current bindings back to sources and plans again. Omitted, the APP-IMAGE channel disappeared on the
+    /// first re-plan and validation refused the result — "Reference application 'Location' declares strategy
+    /// 'NativeMultiReference' but names no reference image", reported live 2026-10-18 while binding a Studio render as
+    /// a location reference. The named arguments are the protection the previous incident (2026-09-27, a pack id
+    /// landing in the pose-preset field) earned.
+    /// </remarks>
+    public static ImageStepSlotSource FromBinding(ReferenceApplicationSelection binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+
+        return new ImageStepSlotSource(
+            SourceKind: Enum.TryParse<ImageStepReferenceSourceKind>(
+                binding.Source, ignoreCase: true, out var kind)
+                ? kind
+                : ImageStepReferenceSourceKind.ApprovedSceneAsset,
+            Strategy: binding.Strategy,
+            SceneAssetId: binding.SceneAssetId,
+            SceneAssetImageId: binding.SceneAssetImageId,
+            SceneAssetVersion: binding.SceneAssetVersion,
+            SceneAssetSha256: binding.SceneAssetSha256,
+            SkeletonRelativePath: binding.SkeletonRelativePath,
+            PosePresetId: binding.PosePresetId,
+            IdentityPackId: binding.IdentityPackId,
+            ReferenceAssetId: binding.ReferenceAssetId,
+            ReferenceLabel: binding.ReferenceLabel,
+            ReferenceImageId: binding.ReferenceImageId,
+            ReferenceImageSha256: binding.ReferenceImageSha256,
+            Directions: binding.Directions);
+    }
+}
 
 /// <summary>A slot the host has filled: which slot, for which actor, with which resolved source.</summary>
 public sealed record ImageStepSlotAssignment(
@@ -67,6 +122,7 @@ public static class ReferenceSlotPlanner
         ImageStepSlotKind.Location => "Location",
         ImageStepSlotKind.Pose => "Pose",
         ImageStepSlotKind.CharacterPose => "CharacterPose",
+        ImageStepSlotKind.Prop => "Prop",
         _ => throw new InvalidOperationException($"Reference slot kind '{slotKind}' has no legacy element key.")
     };
 
@@ -85,6 +141,48 @@ public static class ReferenceSlotPlanner
         // pose guidance, so it is not what the measured ceiling is about.
         var carriesPose = filledSlotKinds.Contains(ImageStepSlotKind.Pose);
         return carriesPose ? Math.Min(maxReferences, PoseCarryingReferenceBudget) : maxReferences;
+    }
+
+    /// <summary>
+    /// The assignment list one bind produces: the slot's references REPLACED by <paramref name="source"/>, or the
+    /// source ADDED beside them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the one decision about replace-vs-add, taken here rather than in each component so two surfaces cannot
+    /// answer it differently. A slot that declares <see cref="ImageStepSlotBlueprint.AllowsMultiple"/> takes another
+    /// VIEW of the same thing (a shed bound as Front and Left), which is an ADD. A command that names ONE reference
+    /// ("use this image as the location") means the slot holds exactly that image, which is a REPLACE —
+    /// <paramref name="asSoleReference"/>.
+    /// </para>
+    /// <para>
+    /// Measured 2026-10-19: the "use as reference" command restored the source image's own recorded bindings (the
+    /// place that image was rendered in) and then added the picked image as a second Location reference, so the next
+    /// render was anchored to the old place AND the new one. The command says "this image IS the location reference",
+    /// so it replaces.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<ImageStepSlotAssignment> AssignmentsFor(
+        IEnumerable<ImageStepSlotAssignment> current,
+        ImageStepSlotBlueprint slot,
+        ImageStepSlotSource source,
+        bool asSoleReference = false)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(slot);
+        ArgumentNullException.ThrowIfNull(source);
+
+        var assignments = current.ToList();
+        if (asSoleReference || !slot.AllowsMultiple)
+        {
+            assignments.RemoveAll(assignment =>
+                assignment.SlotKind == slot.SlotKind
+                && string.Equals(
+                    assignment.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
+        }
+
+        assignments.Add(new ImageStepSlotAssignment(slot.SlotKind, slot.ActorKey, source));
+        return assignments;
     }
 
     /// <summary>
@@ -213,9 +311,16 @@ public static class ReferenceSlotPlanner
                     PosePresetId = assignment.Source.PosePresetId,
                     IdentityPackId = assignment.Source.IdentityPackId,
                     ReferenceAssetId = assignment.Source.ReferenceAssetId,
+                    // A rendered app image travels by its own id and checksum, in its own fields: the approved-asset
+                    // fields it does NOT fill are what the approved-asset resolver validates an approval against.
+                    ReferenceImageId = assignment.Source.ReferenceImageId,
+                    ReferenceImageSha256 = assignment.Source.ReferenceImageSha256,
                     // The operator-facing name of the bound image travels with the ids, so the surfaces that show a
                     // binding can say "Front · Clothed" without holding the identity service themselves.
                     ReferenceLabel = assignment.Source.ReferenceLabel,
+                    // The operator's own statement about this reference travels with it, so it survives every re-plan
+                    // the composer performs and reaches the render that assigns it a tag (B-159).
+                    Directions = assignment.Source.Directions,
                     Ordinal = bindings.Count + 1
                 });
             }
@@ -232,6 +337,7 @@ public static class ReferenceSlotPlanner
         ImageStepSlotKind.Location => "location continuity",
         ImageStepSlotKind.Pose => "stance",
         ImageStepSlotKind.CharacterPose => "character pose",
+        ImageStepSlotKind.Prop => "object in frame",
         _ => throw new InvalidOperationException($"Reference slot kind '{slotKind}' has no semantic role.")
     };
 }

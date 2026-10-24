@@ -3,6 +3,7 @@ using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Infrastructure.Configuration;
 using DreamGenClone.Infrastructure.RolePlay;
+using DreamGenClone.Web.Application.RolePlay;
 using Microsoft.Extensions.Options;
 
 namespace DreamGenClone.Tests.RolePlay;
@@ -59,6 +60,44 @@ public sealed class CompiledMediaBriefRepositoryTests
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// B-157 T2.2/T2.3 — the frame lives INSIDE the semantic snapshot, so a brief reloads carrying the framing it was
+    /// compiled with, and the store's immutability rule is what stops a later staging-profile edit from rewriting how
+    /// a past render was framed.
+    /// </summary>
+    [Fact]
+    public async Task RoundTrip_PreservesTheSnapshottedBlocking()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"compiled-media-blocking-{Guid.NewGuid():N}.db");
+        var repository = new CompiledMediaBriefRepository(Options.Create(new PersistenceOptions
+        {
+            ConnectionString = $"Data Source={path}"
+        }));
+
+        var now = new DateTime(2026, 10, 11, 12, 0, 0, DateTimeKind.Utc);
+        const string Snapshot = """
+            {"moment":{},"frozenState":{},"typedReferences":[],"blocking":{"profileVersion":"2","subjects":[{"subjectKey":"p0","position":{"horizontal":"Center","depth":"Foreground"},"roleText":"the person in the CENTER in the foreground"}],"camera":{"angle":"eye level","shotSize":"medium shot","side":null},"layering":["p0"],"rationale":"A wide two-shot."}}
+            """;
+        var brief = CreateBrief(now) with { SemanticInputSnapshotJson = Snapshot };
+
+        await repository.CreateAsync(brief);
+        var loaded = await repository.GetAsync(brief.Id);
+
+        var blocking = SceneBlockingJson.TryRead(loaded!.SemanticInputSnapshotJson);
+        Assert.NotNull(blocking);
+        Assert.Equal("2", blocking!.ProfileVersion);
+        Assert.Equal(
+            new FramePosition(FrameHorizontal.Center, FrameDepth.Foreground),
+            Assert.Single(blocking.Subjects).Position);
+        Assert.Equal("medium shot", blocking.Camera.ShotSize);
+
+        // Immutability is the mechanism that makes the framing reproducible: a later write cannot replace the
+        // snapshot, so editing the staging profile cannot reach back into a brief that was already compiled.
+        var changed = brief with { SemanticInputSnapshotJson = """{"blocking":null}""" };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => repository.CreateAsync(changed));
+        Assert.Equal(Snapshot, (await repository.GetAsync(brief.Id))!.SemanticInputSnapshotJson);
     }
 
     private static CompiledMediaBrief CreateBrief(DateTime now)

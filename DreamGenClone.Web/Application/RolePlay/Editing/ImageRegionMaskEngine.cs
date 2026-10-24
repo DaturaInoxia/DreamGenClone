@@ -30,9 +30,10 @@ public interface IImageRegionMaskEngine
 
     /// <summary>
     /// The alpha the rendered frame is blended back over the source with, at the same frame size: fully opaque inside
-    /// the drawn rectangle grown by <c>GrowMaskBy</c>, fading linearly to fully transparent across
-    /// <c>FeatherPixels</c> beyond it. Its transparent end meets the mask's white edge, so the host's hard step lands
-    /// where the blend has already given the source back.
+    /// the drawn rectangle grown by <c>GrowMaskBy</c>, then a linear fade to fully transparent. The fade stops short of
+    /// the mask's white edge by <see cref="MediaEditRegionOperation.HostBoundaryBandPixels"/>, because that is where the
+    /// host decodes its own pinned/generated boundary as a smear - fading across it would blend the smear into the
+    /// result instead of removing it.
     /// </summary>
     byte[] BuildCompositeAlpha(MediaEditRegionOperation region, int width, int height);
 }
@@ -56,18 +57,22 @@ public sealed class ImageRegionMaskEngine : IImageRegionMaskEngine
     public byte[] BuildCompositeAlpha(MediaEditRegionOperation region, int width, int height)
     {
         var geometry = GeometryOf(region, width, height);
-        var feather = region.FeatherPixels;
 
-        // Opaque over everything the operator may change, then a linear fade to nothing across the feather. The fade
-        // ends exactly on the mask's white edge - the hard step the host leaves in the render - so that step is
-        // multiplied by zero, and the source is handed back gradually instead of at a line.
+        // Opaque over everything the operator may change, then a linear fade to nothing. The fade STOPS SHORT of the
+        // mask's white edge by the host's boundary band: the host confines through a latent one eighth of the frame's
+        // size, so the boundary between its pinned and generated pixels decodes as a smear about that wide (measured:
+        // +80 luminance across the first 8-10 px of a real render). Ramping across that band blends the smear back in
+        // at up to ~30 %, which is the visible seam this alpha exists to remove; holding the ramp back leaves the
+        // smear entirely inside the transparent part, where the source is handed back untouched.
+        var ramp = region.FeatherPixels - MediaEditRegionOperation.HostBoundaryBandPixels;
+
         return Paint(width, height, (x, y) =>
         {
             var distance = geometry.Editable.Distance(x, y);
             if (distance <= 0)
                 return (byte)255;
 
-            return (byte)Math.Round(Math.Clamp(1.0 - (double)distance / feather, 0.0, 1.0) * 255.0);
+            return (byte)Math.Round(Math.Clamp(1.0 - (double)distance / ramp, 0.0, 1.0) * 255.0);
         });
     }
 

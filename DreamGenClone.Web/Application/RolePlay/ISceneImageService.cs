@@ -130,6 +130,17 @@ public interface ISceneImageService
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
         string productionGroupId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// One rendered image's OWN stored row, by id — the facts a review surface shows (its tags, its settings snapshot,
+    /// the prompt that was sent) rather than a projection of them. Null when the id names no row.
+    ///
+    /// <para>
+    /// A read, so it carries no session guard. Every listing here is unguarded the same way; the guard belongs on the
+    /// writes, which is where it is.
+    /// </para>
+    /// </summary>
+    Task<SceneImageRecord?> GetImageAsync(string imageId, CancellationToken cancellationToken = default);
+
     /// <summary>Compare-and-set an attempt disposition without changing execution status.</summary>
     Task SetDispositionAsync(
         string imageId,
@@ -145,4 +156,27 @@ public interface ISceneImageService
     /// <summary>Delete an image: removes the DB row and the file on disk. Idempotent.</summary>
     Task DeleteImageAsync(
         string sessionId, string imageId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the operator's name for a rendered image — what a list shows and what a location reference is described by
+    /// — and returns the row as it now stands. A blank name clears it back to unnamed. Fails fast when the image does
+    /// not exist or belongs to another session.
+    /// </summary>
+    Task<SceneImageRecord> SetDisplayNameAsync(
+        string sessionId, string imageId, string? displayName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The app's own rendered images that may stand as a reference, within one search scope: complete, still holding
+    /// their bytes, and carrying a checksum — because those three are exactly what the reference resolver re-reads
+    /// before it conditions on one.
+    ///
+    /// <para>
+    /// The eligibility rule lives HERE rather than in each search surface, so a list can never offer an image the
+    /// resolver would then refuse. A scope that names a level but omits the id that level needs fails with a
+    /// diagnostic instead of being widened: answering "everything in the session" to a question about one moment is
+    /// how a narrow search silently becomes a different one.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<SceneImageRecord>> ListSearchableImagesAsync(
+        SceneImageSearchScope scope, CancellationToken cancellationToken = default);
 }

@@ -342,4 +342,127 @@ public sealed class ComfyUIImageEditingClientTests
         Assert.Equal("simple", workflow["3"]!["inputs"]!["scheduler"]!.GetValue<string>());
         Assert.Equal(1, workflow["3"]!["inputs"]!["denoise"]!.GetValue<double>());
     }
+
+    /// <summary>
+    /// A picked scene LoRA must reach the EDIT graph, chained above the cache so the sampler reads its output. The
+    /// files are model-only, so the text encode keeps reading CLIPLoader directly: <c>LoraLoader</c> would try to patch
+    /// the 8B Qwen3-VL text encoder with nothing and report "lora key not loaded" for its clip half.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithSceneLoras_ChainsThemAboveTheCache()
+    {
+        var model = Resolve(ImageEditorGraphKind.QwenImage21Native) with
+        {
+            ResolutionBudget = 1024,
+            SceneLoras = [new ResolvedSceneLora("FELLATIO-v2.safetensors", 1.0, "oral act")]
+        };
+
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(model, "source.png", "Change the pose.");
+
+        var sceneNode = workflow["20"]!;
+        Assert.Equal("LoraLoaderModelOnly", sceneNode["class_type"]!.GetValue<string>());
+        Assert.Equal("FELLATIO-v2.safetensors", sceneNode["inputs"]!["lora_name"]!.GetValue<string>());
+        Assert.Equal(1.0, sceneNode["inputs"]!["strength_model"]!.GetValue<double>());
+        Assert.Equal(new JsonArray("5", 0).ToJsonString(), sceneNode["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("20", 0).ToJsonString(), workflow["7"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("3", 0).ToJsonString(), workflow["6"]!["inputs"]!["clip"]!.ToJsonString());
+    }
+
+    /// <summary>
+    /// No selection is a CONFIGURED state: the graph must emit no scene loader at all, so an edit made without one is
+    /// wired exactly as it was before edit-mode LoRA selection existed.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithNoSceneLoras_EmitsNoSceneLoader()
+    {
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            Resolve(ImageEditorGraphKind.QwenImage21Native) with { ResolutionBudget = 1024 },
+            "source.png",
+            "Change the pose.");
+
+        Assert.DoesNotContain("LoraLoaderModelOnly", workflow.ToJsonString(), StringComparison.Ordinal);
+        Assert.Equal(new JsonArray("5", 0).ToJsonString(), workflow["7"]!["inputs"]!["model"]!.ToJsonString());
+    }
+
+    /// <summary>
+    /// The per-model editor LoRA stays LAST, closest to the sampler: scene LoRAs describe content and the editor
+    /// adapter describes the checkpoint's own behaviour, so the editor adapter must win where they overlap.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithSceneLorasAndAnEditorLora_KeepsTheEditorAdapterLast()
+    {
+        var model = Resolve(ImageEditorGraphKind.QwenImage21Native) with
+        {
+            ResolutionBudget = 1024,
+            SceneLoras = [new ResolvedSceneLora("nsfw-posture-v3.safetensors", 0.8, "pose")],
+            LoraName = "Qwen-Image-2.1 NSFW Image EditV3.safetensors",
+            LoraStrength = 0.8
+        };
+
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(model, "source.png", "Remove the shirt.");
+
+        Assert.Equal(new JsonArray("5", 0).ToJsonString(),
+            workflow["20"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("20", 0).ToJsonString(),
+            workflow["17"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("17", 0).ToJsonString(),
+            workflow["7"]!["inputs"]!["model"]!.ToJsonString());
+    }
+
+    /// <summary>
+    /// The chain is appended from the graph's own highest id, so it cannot overwrite the reference loaders (20+) or the
+    /// confinement nodes (40/42/43). A hardcoded id here would replace identity inputs with LoRA loaders - the defect
+    /// the generation client already fixed once.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_Qwen21WithSceneLoras_DoesNotOverwriteReferenceOrMaskNodes()
+    {
+        var mask = new ImageEditingMask(Stream.Null, "region.png", "sha256-region", GrowMaskBy: 12, FeatherPixels: 0);
+        var model = Resolve(ImageEditorGraphKind.QwenImage21Native) with
+        {
+            ResolutionBudget = 1024,
+            SceneLoras =
+            [
+                new ResolvedSceneLora("nsfw-posture-v3.safetensors", 0.8),
+                new ResolvedSceneLora("qwen21_fullbody_pass2_3270473.safetensors", 1.0)
+            ]
+        };
+
+        var workflow = ComfyUIImageEditingClient.BuildResolvedWorkflow(
+            model,
+            "source.png",
+            "Change the pose.",
+            referenceImageNames: ["becky-face.png", "dean-face.png"],
+            maskImageName: "region.png",
+            mask: mask);
+
+        Assert.Equal("LoadImage", workflow["20"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("LoadImage", workflow["21"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("LoadImageMask", workflow["40"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("VAEEncodeForInpaint", workflow["42"]!["class_type"]!.GetValue<string>());
+
+        // Highest existing node is 42, so the chain starts at 43 and the sampler reads the LAST chain node.
+        Assert.Equal("LoraLoaderModelOnly", workflow["43"]!["class_type"]!.GetValue<string>());
+        Assert.Equal("LoraLoaderModelOnly", workflow["44"]!["class_type"]!.GetValue<string>());
+        Assert.Equal(new JsonArray("43", 0).ToJsonString(), workflow["44"]!["inputs"]!["model"]!.ToJsonString());
+        Assert.Equal(new JsonArray("44", 0).ToJsonString(), workflow["7"]!["inputs"]!["model"]!.ToJsonString());
+    }
+
+    /// <summary>
+    /// A selection on a graph with no edit-mode LoRA wiring is REFUSED, not dropped: quietly rendering without it would
+    /// produce an image nobody asked for and look exactly like success.
+    /// </summary>
+    [Fact]
+    public void BuildResolvedWorkflow_WithSceneLorasOnAnUnsupportedGraph_Refuses()
+    {
+        var model = Resolve(ImageEditorGraphKind.SplitUnet) with
+        {
+            SceneLoras = [new ResolvedSceneLora("nsfw-posture-v3.safetensors", 0.8)]
+        };
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ComfyUIImageEditingClient.BuildResolvedWorkflow(model, "source.png", "Change the pose."));
+
+        Assert.Contains("scene LoRA", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -14,6 +14,18 @@ public sealed class IdentityPackSelection
     /// <summary>Human-readable character label for provenance.</summary>
     public string CharacterLabel { get; set; } = string.Empty;
 
+    /// <summary>
+    /// The participant profile key this pack belongs to, when the caller knows it (B-157).
+    ///
+    /// <para>
+    /// <see cref="CharacterLabel"/> is a DISPLAY string — "Becky — v3", or the profile key, depending on the route that
+    /// built the selection. A role clause cannot join on a display string, so the profile key travels here instead, and
+    /// it is what lets the identity-controlled route name each person by frame position rather than by pack view.
+    /// Null on a selection built before this existed, which keeps the scene-level wording.
+    /// </para>
+    /// </summary>
+    public string? ActorKey { get; set; }
+
     /// <summary>Optional per-character conditioning strength override.</summary>
     public double? Strength { get; set; }
 

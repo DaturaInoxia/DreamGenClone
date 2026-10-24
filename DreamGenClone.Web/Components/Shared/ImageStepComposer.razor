@@ -50,6 +50,21 @@
             <div class="alert alert-warning py-2 small mb-0">Choose an image model before binding references.</div>
         }
 
+        @* Scene LoRAs (non-identity: unlock / act / anatomy / style). A SIBLING of both the reference route and the
+           character-LoRA picker: a step can offer neither, one, or both, and the graph chains scene LoRAs first so
+           identity stays closest to the subject. The picker renders itself only when the selected family has catalog
+           rows, so a family with no scene LoRAs shows no control rather than a dead one. *@
+        @if (OffersSceneLoras)
+        {
+            <div class="mt-3">
+                <SceneLoraPicker Family="@SelectedChoice!.Family"
+                                 Selections="SceneLoras"
+                                 SelectionsChanged="SceneLorasChanged"
+                                 Disabled="@Busy"
+                                 Scope="@($"scene-lora-{_instanceId}")" />
+            </div>
+        }
+
         @* Character LoRA identity — a SIBLING of the reference route, never a replacement. It appears only when the
            selected model declares and qualifies the Lora strategy, so a model that carries identity another way
            shows nothing here and keeps that mechanism exactly as it was.
@@ -130,9 +145,14 @@
                                 </span>
                                 @if (binding is not null)
                                 {
+                                    @* Distinct from each row's own trash button below: this removes EVERY image bound to
+                                       the slot, which on a multi slot like Location can be several views at once. It was
+                                       reported as "delete removes all the location references" — the behaviour is
+                                       intended, so it now says what it does. *@
                                     <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@Busy"
+                                            title="Remove every image bound to this slot, not just one"
                                             @onclick="() => ClearSlotAsync(slot)">
-                                        Clear
+                                        Clear all
                                     </button>
                                 }
                             </div>
@@ -161,6 +181,13 @@
                                 </div>
                             }
 
+                            @* B-166 D8: which view this moment's recorded stance suggests. Guidance only — the
+                               operator's own pick always wins, and an unrecorded angle says so instead of guessing. *@
+                            @if (!string.IsNullOrWhiteSpace(slot.ViewHint))
+                            {
+                                <div class="small text-info mb-2">Suggested view: @slot.ViewHint</div>
+                            }
+
                             @if (slot.AllowsMultiple && slotBindings.Count > 0)
                             {
                                 @* A MULTI slot (a wardrobe): EVERY bound image is listed with its own Remove, and the
@@ -171,7 +198,16 @@
                                     {
                                         <div class="border rounded p-2">
                                             <div class="d-flex justify-content-between align-items-start gap-2">
-                                                <div class="small text-break">@DescribeBinding(bound)</div>
+                                                <div class="small text-break">
+                                                    @if (TagsByBinding.TryGetValue(bound, out var boundTag))
+                                                    {
+                                                        @* The tag is shown HERE, where the image is picked, so the
+                                                           operator can write about "image 2" knowing which one that
+                                                           is — the same number the render will issue. *@
+                                                        <span class="badge text-bg-dark font-monospace me-1">@boundTag</span>
+                                                    }
+                                                    @DescribeBinding(bound)
+                                                </div>
                                                 <button type="button" class="btn btn-sm btn-outline-danger" disabled="@Busy"
                                                         title="Remove this reference image"
                                                         @onclick="() => RemoveBindingAsync(bound)">
@@ -183,6 +219,10 @@
                                                               Strategies="StrategiesFor(slot.SlotKind, bound)"
                                                               SelectedStrategy="@bound.Strategy"
                                                               SelectedStrategyChanged="strategy => SetStrategyForAsync(bound, strategy)" />
+                                            <ReferenceDirectionControls Binding="bound" Busy="@Busy"
+                                                                        SideChanged="args => OnSideChangedAsync(bound, args)"
+                                                                        FacingChanged="args => OnFacingChangedAsync(bound, args)"
+                                                                        NoteChanged="args => OnDirectionNoteChangedAsync(bound, args)" />
                                         </div>
                                     }
                                 </div>
@@ -190,9 +230,18 @@
                                 {
                                     <div class="mt-2" style="min-width: 260px;">
                                         <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
-                                                         CharacterProfileId="@slot.ActorKey"
+                                                         CharacterProfileId="@IdentityOwnerKeyFor(slot)"
                                                          SelectedAssetImageId="null"
                                                          SelectedAssetChanged="choice => AddAssetAsync(slot, choice)" />
+                                    </div>
+                                }
+                                @if (OffersAppImageSearch(slot))
+                                {
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                                @onclick="() => OpenAppImageSearch(slot)">
+                                            <i class="bi bi-search me-1"></i>Search images…
+                                        </button>
                                     </div>
                                 }
                                 <div class="form-text mt-1">Each bound image travels as its own reference. The model's own reference budget still applies.</div>
@@ -215,7 +264,7 @@
                                     {
                                         <div style="min-width: 300px;">
                                             <IdentityPackPicker SlotKind="@slot.SlotKind"
-                                                                ActorKey="@slot.ActorKey"
+                                                                ActorKey="@IdentityOwnerKeyFor(slot)"
                                                                 Busy="@Busy"
                                                                 OnSelected="choice => SetPackAssetAsync(slot, choice)" />
                                         </div>
@@ -224,10 +273,22 @@
                                     {
                                         <div style="min-width: 260px;">
                                             <ReferencePicker AssetType="@AssetTypeFor(slot.SlotKind)"
-                                                             CharacterProfileId="@slot.ActorKey"
+                                                             CharacterProfileId="@IdentityOwnerKeyFor(slot)"
                                                              SelectedAssetImageId="null"
                                                              SelectedAssetChanged="choice => SetAssetAsync(slot, choice)" />
                                         </div>
+                                    }
+                                    @if (OffersAppImageSearch(slot))
+                                    {
+                                        @* The search reaches what the dropdown cannot: the app's own rendered images, and
+                                           every asset image rather than only the ones of this element's asset type. It opens
+                                           the SHARED picker, so an operator who has picked an image anywhere else in the app
+                                           already knows this form, and the pick is bound through the same planning path the
+                                           dropdown uses. *@
+                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                                @onclick="() => OpenAppImageSearch(slot)">
+                                            <i class="bi bi-search me-1"></i>Search images…
+                                        </button>
                                     }
                                     <span class="form-text">Pre-fill only - binding one is optional unless marked required.</span>
                                 </div>
@@ -236,7 +297,13 @@
                             {
                                 <div class="row g-2 align-items-end">
                                     <div class="col-md-6">
-                                        <div class="small text-break">@DescribeBinding(binding)</div>
+                                        <div class="small text-break">
+                                            @if (TagsByBinding.TryGetValue(binding, out var singleTag))
+                                            {
+                                                <span class="badge text-bg-dark font-monospace me-1">@singleTag</span>
+                                            }
+                                            @DescribeBinding(binding)
+                                        </div>
                                     </div>
                                     <div class="col-md-6">
                                         <label class="form-label small mb-1">Strategy</label>
@@ -246,6 +313,19 @@
                                                           SelectedStrategyChanged="strategy => SetStrategyAsync(slot, strategy)" />
                                     </div>
                                 </div>
+                                <ReferenceDirectionControls Binding="binding" Busy="@Busy"
+                                                            SideChanged="args => OnSideChangedAsync(binding, args)"
+                                                            FacingChanged="args => OnFacingChangedAsync(binding, args)"
+                                                            NoteChanged="args => OnDirectionNoteChangedAsync(binding, args)" />
+                                @if (OffersAppImageSearch(slot))
+                                {
+                                    <div class="mt-2">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@Busy"
+                                                @onclick="() => OpenAppImageSearch(slot)">
+                                            <i class="bi bi-search me-1"></i>Replace with a searched image…
+                                        </button>
+                                    </div>
+                                }
                             }
                         </div>
                     }
@@ -323,6 +403,8 @@
                                RefineInstruction="@RefineInstruction" RefineInstructionChanged="RefineInstructionChanged"
                                Bindings="@Bindings" GeneratedForSignature="@_generatedForSignature"
                                DraftedFromBindings="@_draftedFromBindings" OmittedElements="@OmittedElementLabels"
+                               Blocking="@Blocking"
+                               LeadingImagesForThisSurface="LeadingImagesForThisStep"
                                Busy="@Busy" OnGenerate="CompilePromptCallback" OnRefine="OnRefinePrompt"
                                OnCreate="OnSubmit" CreateLabel="@SubmitLabel"
                                CreateBlocked="@SubmitBlocked" CreateBlockedReason="@SubmitBlockedReason" />
@@ -374,6 +456,17 @@
                    VisibleChanged="visible => { if (!visible) { _posePickerSlot = null; } }"
                    OnSelected="OnSkeletonPickedAsync" />
 
+@* The image search is the same shape and for the same reason: one modal for the step, opened by whichever slot asked,
+   listing every image the app holds — the asset library and the app's own renders. *@
+<InAppImagePicker Visible="_appImageSearchSlot is not null"
+                   Title="Search every image"
+                   PickLabel="Use as a reference"
+                   ShowSearch="true"
+                   RequireCompositionReference="true"
+                   ProductionScope="AppImageSearchScope"
+                   CancelRequested="CloseAppImageSearch"
+                   Picked="OnAppImagePickedAsync" />
+
 @code {
     /// <summary>Everything that differs between surfaces. The component holds no host knowledge of its own.</summary>
     [Parameter, EditorRequired]
@@ -419,6 +512,21 @@
     [Parameter]
     public EventCallback<IReadOnlyList<SceneImageCharacterLoraSelection>> CharacterLorasChanged { get; set; }
 
+    /// <summary>
+    /// The NON-identity scene LoRAs this step applies, in chain order (unlock / act / anatomy / style). Null/empty
+    /// means NO scene LoRA, which is a configured state: the graph then emits no loader node for them and the render
+    /// is exactly what it would have been before the catalog existed. They chain BEFORE the character identity LoRAs.
+    ///
+    /// Passing <see cref="SceneLorasChanged"/> is what OPTS a host in — the same idiom as
+    /// <see cref="CharacterLoras"/> — so a host with nowhere to store the pick shows no picker at all rather than a
+    /// control that accepts a value and quietly loses it.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<SceneImageLoraSelection>? SceneLoras { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<SceneImageLoraSelection>> SceneLorasChanged { get; set; }
+
     [Parameter]
     public IReadOnlyList<ReferenceApplicationSelection> Bindings { get; set; } = [];
 
@@ -431,8 +539,39 @@
     [Parameter]
     public EventCallback<IReadOnlyList<ReferenceApplicationSelection>> BindingsChanged { get; set; }
 
+    /// <summary>
+    /// Which identity owner each actor's approved packs and character-owned assets are filed under, where that is a
+    /// DIFFERENT key from the slot's actor key. Null (the default) means the two are the same key, which is true on
+    /// every host whose step is not joined against a compiled brief.
+    ///
+    /// <para>
+    /// The two key spaces are not interchangeable. A brief addresses a depicted character by its PARTICIPANT profile
+    /// key (<c>p0</c>, <c>p1</c>, ...) — which is what every prompt-element scope, role clause and blocking join
+    /// needs — while an approved pack belongs to the character's IDENTITY OWNER. One field carried both roles until
+    /// 2026-10-12, and the mismatch was invisible in both directions: the pack picker matched no owner on a
+    /// brief-joined step, and the prompt-element removal addressed a character the brief did not contain. The host
+    /// declares the mapping; this component only reads it.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string>? IdentityOwnerKeys { get; set; }
+
     [Parameter]
     public string Prompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How this step's subjects sit in the FRAME, when the host has it (B-157).
+    ///
+    /// <para>
+    /// Optional, and passing it is what OPTS a host in — the same idiom as <see cref="CharacterLoras"/>: a host that
+    /// cannot supply a frame gets no preview rather than a preview that states nothing true. A host that has the
+    /// compiled brief supplies it from that brief's own snapshot
+    /// (<c>SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson)</c>), which is the SAME value the render reads,
+    /// so the preview and the render cannot disagree.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public SceneBlocking? Blocking { get; set; }
 
     [Parameter]
     public EventCallback<string?> PromptChanged { get; set; }
@@ -524,6 +663,26 @@
     public string? PresetNote { get; set; }
 
     /// <summary>
+    /// Where the image search looks for the app's own rendered images, and how far it opens. Null means the search
+    /// offers the asset library only, which is a real answer for a host that does not know which moment it is on.
+    ///
+    /// <para>
+    /// The scope starts narrow — the moment being composed — because that is what an operator means by "an image I
+    /// already have" while working on one moment; widening it is a control on the search itself, not a host setting.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public SceneImageSearchScope? AppImageSearchScope { get; set; }
+
+    /// <summary>
+    /// A host's request to bind one of the app's own rendered images as this step's location reference — the
+    /// "use as reference" command on an image card. Applied once per image id, through the same binding path the
+    /// pickers use.
+    /// </summary>
+    [Parameter]
+    public SceneImageLocationReferenceRequest? RequestedLocationReference { get; set; }
+
+    /// <summary>
     /// What this STEP KIND offers, read from the one table that decides it. The composer derives it from the blueprint
     /// the host already supplies, so no host has to state it and no host can disagree with another about what a
     /// composition step is.
@@ -537,6 +696,17 @@
     /// </summary>
     private bool OffersCharacterLoras =>
         Profile.Allows(ImageStepFeature.CharacterLoras) && CarriesLora && CharacterLorasChanged.HasDelegate;
+
+    /// <summary>
+    /// The scene-LoRA picker appears when the KIND offers it AND the host has somewhere to put the value AND a model
+    /// is selected (its family decides the list). It deliberately does NOT gate on the model's LoRA reference
+    /// strategy: a scene LoRA is a model adapter bound by FAMILY, not an identity mechanism, so a model that carries
+    /// identity through native references can still take one.
+    /// </summary>
+    private bool OffersSceneLoras =>
+        Profile.Allows(ImageStepFeature.SceneLoras)
+        && SelectedChoice is not null
+        && SceneLorasChanged.HasDelegate;
 
     /// <summary>The presets appear when the KIND offers them and the host has loaded choices to offer.</summary>
     private bool OffersPresets => Profile.Allows(ImageStepFeature.Presets) && HasPresets;
@@ -576,10 +746,22 @@
     private ImageStepSlotBlueprint? _posePickerSlot;
 
     /// <summary>
+    /// The slot whose image search is open, or null. Held as the SLOT rather than as a flag so the pick is bound to
+    /// the element the operator opened it from, even if they switch tabs while the modal is up.
+    /// </summary>
+    private ImageStepSlotBlueprint? _appImageSearchSlot;
+
+    /// <summary>
     /// Which element's tab is showing, by slot key. Held as the KEY rather than an index, because a model change or a
     /// blueprint change rebuilds the slot list and an index would then point at a different element.
     /// </summary>
     private string? _activeSlotKey;
+
+    /// <summary>
+    /// The request key the last <see cref="RequestedLocationReference"/> was applied for, so a re-render does not
+    /// re-apply it and stack a second copy of the same reference on every pass.
+    /// </summary>
+    private string? _appliedLocationReferenceKey;
 
     /// <summary>
     /// Whether <paramref name="slotKey"/> is the tab to show. Falls back to the FIRST slot whenever the held key is not
@@ -713,6 +895,20 @@
             && string.Equals(binding.ActorKey ?? string.Empty, slot.ActorKey ?? string.Empty, StringComparison.Ordinal));
 
     /// <summary>
+    /// The key this slot's approved packs and character-owned assets are filed under: the identity owner the host
+    /// declared for this actor, or the actor key itself when the host declared none (see
+    /// <see cref="IdentityOwnerKeys"/>). Only the pack and character-asset PICKERS ask — every prompt-element scope,
+    /// role clause and blocking join keeps using <see cref="ImageStepSlotBlueprint.ActorKey"/>.
+    /// </summary>
+    private string? IdentityOwnerKeyFor(ImageStepSlotBlueprint slot)
+        => !string.IsNullOrWhiteSpace(slot.ActorKey)
+            && IdentityOwnerKeys is not null
+            && IdentityOwnerKeys.TryGetValue(slot.ActorKey, out var owner)
+            && !string.IsNullOrWhiteSpace(owner)
+                ? owner
+                : slot.ActorKey;
+
+    /// <summary>
     /// EVERY binding a slot holds, in reference order. A single-reference slot yields one at most; a multi slot
     /// (a wardrobe) yields all of them, which is what its card lists.
     /// </summary>
@@ -730,38 +926,167 @@
             && string.Equals(binding.ActorKey ?? string.Empty, actorKey ?? string.Empty, StringComparison.Ordinal));
 
     /// <summary>
-    /// One binding as a planner assignment. Sole place the conversion lives, so the seed path and the operator path
-    /// cannot disagree about what a binding means.
+    /// One binding as a planner assignment. The conversion itself is <see cref="ImageStepSlotSource.FromBinding"/> —
+    /// it lives with the shape it must preserve so a field cannot be dropped here without a test failing there, which
+    /// is what happened to the app-image channel on 2026-10-18.
     /// </summary>
     private static ImageStepSlotAssignment ToAssignment(ReferenceApplicationSelection binding) =>
         new(
             Enum.Parse<ImageStepSlotKind>(binding.Kind ?? string.Empty, ignoreCase: true),
             binding.ActorKey,
-            // NAMED arguments, deliberately. Built positionally, inserting a parameter into ImageStepSlotSource
-            // silently shifted every value after it: a pack binding's pack id landed in "pose preset id" and its asset
-            // id in "pack id", so binding ANY slot re-planned the others into a state with no asset id at all - the
-            // face and body fell out, both are required, and the step became uncreatable (reported live 2026-09-27).
-            // Name every field so the next parameter added here cannot do that again.
-            new ImageStepSlotSource(
-                SourceKind: Enum.TryParse<ImageStepReferenceSourceKind>(binding.Source, ignoreCase: true, out var kind)
-                    ? kind
-                    : ImageStepReferenceSourceKind.ApprovedSceneAsset,
-                Strategy: binding.Strategy,
-                SceneAssetId: binding.SceneAssetId,
-                SceneAssetImageId: binding.SceneAssetImageId,
-                SceneAssetVersion: binding.SceneAssetVersion,
-                SceneAssetSha256: binding.SceneAssetSha256,
-                SkeletonRelativePath: binding.SkeletonRelativePath,
-                PosePresetId: binding.PosePresetId,
-                IdentityPackId: binding.IdentityPackId,
-                ReferenceAssetId: binding.ReferenceAssetId,
-                ReferenceLabel: binding.ReferenceLabel));
+            ImageStepSlotSource.FromBinding(binding));
 
     private static bool OffersSkeleton(ImageStepSlotBlueprint slot) =>
         slot.AllowedSources.Contains(ImageStepReferenceSourceKind.PoseLibrarySkeleton);
 
     private static bool OffersApprovedAsset(ImageStepSlotBlueprint slot) =>
         slot.AllowedSources.Contains(ImageStepReferenceSourceKind.ApprovedSceneAsset);
+
+    /// <summary>
+    /// Whether this slot can be filled from the app's own images, and so whether its tab offers the search.
+    ///
+    /// <para>
+    /// Asked of the BLUEPRINT rather than of the slot's kind: the host declares which sources a slot accepts, and a
+    /// control offered for a source the planner refuses is exactly the disagreement this component's blueprint
+    /// indirection exists to remove. Today only a location slot declares it.
+    /// </para>
+    /// </summary>
+    private static bool OffersAppImageSearch(ImageStepSlotBlueprint slot) =>
+        slot.AllowedSources.Contains(ImageStepReferenceSourceKind.AppImage);
+
+    private void OpenAppImageSearch(ImageStepSlotBlueprint slot) => _appImageSearchSlot = slot;
+
+    private void CloseAppImageSearch() => _appImageSearchSlot = null;
+
+    /// <summary>
+    /// Applies a host's "use this image as a location reference" request, once per image id.
+    ///
+    /// <para>
+    /// It is applied HERE, through the composer's own binding path, rather than by the host building a binding: the slot
+    /// order, the strategy and the ordinal are the step's business, and a host-authored binding would be a second
+    /// author of a plan the planner then has to accept or reject. It is deduped by image id because the host re-renders
+    /// whenever the bindings it owns change, so a request with no identity would stack a copy on every pass.
+    /// </para>
+    ///
+    /// <para>
+    /// A step with no slot that accepts one of the app's own images FAILS rather than ignoring the request: the operator
+    /// pressed a control that promised a reference, and a silent no-op is the one outcome they cannot detect.
+    /// </para>
+    ///
+    /// <para>
+    /// It binds as the slot's SOLE reference. The command names THE location reference, and the location slot is the
+    /// multi one (several views of one place), so without this a request applied after a restore left the step anchored
+    /// to the source image's own recorded place as well — two Location references where the operator asked for one
+    /// (measured 2026-10-19). Adding a second view stays an operator action, in the picker.
+    /// </para>
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (RequestedLocationReference is not { } request
+            || string.Equals(request.Key, _appliedLocationReferenceKey, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var slot = Blueprint is null ? null : Blueprint.Slots.FirstOrDefault(OffersAppImageSearch);
+        if (slot is null)
+        {
+            throw new InvalidOperationException(
+                $"This step has no slot that accepts one of the app's own images, so image '{request.ImageId}' cannot be "
+                + "bound as a reference here.");
+        }
+
+        if (!slot.AllowedSources.Contains(request.SourceKind))
+        {
+            throw new InvalidOperationException(
+                $"This step's reference slot does not accept a '{request.SourceKind}' reference, so image "
+                + $"'{request.ImageId}' cannot be bound here. It accepts: {string.Join(", ", slot.AllowedSources)}.");
+        }
+
+        _appliedLocationReferenceKey = request.Key;
+        await BindSourceAsync(slot, request.ToSlotSource(StrategyFor(slot, request.SourceKind)), asSoleReference: true);
+    }
+
+    /// <summary>
+    /// Binds the image picked in the search as this slot's reference.
+    ///
+    /// <para>
+    /// Two kinds of pick arrive and each is bound through its OWN channel rather than being converted into the other:
+    /// an approved asset image through the approved-scene-asset channel, which the resolver re-validates against its
+    /// approval and version, and one of the app's own rendered images through the AppImage channel, pinned by its
+    /// checksum. Converting one into the other would mean inventing an approval for a render, or an approved image id
+    /// for a row that has none.
+    /// </para>
+    ///
+    /// <para>
+    /// Nothing is re-read here: the pick already carries the exact ids, version and checksum a binding has to record,
+    /// and reading them again would be a second source for facts the resolver is about to re-validate anyway.
+    /// </para>
+    /// </summary>
+    private async Task OnAppImagePickedAsync(InAppPickedImage picked)
+    {
+        var slot = _appImageSearchSlot;
+        _appImageSearchSlot = null;
+        if (slot is null || picked is null)
+        {
+            return;
+        }
+
+        if (picked.RenderedImage is { } rendered)
+        {
+            await BindSourceAsync(slot, new ImageStepSlotSource(
+                SourceKind: ImageStepReferenceSourceKind.AppImage,
+                Strategy: StrategyFor(slot, ImageStepReferenceSourceKind.AppImage),
+                ReferenceImageId: rendered.ImageId,
+                ReferenceImageSha256: rendered.Sha256,
+                ReferenceLabel: rendered.DisplayName));
+            return;
+        }
+
+        if (picked.Identity is { } identity)
+        {
+            // The approved-asset channel's contract is an approved immutable selection: without the version and
+            // checksum the binding cannot name which bytes it means, and the resolver would refuse it at render time.
+            // Refused here, in the operator's terms, rather than left to fail a render later.
+            if (identity.ProductionVersion is null || string.IsNullOrWhiteSpace(identity.Sha256))
+            {
+                throw new InvalidOperationException(
+                    $"Asset image '{identity.ImageId}' records no production version and checksum, so it cannot stand "
+                    + "as a reference. Approve it in the asset manager first.");
+            }
+
+            await BindSourceAsync(slot, new ImageStepSlotSource(
+                SourceKind: ImageStepReferenceSourceKind.ApprovedSceneAsset,
+                Strategy: StrategyFor(slot, ImageStepReferenceSourceKind.ApprovedSceneAsset),
+                SceneAssetId: identity.AssetId,
+                SceneAssetImageId: identity.ImageId,
+                SceneAssetVersion: identity.ProductionVersion,
+                SceneAssetSha256: identity.Sha256,
+                ReferenceLabel: identity.DisplayName));
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "The picked image carries no reference identity, so it cannot be bound to this step.");
+    }
+
+    /// <summary>
+    /// Binds one source to a slot: REPLACING when the slot holds a single reference, ADDING when it declares
+    /// <see cref="ImageStepSlotBlueprint.AllowsMultiple"/> — unless the caller names the slot's ONE reference
+    /// (<paramref name="asSoleReference"/>), which is what a "use this image as the location" command means. The
+    /// replace-vs-add decision itself is <see cref="ReferenceSlotPlanner.AssignmentsFor"/>, so a picker does not have to
+    /// know which kind of slot opened it — and the planner still decides the final bindings, so nothing here can
+    /// construct a binding the render would refuse.
+    /// </summary>
+    private async Task BindSourceAsync(
+        ImageStepSlotBlueprint slot, ImageStepSlotSource source, bool asSoleReference = false)
+    {
+        var planned = ReferenceSlotPlanner.Plan(
+            Blueprint,
+            ReferenceSlotPlanner.AssignmentsFor(Bindings.Select(ToAssignment), slot, source, asSoleReference),
+            ModelReferenceLimit);
+        await BindingsChanged.InvokeAsync(planned);
+    }
 
     /// <summary>
     /// Whether this slot may be filled from an identity pack. A pack carries faces and bodies, so only those two slots
@@ -802,6 +1127,7 @@
         ImageStepSlotKind.Wardrobe => SceneAssetType.Wardrobe,
         ImageStepSlotKind.Location => SceneAssetType.Location,
         ImageStepSlotKind.CharacterPose => SceneAssetType.CharacterPose,
+        ImageStepSlotKind.Prop => SceneAssetType.Prop,
         _ => throw new InvalidOperationException(
             $"Reference slot '{slotKind}' has no approved-asset type, so it cannot be filled from the asset picker.")
     };
@@ -845,12 +1171,18 @@
     /// </summary>
     private string DescribeBinding(ReferenceApplicationSelection binding)
     {
-        var source = !string.IsNullOrWhiteSpace(binding.SceneAssetImageId)
-            ? binding.SceneAssetImageId
-            : binding.SkeletonRelativePath
-                ?? (!string.IsNullOrWhiteSpace(binding.ReferenceLabel)
-                    ? binding.ReferenceLabel
-                    : string.IsNullOrWhiteSpace(binding.ReferenceAssetId)
+        // The operator's NAME for the image wins. The binding carries it for exactly this reason — the pickers record
+        // what an image IS ("Front · Clothed", "Left side") beside its ids — and showing the id instead made the
+        // Location tab name a GUID (reported 2026-10-12). A GUID is not a thing anyone can check against a picture.
+        //
+        // The id remains the FALLBACK: a binding written before labels existed, or one whose source has no name, is
+        // still identified rather than left blank.
+        var source = !string.IsNullOrWhiteSpace(binding.ReferenceLabel)
+            ? binding.ReferenceLabel
+            : !string.IsNullOrWhiteSpace(binding.SceneAssetImageId)
+                ? binding.SceneAssetImageId
+                : binding.SkeletonRelativePath
+                    ?? (string.IsNullOrWhiteSpace(binding.ReferenceAssetId)
                         ? "no source"
                         : $"pack asset {binding.ReferenceAssetId}");
         return string.IsNullOrWhiteSpace(binding.ActorKey)
@@ -974,7 +1306,14 @@
             SkeletonRelativePath: existing.SkeletonRelativePath,
             PosePresetId: existing.PosePresetId,
             IdentityPackId: existing.IdentityPackId,
-            ReferenceAssetId: existing.ReferenceAssetId));
+            ReferenceAssetId: existing.ReferenceAssetId,
+            // The NAME travels too, for the same reason every other field does: changing a strategy is not a reason
+            // for the row to stop saying which image it is and start naming a GUID.
+            ReferenceLabel: existing.ReferenceLabel,
+            // ...and so does the operator's own direction statement (B-159). A strategy change is about the MECHANISM,
+            // and losing what they said about the image would be the same field-dropping defect the comment above
+            // records, one control over.
+            Directions: existing.Directions));
     }
 
     private async Task ClearSlotAsync(ImageStepSlotBlueprint slot)
@@ -1082,4 +1421,99 @@
 
     private Task RebindAsync(IReadOnlyList<ReferenceApplicationSelection> remaining) =>
         BindingsChanged.InvokeAsync(remaining);
+
+    /// <summary>
+    /// The <c>&lt;imageN&gt;</c> each binding will be sent as, from the ONE owner of that numbering (B-159), or an empty
+    /// map when the step sends fewer than two images — in which case there are no tags to show, because a single image
+    /// gets none.
+    /// </summary>
+    /// <remarks>
+    /// The leading count comes from the STEP, not from an assumption: an edit's source image occupies slot 1, so its
+    /// references begin at <c>&lt;image2&gt;</c>, and the blueprint already says whether this step consumes a produced
+    /// image. Reading it here is what stops the composer teaching a number the model never receives.
+    /// </remarks>
+    /// <summary>
+    /// How many images this surface puts before the references (B-159) — an edit's source image occupies slot 1, so its
+    /// references start at <c>&lt;image2&gt;</c>. Reads the BLUEPRINT's own source mode, so no host has to state it and
+    /// the tag display and the tag check cannot disagree.
+    /// </summary>
+    private int LeadingImagesForThisStep =>
+        Blueprint.SourceMode == ImageStepSourceMode.ProducedImage
+            ? ReferenceRoleClauses.LeadingImageCount.Edit
+            : ReferenceRoleClauses.LeadingImageCount.Generate;
+
+    /// <summary>Shows, per binding, the tag that binding will be SENT as — from the one owner of the numbering.</summary>
+    private IReadOnlyDictionary<ReferenceApplicationSelection, string> TagsByBinding =>
+        ReferenceRoleClauses.TagsFor(Bindings, LeadingImagesForThisStep);
+
+    /// <summary>
+    /// Records what the operator says ONE reference is doing in this frame — which side it sits on, which way it faces,
+    /// and their own words about it.
+    /// </summary>
+    /// <remarks>
+    /// Anchored to the REFERENCE, and persisted on the binding, so the clause can assign the statement its
+    /// <c>&lt;imageN&gt;</c> at RENDER: adding another reference renumbers the tags without re-pointing this statement
+    /// at a different image, and pressing Generate Prompt cannot erase it the way it erases prose it owns.
+    ///
+    /// <para>
+    /// An empty statement is stored as NULL rather than as an empty record, so "the operator has said nothing" has one
+    /// representation everywhere downstream.
+    /// </para>
+    /// </remarks>
+    private async Task SetDirectionsAsync(ReferenceApplicationSelection binding, ReferenceDirections? directions)
+    {
+        var normalised = directions is null || directions.IsEmpty ? null : directions;
+
+        var assignments = new List<ImageStepSlotAssignment>(Bindings.Count);
+        var found = false;
+        foreach (var candidate in Bindings)
+        {
+            var assignment = ToAssignment(candidate);
+            if (ReferenceEquals(candidate, binding))
+            {
+                assignment = assignment with { Source = assignment.Source with { Directions = normalised } };
+                found = true;
+            }
+
+            assignments.Add(assignment);
+        }
+
+        if (!found)
+        {
+            return;
+        }
+
+        await BindingsChanged.InvokeAsync(ReferenceSlotPlanner.Plan(Blueprint, assignments, ModelReferenceLimit));
+    }
+
+    private Task OnSideChangedAsync(ReferenceApplicationSelection binding, ChangeEventArgs args)
+    {
+        // An unset choice is a real answer ("they did not say"), so it clears the axis rather than keeping the old one.
+        var side = Enum.TryParse<FrameHorizontal>(args.Value?.ToString(), out var parsed)
+            && parsed != FrameHorizontal.Unknown
+                ? parsed
+                : (FrameHorizontal?)null;
+        var current = binding.Directions ?? ReferenceDirections.Empty;
+        return SetDirectionsAsync(binding, new ReferenceDirections(side, current.Facing, current.Note));
+    }
+
+    private Task OnFacingChangedAsync(ReferenceApplicationSelection binding, ChangeEventArgs args)
+    {
+        var facing = Enum.TryParse<ReferenceFacing>(args.Value?.ToString(), out var parsed)
+            && parsed != ReferenceFacing.Unknown
+                ? parsed
+                : (ReferenceFacing?)null;
+        var current = binding.Directions ?? ReferenceDirections.Empty;
+        return SetDirectionsAsync(binding, new ReferenceDirections(current.Side, facing, current.Note));
+    }
+
+    private Task OnDirectionNoteChangedAsync(ReferenceApplicationSelection binding, ChangeEventArgs args)
+    {
+        var note = args.Value?.ToString();
+        var current = binding.Directions ?? ReferenceDirections.Empty;
+        return SetDirectionsAsync(binding, new ReferenceDirections(
+            current.Side,
+            current.Facing,
+            string.IsNullOrWhiteSpace(note) ? null : note.Trim()));
+    }
 }

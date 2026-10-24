@@ -12,6 +12,13 @@ tasks for re-approval.
 **Design authority:** `plan.md` (D1-D19 + §6 UI plan) and `spec.md` (FR-B148-01 … FR-B148-15).
 Any task that would contradict a decision is a defect in the task, not a new decision.
 
+**Revision 2026-10-14 (implemented, per operator):** the location binding is **per POV**.
+`SceneMomentLocationLinks` is keyed on (`MomentId`, `Pov`) and carries the bound image, Stage 0
+resolves *that POV's* production group (the old silent no-op when none existed is gone), the inline
+list is scoped to the matched location asset, and **Search all image assets** opens the shared
+`InAppImagePicker` in its asset-group / search / bindable mode. Tasks below that say "one link per
+moment" or "search across all location assets" are superseded by D13/D17, §6.4 and FR-B148-07a/08/14.
+
 ---
 
 ## 0. Verify before writing code (no code in this phase)
@@ -121,9 +128,9 @@ Any task that would contradict a decision is a defect in the task, not a new dec
   `HandleProductionStageKeyDown`), page-local stage list only (persisted `SceneImageProductionStage`
   untouched).
   *File:* `DreamGenClone.Web/Components/Pages/SceneImageStudio.razor`
-- [ ] B148-020 Build the Stage-0 panel's three zones: suggestion card, search-as-cards (approved +
-  named selectable; other cards disabled with reason + "Finish in Location Studio" link), and
-  create/skip actions.
+- [ ] B148-020 Build the Stage-0 panel's three zones: suggestion card, the matched location asset's
+  images as cards (approved + named + checksummed selectable, via the domain gate; other cards
+  disabled with reason + "Finish in Location Studio" link), and search-all / create / skip actions.
   *File:* `DreamGenClone.Web/Components/Pages/SceneImageStudio.razor` (or a new sibling component)
 - [ ] B148-021 Wire the create-from-moment handoff: `CreateAssetAsync` with place-only seed →
   `/locations/{asset.Id}?return=<pov url>`; add the `?return=` back-link to `LocationStudio`.

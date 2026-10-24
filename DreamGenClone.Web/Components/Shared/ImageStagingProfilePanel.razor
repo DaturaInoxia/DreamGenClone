@@ -1,0 +1,311 @@
+@using System.Text.Json
+@using DreamGenClone.Application.RolePlay
+@using DreamGenClone.Domain.RolePlay
+
+@inject IImageStagingProfileRepository Profiles
+
+<div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3 mb-3">
+    <div>
+        <h5 class="mb-1">Image Staging</h5>
+        <p class="text-muted mb-0">
+            How a render places its subjects in the frame (B-157). Composition and Asset Manager each read their own
+            profile; a render records the version it used, so editing one never rewrites a past render's framing.
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="LoadAsync" disabled="@_isBusy">Refresh</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="alert alert-danger">@_error</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(_info))
+{
+    <div class="alert alert-success">@_info</div>
+}
+
+@if (_isBusy && _profiles.Count == 0)
+{
+    <div class="text-muted">Loading…</div>
+}
+else
+{
+    @foreach (var profile in _profiles)
+    {
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>@profile.DisplayName</span>
+                <span class="badge bg-secondary-subtle text-secondary-emphasis border">@profile.Surface · v@(profile.Version)</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Placement ladder</label>
+                        <input type="text"
+                               class="form-control form-control-sm"
+                               placeholder="Center, Left, Right"
+                               value="@LadderTextFor(profile)"
+                               @onchange="args => SetLadderText(profile, args)" />
+                        <small class="text-muted">
+                            Comma-separated positions this profile permits: Left, Center or Right, none repeated.
+                            Seating spreads the cast symmetrically — one subject centred, a pair on the opposite
+                            edges, three filling the frame — so the order here is not a seating priority.
+                        </small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Active depth</label>
+                        <select class="form-select form-select-sm"
+                                value="@profile.ActiveDepth"
+                                @onchange="args => SetDepth(profile, args, active: true)">
+                            @foreach (var depth in SelectableDepths)
+                            {
+                                <option value="@depth">@depth</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Observer depth</label>
+                        <select class="form-select form-select-sm"
+                                value="@profile.ObserverDepth"
+                                @onchange="args => SetDepth(profile, args, active: false)">
+                            @foreach (var depth in SelectableDepths)
+                            {
+                                <option value="@depth">@depth</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Default camera angle</label>
+                        <input type="text" class="form-control form-control-sm" @bind="profile.DefaultCameraAngle" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">Default shot size</label>
+                        <input type="text" class="form-control form-control-sm" @bind="profile.DefaultShotSize" />
+                    </div>
+                    @* B-166 D7: the Omniscient POV's own framing. It is required configuration, so it is edited
+                       here with every other staging decision rather than defaulted in code. *@
+                    <div class="col-md-2">
+                        <label class="form-label">Omniscient shot size</label>
+                        <input type="text" class="form-control form-control-sm" @bind="profile.OmniscientShotSize" />
+                    </div>
+                    @* Camera HEIGHT: one of the five recorded positions. A dropdown, not free text, because the value
+                       selects a prompt wording per model family and an unrecognised one leaves the frame with no height. *@
+                    <div class="col-md-2">
+                        <label class="form-label">Default camera height</label>
+                        <select class="form-select form-select-sm" @bind="profile.DefaultCameraHeight">
+                            @foreach (var height in CameraHeights.All)
+                            {
+                                <option value="@height">@height</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <hr />
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <strong>Framing words</strong>
+                        <div class="text-muted small">
+                            When the moment's composition rationale contains a word below, its camera fills the
+                            structured field as well as appearing in the prose.
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => AddKeyword(profile)">Add word</button>
+                </div>
+
+                @{
+                    var keywords = KeywordsFor(profile);
+                }
+                @if (keywords.Count == 0)
+                {
+                    <div class="text-muted small">No framing words: this profile's default camera is always used.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Word</th>
+                                    <th>Camera angle</th>
+                                    <th>Shot size</th>
+                                    <th>Side</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var keyword in keywords)
+                                {
+                                    <tr>
+                                        <td><input type="text" class="form-control form-control-sm" @bind="keyword.Keyword" /></td>
+                                        <td><input type="text" class="form-control form-control-sm" @bind="keyword.Angle" /></td>
+                                        <td><input type="text" class="form-control form-control-sm" @bind="keyword.ShotSize" /></td>
+                                        <td><input type="text" class="form-control form-control-sm" @bind="keyword.Side" /></td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveKeyword(profile, keyword)">Remove</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+            <div class="card-footer d-flex justify-content-end">
+                <button class="btn btn-primary" @onclick="() => SaveAsync(profile)" disabled="@_isBusy">
+                    Save @profile.Surface
+                </button>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private static readonly JsonSerializerOptions KeywordJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    private static readonly FrameDepth[] SelectableDepths =
+    [
+        FrameDepth.Foreground,
+        FrameDepth.Midground,
+        FrameDepth.Background
+    ];
+
+    private readonly List<ImageStagingProfile> _profiles = [];
+    private readonly Dictionary<string, string> _ladderText = [];
+    private readonly Dictionary<string, List<ImageStagingCameraKeyword>> _keywords = [];
+    private bool _isBusy;
+    private string? _error;
+    private string? _info;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _isBusy = true;
+        _error = null;
+        try
+        {
+            _profiles.Clear();
+            _ladderText.Clear();
+            _keywords.Clear();
+
+            foreach (var profile in await Profiles.ListAsync())
+            {
+                _profiles.Add(profile);
+                _ladderText[profile.Id] = string.Join(
+                    ", ",
+                    ImageStagingProfileValidation.ReadPlacementLadder(profile));
+                _keywords[profile.Id] = [.. ImageStagingProfileValidation.ReadCameraKeywordMap(profile)];
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+
+    private string LadderTextFor(ImageStagingProfile profile) =>
+        _ladderText.TryGetValue(profile.Id, out var text) ? text : string.Empty;
+
+    private List<ImageStagingCameraKeyword> KeywordsFor(ImageStagingProfile profile)
+    {
+        if (!_keywords.TryGetValue(profile.Id, out var keywords))
+        {
+            keywords = [];
+            _keywords[profile.Id] = keywords;
+        }
+
+        return keywords;
+    }
+
+    private void SetLadderText(ImageStagingProfile profile, ChangeEventArgs args) =>
+        _ladderText[profile.Id] = args.Value?.ToString() ?? string.Empty;
+
+    private void SetDepth(ImageStagingProfile profile, ChangeEventArgs args, bool active)
+    {
+        if (!Enum.TryParse<FrameDepth>(args.Value?.ToString(), out var depth))
+        {
+            return;
+        }
+
+        if (active)
+        {
+            profile.ActiveDepth = depth;
+        }
+        else
+        {
+            profile.ObserverDepth = depth;
+        }
+    }
+
+    private void AddKeyword(ImageStagingProfile profile) =>
+        KeywordsFor(profile).Add(new ImageStagingCameraKeyword { Keyword = string.Empty });
+
+    private void RemoveKeyword(ImageStagingProfile profile, ImageStagingCameraKeyword keyword) =>
+        KeywordsFor(profile).Remove(keyword);
+
+    private async Task SaveAsync(ImageStagingProfile profile)
+    {
+        _isBusy = true;
+        _error = null;
+        _info = null;
+        try
+        {
+            var positions = LadderTextFor(profile)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (positions.Length == 0)
+            {
+                _error = $"{profile.Surface}: the placement ladder needs at least one position.";
+                return;
+            }
+
+            foreach (var position in positions)
+            {
+                if (!Enum.TryParse<FrameHorizontal>(position, ignoreCase: true, out var horizontal)
+                    || horizontal == FrameHorizontal.Unknown)
+                {
+                    _error = $"{profile.Surface}: '{position}' is not a position. Use Left, Center or Right.";
+                    return;
+                }
+            }
+
+            profile.PlacementLadderJson = JsonSerializer.Serialize(positions);
+            // A keyword with no output would change nothing, so it is dropped rather than saved as a no-op rule.
+            profile.CameraKeywordMapJson = JsonSerializer.Serialize(
+                KeywordsFor(profile)
+                    .Where(keyword =>
+                        !string.IsNullOrWhiteSpace(keyword.Keyword)
+                        && (!string.IsNullOrWhiteSpace(keyword.Angle)
+                            || !string.IsNullOrWhiteSpace(keyword.ShotSize)
+                            || !string.IsNullOrWhiteSpace(keyword.Side)))
+                    .ToList(),
+                KeywordJson);
+            // The version is what a render records, so bumping it is how an edit becomes visible in provenance. The
+            // write is validated by the repository, which refuses an unusable profile by naming the field.
+            profile.Version += 1;
+            profile.UpdatedUtc = DateTime.UtcNow;
+
+            await Profiles.UpsertAsync(profile);
+            _info = $"Saved {profile.Surface} as version {profile.Version}.";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _isBusy = false;
+        }
+    }
+}

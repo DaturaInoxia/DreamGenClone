@@ -13,7 +13,7 @@ namespace DreamGenClone.Infrastructure.RolePlay;
 /// the other RP repositories. Assets are free-floating rows (not scoped to a character) so the same
 /// library can back identity packs, locations, and wardrobe packs.
 /// </summary>
-public sealed class SceneAssetRepository : ISceneAssetRepository
+public sealed class SceneAssetRepository : ISceneAssetRepository, ILocationImageAnalysisStore
 {
     private readonly string _connectionString;
 
@@ -222,13 +222,13 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                 Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                 LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson)
+                CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson, SentInstructionSnapshot)
             VALUES (
                 $id, $assetId, $kind, $status, $prompt, $sourceImageId, $modelSnapshotJson,
                 $associationMetadataJson, $fileRelativePath, $mediaType, $width, $height, $byteLength,
                 $sha256, $errorMessage, $sourceProvenanceJson, $productionApprovalStatus, $consentState,
                 $licenseState, $licenseLabel, $approvedUseScope, $contentPolicyKey,
-                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed, $tagsJson, $displayName, $gateResultsJson)
+                $compatibilityMetadataJson, $productionVersion, $candidateBatchId, $candidateDecision, $candidateNotes, $createdUtc, $startedUtc, $completedUtc, $updatedUtc, $validationResultJson, $pipelineStepsJson, $negativePrompt, $promptCompilerId, $seed, $tagsJson, $displayName, $gateResultsJson, $sentInstructionSnapshot)
             ON CONFLICT(Id) DO UPDATE SET
                 Status = excluded.Status,
                 ModelSnapshotJson = excluded.ModelSnapshotJson,
@@ -260,7 +260,8 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 NegativePrompt = excluded.NegativePrompt,
                 PromptCompilerId = excluded.PromptCompilerId,
                 Seed = excluded.Seed,
-                GateResultsJson = excluded.GateResultsJson
+                GateResultsJson = excluded.GateResultsJson,
+                SentInstructionSnapshot = excluded.SentInstructionSnapshot
             """;
         AddImageParameters(command, image);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -289,6 +290,51 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
     }
 
     /// <summary>
+    /// Records what a vision model found in a LOCATION image, or clears it when the analysis is null (B-160).
+    /// </summary>
+    /// <remarks>
+    /// The ONE writer of the three analysis columns. They are deliberately absent from the image upsert, so no ordinary
+    /// save of an image row can carry a stale reading forward or wipe a fresh one: the completion path, the approval
+    /// path and the tag editor all write the columns they own and leave these alone.
+    /// </remarks>
+    public async Task SaveAsync(
+        string imageId,
+        LocationImageAnalysis? analysis,
+        CancellationToken cancellationToken = default)
+    {
+        Require(imageId, "Image id");
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneAssetImages
+            SET LocationAnalysisJson = $analysisJson,
+                LocationAnalyzedSha256 = $analyzedSha256,
+                LocationAnalyzedUtc = $analyzedUtc,
+                UpdatedUtc = $updatedUtc
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue(
+            "$analysisJson",
+            analysis is null ? DBNull.Value : LocationImageAnalysisJson.Write(analysis));
+        command.Parameters.AddWithValue(
+            "$analyzedSha256",
+            (object?)analysis?.AnalyzedSha256 ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "$analyzedUtc",
+            analysis is null ? DBNull.Value : analysis.AnalyzedUtc.ToString("O"));
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$id", imageId.Trim());
+
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException($"Scene asset image '{imageId}' was not found, so its location analysis could not be recorded.");
+        }
+    }
+
+    /// <summary>
     /// Replaces an image's tags.
     ///
     /// <para>
@@ -305,7 +351,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
     {
         Require(imageId, "Image id");
         ArgumentNullException.ThrowIfNull(tags);
-        RequireTagShape(tags);
+        ImageTagShape.Require(tags);
 
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -416,7 +462,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
     {
         Require(imageId, "Image id");
         ArgumentNullException.ThrowIfNull(tags);
-        RequireTagShape(tags);
+        ImageTagShape.Require(tags);
 
         await using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -471,28 +517,6 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         catch (JsonException)
         {
             return [];
-        }
-    }
-
-    /// <summary>
-    /// Refuses a tag that is not <c>prefix:value</c>. A structural check only — which PREFIXES exist is the catalog's
-    /// business, and this layer must not learn it.
-    /// </summary>
-    private static void RequireTagShape(IReadOnlyList<string> tags)
-    {
-        foreach (var tag in tags)
-        {
-            if (string.IsNullOrWhiteSpace(tag))
-            {
-                throw new InvalidOperationException("An image tag cannot be blank.");
-            }
-
-            var separator = tag.IndexOf(':');
-            if (separator <= 0 || separator == tag.Length - 1)
-            {
-                throw new InvalidOperationException(
-                    $"'{tag}' is not a tag: every tag is 'prefix:value' (for example 'stance:kneeling').");
-            }
         }
     }
 
@@ -1276,7 +1300,9 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                AssociationMetadataJson, FileRelativePath, MediaType, Width, Height, ByteLength,
                Sha256, ErrorMessage, SourceProvenanceJson, ProductionApprovalStatus, ConsentState,
                LicenseState, LicenseLabel, ApprovedUseScope, ContentPolicyKey,
-               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson
+               CompatibilityMetadataJson, ProductionVersion, CandidateBatchId, CandidateDecision, CandidateNotes, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, ValidationResultJson, PipelineStepsJson, NegativePrompt, PromptCompilerId, Seed, TagsJson, DisplayName, GateResultsJson,
+               LocationAnalysisJson, LocationAnalyzedSha256, LocationAnalyzedUtc,
+               SentInstructionSnapshot
         FROM SceneAssetImages
         """;
 
@@ -1325,7 +1351,12 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             // SELECT list, or every field after it silently shifts onto the wrong property.
             TagsJson = reader.IsDBNull(36) ? null : reader.GetString(36),
             DisplayName = reader.IsDBNull(37) ? null : reader.GetString(37),
-            GateResultsJson = reader.IsDBNull(38) ? null : reader.GetString(38)
+            GateResultsJson = reader.IsDBNull(38) ? null : reader.GetString(38),
+            // Same rule as the note above: appended at the END, in the same order as the SELECT list.
+            LocationAnalysisJson = reader.IsDBNull(39) ? null : reader.GetString(39),
+            LocationAnalyzedSha256 = reader.IsDBNull(40) ? null : reader.GetString(40),
+            LocationAnalyzedUtc = reader.IsDBNull(41) ? null : ParseUtc(reader.GetString(41), id, "LocationAnalyzedUtc"),
+            SentInstructionSnapshot = reader.IsDBNull(42) ? null : reader.GetString(42)
         };
     }
 
@@ -1375,6 +1406,7 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
         // so a re-render or an edit stage upserting this row cannot erase the name an operator typed.
         command.Parameters.AddWithValue("$displayName", (object?)image.DisplayName ?? DBNull.Value);
         command.Parameters.AddWithValue("$gateResultsJson", (object?)image.GateResultsJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sentInstructionSnapshot", (object?)image.SentInstructionSnapshot ?? DBNull.Value);
     }
 
     private static void AddPromotionParameters(SqliteCommand command, SceneAsset asset)
@@ -1630,6 +1662,10 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
                 PromptCompilerId TEXT NULL,
                 Seed INTEGER NULL,
                 GateResultsJson TEXT NULL,
+            SentInstructionSnapshot TEXT NULL,
+                LocationAnalysisJson TEXT NULL,
+                LocationAnalyzedSha256 TEXT NULL,
+                LocationAnalyzedUtc TEXT NULL,
                 FOREIGN KEY (AssetId) REFERENCES SceneAssets(Id),
                 FOREIGN KEY (SourceImageId) REFERENCES SceneAssetImages(Id)
             );
@@ -1653,7 +1689,17 @@ public sealed class SceneAssetRepository : ISceneAssetRepository
             ("Seed", "ALTER TABLE SceneAssetImages ADD COLUMN Seed INTEGER NULL"),
             ("TagsJson", "ALTER TABLE SceneAssetImages ADD COLUMN TagsJson TEXT NULL"),
             ("DisplayName", "ALTER TABLE SceneAssetImages ADD COLUMN DisplayName TEXT NULL"),
-            ("GateResultsJson", "ALTER TABLE SceneAssetImages ADD COLUMN GateResultsJson TEXT NULL")
+            ("GateResultsJson", "ALTER TABLE SceneAssetImages ADD COLUMN GateResultsJson TEXT NULL"),
+            // The instruction the editor actually received, when the send-time reference role clause added to the
+            // compiled prompt — the asset row's own record of what the model read.
+            ("SentInstructionSnapshot", "ALTER TABLE SceneAssetImages ADD COLUMN SentInstructionSnapshot TEXT NULL"),
+
+            // B-160: what a vision model found IN this location image — its prose and its anchors, plus the checksum of
+            // the exact version it analysed. The checksum is what makes the analysis answerable as stale rather than
+            // silently describing a picture that has since been superseded.
+            ("LocationAnalysisJson", "ALTER TABLE SceneAssetImages ADD COLUMN LocationAnalysisJson TEXT NULL"),
+            ("LocationAnalyzedSha256", "ALTER TABLE SceneAssetImages ADD COLUMN LocationAnalyzedSha256 TEXT NULL"),
+            ("LocationAnalyzedUtc", "ALTER TABLE SceneAssetImages ADD COLUMN LocationAnalyzedUtc TEXT NULL")
         })
         {
             await using var imageColumnCheck = connection.CreateCommand();

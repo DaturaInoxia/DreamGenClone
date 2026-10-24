@@ -7,7 +7,7 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
-@inject ISceneAssetImageTagService TagService
+@inject IImageTagService TagService
 @inject ISceneAssetTreeService AssetTree
 @inject ILogger<AssetStudio> Logger
 
@@ -95,7 +95,7 @@
                                 <div class="text-truncate fw-semibold" title="@OwnerLabel(tagged)">@OwnerLabel(tagged)</div>
                                 <div class="text-muted text-truncate" title="@tagged.Prompt">@tagged.Prompt</div>
                                 <div class="mt-1">
-                                    <ImageTags Image="tagged" />
+                                    <ImageTags ImageId="tagged.Id" Target="ImageTagTarget.AssetLibrary" TagsJson="tagged.TagsJson" />
                                 </div>
                                 <a class="btn btn-sm btn-outline-secondary py-0 mt-1" href="/asset-studio/@tagged.AssetId">
                                     Open asset

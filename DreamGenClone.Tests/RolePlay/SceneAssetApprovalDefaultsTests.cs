@@ -61,19 +61,20 @@ public sealed class SceneAssetApprovalDefaultsTests
     }
 
     /// <summary>
-    /// A scope is derived only from types that settle it. A location is approved as a location; a prop or a playground
-    /// container has no single scope, so the default is null and the operator is asked.
+    /// A scope is derived only from types that settle it. A location is approved as a location, and a prop is approved
+    /// as a production source — the one thing an approved prop image is here. A style or a playground container settles
+    /// nothing, so the default is null and the operator is asked.
     /// </summary>
     [Theory]
     [InlineData(SceneAssetType.Location, SceneAssetApprovedUseScope.Location)]
     [InlineData(SceneAssetType.Wardrobe, SceneAssetApprovedUseScope.CharacterWardrobe)]
     [InlineData(SceneAssetType.CharacterFace, SceneAssetApprovedUseScope.CharacterIdentity)]
     [InlineData(SceneAssetType.CharacterBody, SceneAssetApprovedUseScope.CharacterBody)]
+    [InlineData(SceneAssetType.Prop, SceneAssetApprovedUseScope.ProductionSource)]
     public void ASettledScopeIsDerived(SceneAssetType type, SceneAssetApprovedUseScope expected)
         => Assert.Equal(expected, SceneAssetApprovalDefaults.UseScopeFor(type));
 
     [Theory]
-    [InlineData(SceneAssetType.Prop)]
     [InlineData(SceneAssetType.Style)]
     [InlineData(SceneAssetType.Playground)]
     [InlineData(SceneAssetType.Character)]
@@ -81,4 +82,15 @@ public sealed class SceneAssetApprovalDefaultsTests
     [InlineData(SceneAssetType.CharacterPose)]
     public void AnUnsettledScopeIsLeftForTheOperatorToChoose(SceneAssetType type)
         => Assert.Null(SceneAssetApprovalDefaults.UseScopeFor(type));
+
+    /// <summary>
+    /// A prop laundry basket could not be approved: the review form requires a use scope, and a prop had no derived
+    /// one, so the button stayed dead until the operator opened a collapsed disclosure and found a dropdown (2026-10-17).
+    /// Nothing reads a prop's scope, and an approved prop image is a production reference source, so the type settles it.
+    /// </summary>
+    [Fact]
+    public void APropIsApprovedAsAProductionSource()
+        => Assert.Equal(
+            SceneAssetApprovedUseScope.ProductionSource,
+            SceneAssetApprovalDefaults.UseScopeFor(SceneAssetType.Prop));
 }

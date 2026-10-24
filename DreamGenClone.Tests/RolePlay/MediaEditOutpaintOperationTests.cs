@@ -63,13 +63,16 @@ public sealed class MediaEditOutpaintOperationTests
     }
 
     /// <summary>
-    /// An outpaint needs a positive feather for the same reason a region does (CASE-25): the host rounds the mask it
-    /// confines with to 0/1, so a zero feather leaves a hard line where the source ends. The refusal names the
-    /// persisted setting, not a value invented here.
+    /// An outpaint needs a feather wider than the host's mask-edge band for the same reason a region does (CASE-25):
+    /// the host rounds the mask it confines with to 0/1 and decodes its edge as a smear about one latent block wide,
+    /// so a fade that fits inside that band leaves a seam where the source ends. The refusal names the persisted
+    /// setting, not a value invented here.
     /// </summary>
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
+    [InlineData(4)]
+    [InlineData(MediaEditRegionOperation.HostBoundaryBandPixels)]
     public void AConfinedOutpaintWithoutAPositiveFeatherIsRefusedByName(int featherPixels)
     {
         var operation = new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, 8, featherPixels);

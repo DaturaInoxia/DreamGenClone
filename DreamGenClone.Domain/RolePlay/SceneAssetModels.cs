@@ -138,8 +138,17 @@ public static class SceneAssetApprovalDefaults
     /// The use scope an image of this container type is approved for, or null when the type does not settle it.
     ///
     /// <para>
-    /// Null is the honest answer for a prop, a style or a playground container: there is no single scope those exist
-    /// to serve, so the form asks instead of guessing — and an approval cannot proceed until it is answered.
+    /// A prop is <see cref="SceneAssetApprovedUseScope.ProductionSource"/> and nothing else: the one thing an approved
+    /// prop image IS in this app is a reference source for a render, which is the same scope
+    /// <c>ProductionWorkloadService</c> and the wardrobe's "use as reference" write. Leaving it null made the review
+    /// form refuse a laundry basket until the operator found a scope picker inside a collapsed disclosure — ceremony
+    /// over a field no consumer reads for a prop (2026-10-17).
+    /// </para>
+    ///
+    /// <para>
+    /// Null is the honest answer for a style or a playground container: a style reference is not settled by its
+    /// container, and playground scratch images carry no production meaning, so the form asks instead of guessing —
+    /// and an approval cannot proceed until it is answered.
     /// </para>
     /// </summary>
     public static SceneAssetApprovedUseScope? UseScopeFor(SceneAssetType type) => type switch
@@ -148,6 +157,7 @@ public static class SceneAssetApprovalDefaults
         SceneAssetType.Wardrobe => SceneAssetApprovedUseScope.CharacterWardrobe,
         SceneAssetType.CharacterFace => SceneAssetApprovedUseScope.CharacterIdentity,
         SceneAssetType.CharacterBody => SceneAssetApprovedUseScope.CharacterBody,
+        SceneAssetType.Prop => SceneAssetApprovedUseScope.ProductionSource,
         _ => null
     };
 }
@@ -348,6 +358,28 @@ public sealed class SceneAssetImage
 
     public SceneAssetKind Kind { get; set; }
     public SceneAssetStatus Status { get; set; }
+
+    /// <summary>
+    /// What a vision model found IN this image, when it is a LOCATION image that has been read (B-160) — its prose
+    /// description and its named anchors with rough frame positions.
+    /// </summary>
+    /// <remarks>
+    /// Stored per IMAGE, not per production group, because the reading is a fact about the picture: every group that
+    /// binds this location reuses it. It arrives by way of
+    /// <see cref="LocationImageAnalysisJson"/> and is treated as a PROPOSAL — it pre-fills the operator's reference
+    /// directions, which remain the single owner of what the prompt says.
+    /// </remarks>
+    public string? LocationAnalysisJson { get; set; }
+
+    /// <summary>
+    /// The checksum of the version this analysis read. Compared against the image's current checksum, it is what makes
+    /// a superseded reading visible as STALE instead of silently describing a picture that is no longer this one.
+    /// </summary>
+    public string? LocationAnalyzedSha256 { get; set; }
+
+    /// <summary>When the analysis ran, so a reader can judge how old it is.</summary>
+    public DateTime? LocationAnalyzedUtc { get; set; }
+
     public string Prompt { get; set; } = string.Empty;
     public string? SourceImageId { get; set; }
     public string? ModelSnapshotJson { get; set; }
@@ -371,6 +403,18 @@ public sealed class SceneAssetImage
     public string? CandidateBatchId { get; set; }
     public SceneAssetCandidateDecision? CandidateDecision { get; set; }
     public string? CandidateNotes { get; set; }
+
+    /// <summary>
+    /// The instruction the image editor ACTUALLY received for this row, when it differs from <see cref="Prompt"/>.
+    ///
+    /// <para>
+    /// The reference role clause — the <c>&lt;imageN&gt;</c> tags and the sentences naming each reference — is appended
+    /// at SEND time, from the references that survived validation, and never rewrote the queued prompt. Without this
+    /// column the row could not answer what the model actually read (reported 2026-10-15). Null for a row no editor
+    /// ran on — an upload, or a render that carried no references.
+    /// </para>
+    /// </summary>
+    public string? SentInstructionSnapshot { get; set; }
 
     /// <summary>
     /// The eye-gate result measured for this image, as <see cref="SceneAssetImageValidation"/> JSON.

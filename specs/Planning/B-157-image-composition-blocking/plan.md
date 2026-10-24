@@ -66,3 +66,19 @@ fills it. It is a design brief; tasks are not yet broken down.
 - `B-130` unified composer (the preview surface), `B-147` edit reference parity (shared send-order +
   role-clause owner), `B-145` location references (named location images already reach the resolver),
   `B-126` multi-character composition (prior art), `B-032` scene image generator (the render path).
+
+## Status (2026-10-11)
+
+Implemented. The steps above landed in the order given, with three deviations worth knowing:
+
+1. **The blocking reaches the compiler on the request, not through a resolver dependency.** `Compile` is synchronous
+   and resolving a staging profile is I/O, so `MultimodalMediaCompilationService` (async) derives the blocking and
+   passes it in. The compiler stays pure and records what it is handed.
+2. **Step 9's budget is not re-derived.** The count limit is read from `ReferenceSlotPlanner.EffectiveBudget`, the
+   existing owner, rather than restated as 10/6 in the validator.
+3. **Step 6's preview is only half-wired.** The read-only final-prompt + reference map view is in `StepPromptPanel`,
+   but no host passes it a frame yet (no composer parameter carries one), and the placement override is absent because
+   an override must reach the render to mean anything.
+
+Also found here, documented in `tasks.md`, and deliberately not fixed: the role block is appended **twice** to every
+native-reference render (measured from the dev DB: append count 2 on every render since 2026-10-05).

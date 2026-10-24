@@ -1716,6 +1716,35 @@ static async Task<int> ConfigureQwen21LoraCatalogAsync(SqliteConnection connecti
         ("qwen21-lora-vagina-v1", "qwen21_v2_000002750.safetensors", "qwen 2.1 vagina v1.0 (regressed)", "Anatomy", 1.0, false,
             "DISABLED - kept for provenance. At 1.0 it stripped pubic hair and body texture and softened the vulva; "
             + "the base model was equal or better in all four distance rows of the s7 female suite. Superseded by v2.0."),
+
+        // Acquired 2026-10-18 (Civitai crawl of the full Qwen 2.1 base-model surface: 197 LoRAs, 62 mature).
+        // Strengths below are STARTING values, not cell-proven strengths: none of these six has been through the
+        // explicit-anatomy programme yet, so treat the first render as a qualification run.
+        ("qwen21-lora-femaledvaginus-nsfw", "qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31.safetensors", "FemaledVaginus female anatomy (2.1)", "Anatomy", 0.8, true,
+            "Civitai 2986844 / version 3388157 (2026-10-06, 8.1k dl) - the highest-download female specialist on 2.1, "
+            + "trained rank 31 (608 MB) and the intended replacement candidate for pussyV2's weak vulva repair. Not "
+            + "cell-proven in this programme: 0.8 is a starting strength, verify against the s11/s12 rows before "
+            + "promoting it over pussyV2."),
+        ("qwen21-lora-fellatio-v2", "FELLATIO-v2.safetensors", "Fellatio / oral act v2 (2.1)", "Act", 1.0, true,
+            "Civitai 2981555 / version 3382947 (2026-10-04, 2.1k dl) - the only oral-act specialist on 2.1, so it "
+            + "fills the one grounded act the penetration LoRA does not cover. Not cell-proven: 1.0 is a starting "
+            + "strength, and its interaction with the general unlock LoRA is unmeasured."),
+        ("qwen21-lora-nsfw-edit-v3", "Qwen-Image-2.1 NSFW Image EditV3.safetensors", "NSFW nude edit v3 (2.1 edit)", "Unlock", 0.8, true,
+            "Civitai 2994337 / version 3395802 (2026-10-10, 3.9k dl) - an EDIT-trained adapter that removes clothing "
+            + "from a source image. Per B-143 the edit path applies a picked scene LoRA through a LoraLoaderModelOnly "
+            + "chain, so this row serves edit runs; it is not a generation adapter and will under-perform on a "
+            + "text-to-image render. Not cell-proven: 0.8 is a starting strength."),
+        ("qwen21-lora-male-flaccid-uncut", "male_anathomy_fu_qwen21.safetensors", "Male flaccid / uncut anatomy (2.1)", "Anatomy", 0.8, true,
+            "Civitai 2966916 / version 3361754 (2026-09-27, 889 dl). Every other male adapter in this catalog is "
+            + "erect-only; this is the sole flaccid/uncut option on 2.1. File name carries the author's 'anathomy' "
+            + "spelling - it is the ComfyUI lora_name, do not correct it. Not cell-proven: 0.8 is a starting strength."),
+        ("qwen21-lora-nsfw-posture-v3", "nsfw-posture-v3.safetensors", "NSFW posture v3 (2.1)", "Act", 0.8, true,
+            "Civitai 2988215 / version 3388118 (2026-10-06, 3.4k dl) - pose/act steering beyond the single "
+            + "penetration adapter. Not cell-proven: 0.8 is a starting strength."),
+        ("qwen21-lora-fullbody", "qwen21_fullbody_pass2_3270473.safetensors", "Full body framing (2.1)", "Style", 1.0, true,
+            "Civitai 2983070 / version 3381816 (2026-10-04, 2.5k dl) - framing helper: without it act shots crop to "
+            + "torso/waist. Categorised Style because it steers composition, not anatomy. Not cell-proven: 1.0 is a "
+            + "starting strength."),
     ];
 
     var inserted = 0;

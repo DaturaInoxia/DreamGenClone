@@ -1,4 +1,5 @@
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
@@ -95,7 +96,14 @@ public sealed record ImageEditRunRequest(
     MediaEditRegionOperation? Region = null,
     /// <summary>The outpaint extension the operator asked for, or null to keep the frame. Mutually exclusive
     /// with <see cref="Region"/>: a run is a region edit, an outpaint, or a whole-frame edit.</summary>
-    MediaEditOutpaintOperation? Outpaint = null);
+    MediaEditOutpaintOperation? Outpaint = null,
+    /// <summary>
+    /// The scene LoRAs the operator picked for THIS edit, or null for none. Carried unchanged onto the queued
+    /// payload (<c>SceneLorasJson</c>) so the run applies the exact stack the operator saw when they queued it.
+    /// Null is a configured state — the edit graph then emits no scene-LoRA loader node — and a selection is
+    /// re-validated against the editor model's family by the run, never applied on trust.
+    /// </summary>
+    IReadOnlyList<SceneImageLoraSelection>? SceneLoras = null);
 
 /// <summary>Current workspace state, raised to hosts after every refresh.</summary>
 public sealed record ImageEditWorkspaceSnapshot(
@@ -129,3 +137,25 @@ public sealed record ImageIdentitySelection(
     string CharacterId,
     string CharacterName,
     string ReferenceAssetId);
+
+/// <summary>
+/// The references a source image records it was MADE with, or the reason that record cannot be read.
+///
+/// <para>
+/// The two are different facts and are kept apart deliberately: "this image was made from nothing" is an ordinary
+/// upload or prompt-only render, while "this image was made from something this build cannot read" is a defect in the
+/// row. Reporting the second as the first would have the surface claim the image was made from nothing.
+/// </para>
+/// </summary>
+public sealed record ImageEditSourceReferences(
+    IReadOnlyList<ReferenceApplicationSelection> References,
+    string? UnreadableReason)
+{
+    /// <summary>The image records no references, and its row says so legibly.</summary>
+    public static ImageEditSourceReferences None { get; } = new([], null);
+
+    /// <summary>The row's record exists but cannot be read, with the reason to show.</summary>
+    public static ImageEditSourceReferences Unreadable(string reason) => new([], reason);
+
+    public bool IsUnreadable => !string.IsNullOrWhiteSpace(UnreadableReason);
+}

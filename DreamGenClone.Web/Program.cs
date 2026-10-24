@@ -434,6 +434,10 @@ builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetEditingJobHan
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetProfilePackJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditCompilationJobHandler>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler, SceneAssetImageEditDescriptionJobHandler>();
+// B-160: reads a location image so the frame plan knows what is in it (its own job type — see BackgroundJobTypes).
+builder.Services.AddScoped<IDurableBackgroundJobHandler, LocationImageAnalysisJobHandler>();
+// B-160: the one place that frames a "read this location" request, used by the bind action and the on-demand action.
+builder.Services.AddScoped<ILocationImageAnalysisQueue, LocationImageAnalysisQueue>();
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageRenderingJobHandler>());
 builder.Services.AddScoped<IDurableBackgroundJobHandler>(serviceProvider => serviceProvider.GetRequiredService<SceneImageEditingJobHandler>());
 builder.Services.AddScoped<SceneVideoRenderingJobHandler>();
@@ -452,6 +456,9 @@ builder.Services.AddSingleton<ICharacterImageAssetStorageService, CharacterImage
 builder.Services.AddScoped<IIdentityControlledRequestCompiler, IdentityControlledRequestCompiler>();
 builder.Services.AddScoped<ICharacterImageIdentityService, CharacterImageIdentityService>();
 builder.Services.AddSingleton<ISceneAssetRepository, SceneAssetRepository>();
+// B-160: the same instance behind a second, narrow contract, so the location-image analysis is written by the one job
+// that produces it and no ordinary save of an image row can overwrite it.
+builder.Services.AddSingleton<ILocationImageAnalysisStore>(sp => (SceneAssetRepository)sp.GetRequiredService<ISceneAssetRepository>());
 builder.Services.AddSingleton<ISceneAssetImageEditRepository, SceneAssetImageEditRepository>();
 builder.Services.AddSingleton<MediaEditRepository>();
 builder.Services.AddSingleton<IMediaEditRepository>(sp => sp.GetRequiredService<MediaEditRepository>());
@@ -472,6 +479,9 @@ builder.Services.AddSingleton<IImageWorkflowRepository, ImageWorkflowRepository>
 // B-135: one compiler profile per CHECKPOINT. The seed rows are reached from the store's own OpenAsync, so any
 // read seeds; a checkpoint with no row is refused by name rather than served an in-code fallback profile.
 builder.Services.AddSingleton<IImageCompilerProfileRepository, ImageCompilerProfileRepository>();
+// B-157: how a render FRAMES its subjects. The placement ladder and the camera fallback live in the row, never in
+// resolver code; a surface with no row is refused by name rather than placed by an invented default.
+builder.Services.AddSingleton<IImageStagingProfileRepository, ImageStagingProfileRepository>();
 // B-135: the Playground's suites and cells. Operator-authored configuration, so nothing is seeded on open.
 builder.Services.AddSingleton<IImageSuiteRepository, ImageSuiteRepository>();
 // B-135: the Playground's runs — evidence produced by executing a suite. Nothing is seeded; a re-run is a new row.
@@ -567,10 +577,10 @@ builder.Services.AddSingleton<ISceneAssetStorageService, SceneAssetStorageServic
 builder.Services.AddScoped<ISceneAssetService, SceneAssetService>();
 builder.Services.AddScoped<ISceneMomentLocationService, SceneMomentLocationService>();
 builder.Services.AddScoped<IScenarioLocationContainerService, ScenarioLocationContainerService>();
-// The image-tag surface of the same service (B-140 D2): a narrow interface so a tag editor or a tag search does not
-// have to depend on - or stub - the whole asset lifecycle to read and write the tags on one image.
-builder.Services.AddScoped<ISceneAssetImageTagService>(provider =>
-    (SceneAssetService)provider.GetRequiredService<ISceneAssetService>());
+// The image-tag surface (B-140 D2): a narrow interface so a tag editor or a tag search does not have to depend on -
+// or stub - the whole asset lifecycle to read and write the tags on one image. It serves BOTH tag stores - the asset
+// library and the app's own rendered images - so a surface names the store rather than choosing a writer.
+builder.Services.AddScoped<IImageTagService, ImageTagService>();
 builder.Services.AddScoped<IWardrobeItemService, WardrobeItemService>();
 builder.Services.AddScoped<ISceneAssetTreeService, SceneAssetTreeService>();
 builder.Services.AddScoped<ICharacterAssetCatalogService, CharacterAssetCatalogService>();
@@ -647,6 +657,11 @@ builder.Services.AddSingleton<ISceneImagePromptCompilerRegistry, SceneImagePromp
 // B-135: checkpoint -> compiler profile, resolved from the checkpoint the render actually landed on. A checkpoint
 // with no profile is refused by name; there is no family-level fallback profile.
 builder.Services.AddSingleton<IImageCompilerProfileResolver, ImageCompilerProfileResolver>();
+// B-157: surface -> staging profile, resolved from configured data only. Missing configuration fails fast naming the
+// surface; nothing in the render path substitutes a placement.
+builder.Services.AddSingleton<IImageStagingProfileResolver, ImageStagingProfileResolver>();
+// B-157: the frame-space blocking for a still, derived before compilation from the moment plus that profile.
+builder.Services.AddSingleton<ISceneBlockingBuilder, SceneBlockingBuilder>();
 
 // The WARDROBE ITEM prompt compiler (2026-09-29): one compiler per natural-language family, because a garment
 // reference has its own framing/backdrop rules and is NOT a scene prompt. A family with no registration (Pony tags)
@@ -878,6 +893,28 @@ app.MapGet("/asset-studio/images/{imageId}/download", async (string imageId, ISc
     var extension = Path.GetExtension(image.FileRelativePath ?? string.Empty);
     if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
     return Results.Stream(stream, image.MediaType, $"{asset.Name}-{image.Id[..8]}{extension}");
+});
+// A rendered image's bytes as a download. Its own route rather than one shared with the asset store, because the two
+// images are different rows in different stores: an id is only meaningful inside the store that issued it.
+app.MapGet("/roleplay/scene-images/{imageId}/download", async (
+    string imageId,
+    ISceneImageRepository images,
+    ISceneImageStorageService sceneImageStorage,
+    CancellationToken cancellationToken) =>
+{
+    var image = await images.GetImageAsync(imageId, cancellationToken)
+        ?? throw new InvalidOperationException($"Scene image '{imageId}' was not found, so it cannot be downloaded.");
+    if (string.IsNullOrWhiteSpace(image.FileRelativePath))
+    {
+        throw new InvalidOperationException(
+            $"Scene image '{imageId}' has no stored bytes ({image.Status}), so there is nothing to download.");
+    }
+
+    var stream = await sceneImageStorage.OpenReadAsync(image.FileRelativePath, cancellationToken);
+    var extension = Path.GetExtension(image.FileRelativePath);
+    if (string.IsNullOrWhiteSpace(extension)) extension = ".png";
+    var name = string.IsNullOrWhiteSpace(image.DisplayName) ? image.Id[..8] : image.DisplayName;
+    return Results.Stream(stream, "application/octet-stream", $"{name}{extension}");
 });
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -11,7 +11,10 @@ public enum ImageBindingAxis
     Location = 3,
     Wardrobe = 4,
     Pov = 5,
-    Lighting = 6
+    Lighting = 6,
+
+    /// <summary>An object standing in (or held in) the frame, carried by a prop reference image.</summary>
+    Prop = 7
 }
 
 /// <summary>

@@ -96,6 +96,9 @@ public sealed class DeterministicMultimodalMediaCompiler : IMultimodalMediaCompi
                 end = ParseJson(request.BeatProductionPlan.EndContinuityJson, "End continuity")
             },
             typedReferences = ParseJson(request.BeatProductionPlan.TypedReferencesJson, "Typed references"),
+            // B-157: the frame, snapshotted beside the references so a later staging-profile edit cannot rewrite how
+            // this render was framed. Null for a caller that supplied none (a non-still never has one).
+            blocking = request.SceneBlocking,
             videoKeyState = ParseJson(request.MomentEnrichment.VideoKeyStateJson, "Video key state")
         }, new HashSet<MediaCompilerCapability>
         {

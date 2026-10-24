@@ -98,6 +98,35 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
         return image is null ? null : ToSource(image);
     }
 
+    /// <summary>
+    /// An asset image keeps no applied-reference column: it preserves the JOB PAYLOAD its row was queued with in
+    /// <c>AssociationMetadataJson</c> (<c>SceneAssetService.EnqueueImageGenerationAsync</c> and
+    /// <c>EnqueueImageEditAsync</c>), and that payload carries the references the run was bound with. Read by
+    /// property name, because a generation and an edit record them in different payload types.
+    /// </summary>
+    public async Task<ImageEditSourceReferences> GetSourceReferencesAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
+    {
+        var image = await _assets.GetImageAsync(subject.ImageId, cancellationToken);
+        return image is null
+            ? ImageEditSourceReferences.None
+            : SourceReferenceProvenance.ReadAssetImage(image.AssociationMetadataJson, image.Id);
+    }
+
+    /// <summary>
+    /// An asset image carries the scene LoRAs it was made with on the job payload its row preserved
+    /// (<c>AssociationMetadataJson</c>), which is the same record the references are read from. Read through the ONE
+    /// owner of a settings-shaped snapshot, so a generation payload and an edit payload cannot be read two ways.
+    /// </summary>
+    public async Task<IReadOnlyList<SceneImageLoraSelection>> GetSourceSceneLorasAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
+    {
+        var image = await _assets.GetImageAsync(subject.ImageId, cancellationToken);
+        return image is null
+            ? []
+            : SceneImageRecordedInputs.Read(image.AssociationMetadataJson).SceneLoras;
+    }
+
     public async Task<ImageEditSessionView> OpenSessionAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default)
     {
@@ -198,7 +227,10 @@ public sealed class SceneAssetImageEditWorkspaceService : IImageEditWorkspaceSer
             CandidateBatchId = request.Subject.CandidateBatchId,
             ReferenceApplications = request.ReferenceApplications.ToList(),
             Region = request.Region,
-            Outpaint = request.Outpaint
+            Outpaint = request.Outpaint,
+            // The asset store's twin of the scene path: the same selection, carried to the same shared job payload
+            // (SceneLorasJson), so one workspace serves both stores without either dropping the pick.
+            SceneLoras = request.SceneLoras
         }, cancellationToken);
         return ToResult(image);
     }

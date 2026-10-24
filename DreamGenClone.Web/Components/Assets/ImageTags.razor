@@ -1,6 +1,6 @@
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
-@inject ISceneAssetImageTagService TagService
+@inject IImageTagService TagService
 @inject ILogger<ImageTags> Logger
 
 @*
@@ -13,6 +13,10 @@
     value is normalized by the catalog, so what lands in the row is always a tag a search can find. A refusal from the
     service (an unknown prefix, a blank value) is shown in the service's words rather than swallowed, because a tag
     edit that quietly did nothing is the failure mode nobody notices.
+
+    It serves BOTH tag stores - an asset-library image and one of the app's own rendered images - and the caller says
+    which through Target, because the id is only meaningful inside the store that issued it. One component rather than
+    two is what keeps a rendered image's tags editable in exactly the way a library image's are.
 *@
 
 @if (_tags.Count > 0 || Editable)
@@ -65,14 +69,25 @@
 }
 
 @code {
-    /// <summary>The image whose tags these are.</summary>
-    [Parameter, EditorRequired] public SceneAssetImage Image { get; set; } = null!;
+    /// <summary>The image whose tags these are, in the store <see cref="Target"/> names.</summary>
+    [Parameter, EditorRequired] public string ImageId { get; set; } = string.Empty;
+
+    /// <summary>Which store the image lives in. The two are different rows in different stores, so an id is only
+    /// meaningful inside the one that issued it.</summary>
+    [Parameter, EditorRequired] public ImageTagTarget Target { get; set; }
+
+    /// <summary>The image's stored tags, as the catalog's JSON. Null means it has never been tagged.</summary>
+    [Parameter] public string? TagsJson { get; set; }
 
     /// <summary>True to offer add/remove. A read-only surface (a search result) leaves this false.</summary>
     [Parameter] public bool Editable { get; set; }
 
-    /// <summary>Raised after a successful write, so the host can reload the row it is showing.</summary>
-    [Parameter] public EventCallback TagsChanged { get; set; }
+    /// <summary>
+    /// Raised after a successful write, with the list that was stored. The host RELOADS the row it is showing: this
+    /// component is handed the stored JSON rather than a row object, so it cannot keep a caller's copy in step by
+    /// writing to it, and a host that showed stale chips would be showing tags the operator just removed.
+    /// </summary>
+    [Parameter] public EventCallback<IReadOnlyList<string>> TagsChanged { get; set; }
 
     private List<string> _tags = [];
     private string _axis = ImageTagCatalog.Stance;
@@ -83,7 +98,7 @@
 
     protected override void OnParametersSet()
     {
-        _tags = ImageTagCatalog.Parse(Image.TagsJson).ToList();
+        _tags = ImageTagCatalog.Parse(TagsJson).ToList();
     }
 
     /// <summary>The exact tag the current entry would store, shown so the operator sees what they are about to write.</summary>
@@ -126,19 +141,15 @@
         _error = null;
         try
         {
-            var stored = await TagService.SetImageTagsAsync(Image.Id, next);
+            var stored = await TagService.SetTagsAsync(Target, ImageId, next);
             _tags = stored.ToList();
-
-            // The row this component was handed is now stale. Updating it keeps a host that re-renders without
-            // reloading (a chip list beside a cached image list) from showing the tags it had a moment ago.
-            Image.TagsJson = ImageTagCatalog.Serialize(stored);
             _value = string.Empty;
-            await TagsChanged.InvokeAsync();
+            await TagsChanged.InvokeAsync(stored);
         }
         catch (Exception ex)
         {
             _error = ex.Message;
-            Logger.LogWarning(ex, "Tagging asset image {ImageId} failed.", Image.Id);
+            Logger.LogWarning(ex, "Tagging image {ImageId} in store {Target} failed.", ImageId, Target);
         }
         finally
         {

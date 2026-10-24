@@ -25,11 +25,29 @@
 #          lands at the centre and everything no view covers is INVENTED. Staged onto the host
 #          2026-10-03; driven by run-qwen21-pano360.ps1, which must sample from an empty 1536x768
 #          latent rather than image_1's size. HF mirror: Gogodr/qwen-image-2.1-edit-pano360-lora)
+#
+#   Acquired 2026-10-18 from a full crawl of the Qwen 2.1 base-model surface (197 LoRAs, 62 mature).
+#   All six are seeded into the SceneLoras catalog by `qwen21-lora-catalog-configure`; their recorded
+#   strengths are STARTING values and none has been cell-proven yet:
+#   "FemaledVaginus-NSFW"                         Civitai model 2986844, version 3388157
+#       -> qwen2_1-femaledVaginus-nsfw-v1_3-fine_L22-31.safetensors  (female specialist, 8.1k dl)
+#   "qwen 2.1 FELLATIO" v2                        Civitai model 2981555, version 3382947
+#       -> FELLATIO-v2.safetensors                            (oral act; the only one on 2.1)
+#   "Qwen-Image-2.1 Edit LoRA | Nude Edit" v3      Civitai model 2994337, version 3395802
+#       -> Qwen-Image-2.1 NSFW Image EditV3.safetensors       (EDIT-trained; serves edit runs, not t2i)
+#   "Male flaccid uncut anatomy"                   Civitai model 2966916, version 3361754
+#       -> male_anathomy_fu_qwen21.safetensors                (the only flaccid/uncut adapter; author's
+#          'anathomy' spelling is the ComfyUI lora_name - do not correct it)
+#   "nsfw-posture-v3"                              Civitai model 2988215, version 3388118
+#       -> nsfw-posture-v3.safetensors                        (pose/act steering)
+#   "Qwen Image 2.1 Full Body"                     Civitai model 2983070, version 3381816
+#       -> qwen21_fullbody_pass2_3270473.safetensors          (framing; act shots otherwise crop)
 [CmdletBinding()]
 param(
     [int]$ModelVersionId = 3357315,
-    [string]$ComfyUiUrl = 'http://192.168.0.11:8188',
-    [string]$SshTarget = 'wood-game-main\kenac@192.168.0.11',
+    # The DB provider row "Local ComfyUI (WOOD-GAME-MAIN 5080)" is the authority for this address.
+    [string]$ComfyUiUrl = 'http://192.168.0.10:8188',
+    [string]$SshTarget = 'wood-game-main\kenac@192.168.0.10',
     [string]$SshKey = "$env:USERPROFILE\.ssh\dgcomfy_ed25519",
     [string]$RemoteLoraDir = 'D:/ComfyUI/models/loras',
     [string]$Stage = 'artifacts/tmp/qwen21-nsfw-lora',

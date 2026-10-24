@@ -23,15 +23,19 @@ public static class ImageStepBlueprintFactory
         {
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.MomentCast,
                 [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage], actor.ActorKey,
-                ActorDisplayName: actor.DisplayName));
+                ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.PackCanonicalBody,
-                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actor.ActorKey, ActorDisplayName: actor.DisplayName));
+                [ImageStepReferenceSourceKind.ApprovedSceneAsset], actor.ActorKey,
+                ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
         }
 
         // A place is several views — four elevations, an interior — and each view is its own reference image, so the
-        // location slot carries a list rather than one image.
+        // location slot carries a list rather than one image. It takes the app's own rendered images as well as
+        // approved assets: a composition's location can be any picture the operator chooses, and the render only
+        // requires that the binding still names the exact bytes it was made from.
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.RecordRule,
-            [ImageStepReferenceSourceKind.ApprovedSceneAsset], AllowsMultiple: true));
+            LocationSourcesFrom(ImageStepReferenceSourceKind.ApprovedSceneAsset),
+            AllowsMultiple: true));
         slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Pose, ImageStepSlotPrefill.None,
             [ImageStepReferenceSourceKind.PoseLibrarySkeleton]));
 
@@ -199,8 +203,9 @@ public static class ImageStepBlueprintFactory
             ImageStepReferenceSourceKind.ScratchImage
         ];
 
-        // A wardrobe item and a location are SHARED library entries, never pack images: a pack carries faces and
-        // bodies. Offering the pack on either would be a control the operator can never satisfy.
+        // Wardrobe and location are SHARED library entries, never pack images: a pack carries faces and bodies.
+        // Offering the pack on either would be a control the operator can never satisfy. The location slot additionally
+        // takes the app's own rendered images — see <see cref="LocationSourcesFrom"/>.
         ImageStepReferenceSourceKind[] sharedSources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage];
 
@@ -215,7 +220,7 @@ public static class ImageStepBlueprintFactory
 
         // Multi-valued: a shed bound as Front AND Left is two references to the same place, which is what keeps it
         // recognisably the same building across views. A single binding behaves exactly as it did.
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources, AllowsMultiple: true));
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, LocationSourcesFrom(sharedSources), AllowsMultiple: true));
 
         // The pose comes from the pose library's own skeletons, never from an asset: the skeleton IS the reference the
         // model conditions on, and a preset is addressed by ID so a stale path cannot make the render read a different
@@ -294,14 +299,22 @@ public static class ImageStepBlueprintFactory
 
             // The face is declared FIRST for every character: the ordinal is request data and the first reference
             // anchors the frame, so the identity is placed before the build that follows it.
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, actor.ActorKey, ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sharedSources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
         // Multi-valued, for the same reason as the asset creator's location slot: several views of one place are
         // several references, not alternates for one.
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sharedSources, AllowsMultiple: true));
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, LocationSourcesFrom(sharedSources), AllowsMultiple: true));
+
+        // Objects the operator is ADDING to the frame. Scene-level (no actor key) and multi-valued: a prop may belong
+        // to nobody, or several objects may stand in one shot, and a composition with no props must not be blocked —
+        // so it is never required. Approved props and the app's own rendered images, the same pair a wardrobe takes.
+        slots.Add(new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Prop, ImageStepSlotPrefill.None,
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.AppImage],
+            AllowsMultiple: true));
 
         // The pose is FRAME-WIDE and comes from the pose library's own skeletons, never from an asset: what the render
         // conditions on is an OpenPose skeleton, and a library preset is the artifact the pose proofs used. NOT
@@ -318,27 +331,42 @@ public static class ImageStepBlueprintFactory
     }
 
     /// <summary>
-    /// The edit WORKSPACE's step: per character the operator has identified, a build slot and a wardrobe slot, plus
-    /// the frame-wide location slot.
+    /// The edit WORKSPACE's step: per character the operator has addressed, a FACE slot, a build slot and a wardrobe
+    /// slot, plus the frame-wide location and pose slots — the same element set <see cref="ForPackIdentityComposition"/>
+    /// declares, so the edit behaves like the composition and a capability added to one is added to both.
     ///
-    /// The faces are deliberately absent. That workspace picks one face per detected person through its own target flow
-    /// — the Identity tab binds each detected person to an approved identity pack and runs a face-only identity
-    /// correction, which is the SAME pack-source mechanism a face slot would offer — so a face slot here would give
-    /// each person two mechanisms in one render, the duplicate path the reference rules forbid. (The OPERATOR asked for
-    /// face parity on 2026-10-03; the answer is that this surface already has it, by its own route, and the change that
-    /// would look like parity is the one that must not be made.) The per-character slots ARE addressed, because the
-    /// model requires an owner for them: an unaddressed "body" reference is how a frame-wide scope ends up written as
-    /// <c>character:.body</c>, which addresses nobody.
+    /// <para>
+    /// <b>The face slot REVERSES the 2026-10-03 decision, on the operator's explicit 2026-10-15 instruction.</b> It was
+    /// left out because this workspace has its own Identity tab, which binds each DETECTED person to an approved
+    /// identity pack and runs a face-only correction. That tab is a SEPARATE RUN — its own queued job, its own
+    /// prompt — not the same render, so it is not a second mechanism inside one render, and the operator asked for the
+    /// edit's reference set to match the composition's (faces, body, pose). Both mechanisms now exist and the workspace
+    /// says on screen which is which: the Identity tab corrects a face the analysis found, the face slot conditions
+    /// THIS edit on a character's approved face.
+    /// </para>
     ///
-    /// The BUILD slot accepts the character's approved identity pack, which is where a character's curated builds
-    /// actually live — measured 2026-09-30: two characters hold approved packs carrying 5 faces and up to 12 bodies,
-    /// while ZERO character-owned face/body scene assets carry an approved usable image. Offering only
-    /// [ApprovedSceneAsset, ScratchImage] here left the edit surface unable to condition a build on the character's own
-    /// pack at all — the same defect composition (debug 081), the asset creator (75ac3d4) and the LoRA cell (6e57549)
-    /// were each fixed for.
+    /// <para>
+    /// The per-character slots ARE addressed, because the model requires an owner for them: an unaddressed "body"
+    /// reference is how a frame-wide scope ends up written as <c>character:.body</c>, which addresses nobody.
+    /// </para>
+    ///
+    /// The FACE accepts the character's approved identity pack — the same store the Identity tab binds from, so the two
+    /// mechanisms cannot disagree about which face is which — and the chain's own scratch frame, because a scratch
+    /// frame of the scene belongs on the face and not on the build. The BUILD accepts the pack too, which is where a
+    /// character's curated builds actually live — measured 2026-09-30: two characters hold approved packs carrying 5
+    /// faces and up to 12 bodies, while ZERO character-owned face/body scene assets carry an approved usable image.
+    /// Offering only [ApprovedSceneAsset, ScratchImage] here left the edit surface unable to condition a build on the
+    /// character's own pack at all — the same defect composition (debug 081), the asset creator (75ac3d4) and the LoRA
+    /// cell (6e57549) were each fixed for.
+    ///
+    /// The POSE comes from the pose library's own skeletons and is frame-wide, exactly as the composition declares it.
+    /// On an edit it travels as a REFERENCE IMAGE, because an edit has no render settings to carry a pose reference in
+    /// — and Qwen-Image-2.1 reads a skeleton in a reference slot as pose guidance (measured 2026-09-23), which is the
+    /// same mechanism the render's own native-pose route uses. Not required: an edit renders unposed until one is
+    /// bound.
     ///
     /// An empty cast is not an error here, unlike <see cref="ForEdit"/>: an edit of an image whose people the operator
-    /// has not identified yet still has its frame-wide elements, and refusing the step outright would remove the very
+    /// has not addressed yet still has its frame-wide elements, and refusing the step outright would remove the very
     /// slot that lets them say what the image contains.
     /// </summary>
     public static ImageStepBlueprint ForEditElements(IReadOnlyList<ImageStepActor>? cast)
@@ -346,6 +374,13 @@ public static class ImageStepBlueprintFactory
         // Wardrobe and location are SHARED library entries, never pack images: a pack carries faces and bodies.
         ImageStepReferenceSourceKind[] sources =
             [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.ScratchImage];
+
+        // The face and the build both come from either store — an approved scene asset, or an image out of the
+        // character's approved identity PACK. They are NOT aliases: a pack image is a SceneImageReferenceAsset
+        // addressed by its own pack id. The face additionally takes the chain's own SCRATCH frame, which is the frame
+        // being edited.
+        ImageStepReferenceSourceKind[] characterSources =
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.IdentityPackAsset, ImageStepReferenceSourceKind.ScratchImage];
 
         // The build is what the render conditions the BODY on, so a scratch frame of the scene does not belong here —
         // the same split ForPackIdentityComposition makes.
@@ -360,12 +395,30 @@ public static class ImageStepBlueprintFactory
                 continue;
             }
 
-            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName));
+            // The face is declared FIRST for every character: the ordinal is request data and the first reference
+            // anchors the frame, so the identity is placed before the build that follows it.
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Face, ImageStepSlotPrefill.None, characterSources, actor.ActorKey, ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
+            slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Body, ImageStepSlotPrefill.None, buildSources, actor.ActorKey, ActorDisplayName: actor.DisplayName) { ViewHint = actor.ViewHint });
             slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Wardrobe, ImageStepSlotPrefill.None, sources, actor.ActorKey, AllowsMultiple: true, ActorDisplayName: actor.DisplayName));
         }
 
-        // Multi-valued: an edit that has to hold a place steady can bind more than one approved view of it.
-        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, sources, AllowsMultiple: true));
+        // Multi-valued: an edit that has to hold a place steady can bind more than one view of it.
+        slots.Add(new ImageStepSlotBlueprint(ImageStepSlotKind.Location, ImageStepSlotPrefill.None, LocationSourcesFrom(sources), AllowsMultiple: true));
+
+        // Objects to add to the frame. Scene-level, multi-valued and never required, for the same reasons the
+        // composition declares it: a prop belongs to nobody in particular, several may stand in one shot, and an edit
+        // that adds no object must not be blocked.
+        slots.Add(new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Prop, ImageStepSlotPrefill.None,
+            [ImageStepReferenceSourceKind.ApprovedSceneAsset, ImageStepReferenceSourceKind.AppImage],
+            AllowsMultiple: true));
+
+        // Frame-wide, from the pose library's own skeletons, never from an asset: what the editor reads is an OpenPose
+        // skeleton. Declared here (2026-10-15) for the same reason the composition declares it — so the edit surface
+        // shows a Pose tab instead of leaving the pose unpickable.
+        slots.Add(new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Pose, ImageStepSlotPrefill.CallerSupplied,
+            [ImageStepReferenceSourceKind.PoseLibrarySkeleton]));
 
         return Build(new ImageStepBlueprint(
             ImageStepKind.Edit, "Describe the change", ImageStepSourceMode.ProducedImage, slots,
@@ -428,6 +481,27 @@ public static class ImageStepBlueprintFactory
             ],
             ImageStepPersistenceKind.SceneAsset));
     }
+
+    /// <summary>
+    /// What a LOCATION slot accepts, given the base sources its blueprint already declares for it: those, plus the
+    /// app's own RENDERED images.
+    ///
+    /// <para>
+    /// Every blueprint that declares a location slot goes through here, because the composer offers the same
+    /// Location tab — and so the same search over the app's images — on all of them. A blueprint left out would show a
+    /// picker whose choice the planner then refuses, which is the blueprint/picker disagreement this factory exists to
+    /// prevent.
+    /// </para>
+    ///
+    /// <para>
+    /// The base sources are passed in rather than unified, deliberately: the locations differ for reasons that predate
+    /// this (a composition's location accepts no scratch frame; an edit's does), and collapsing them into one list
+    /// would silently widen the slots that never accepted one.
+    /// </para>
+    /// </summary>
+    private static ImageStepReferenceSourceKind[] LocationSourcesFrom(
+        params ImageStepReferenceSourceKind[] baseSources)
+        => [.. baseSources, ImageStepReferenceSourceKind.AppImage];
 
     private static IReadOnlyList<ImageStepActor> RequireCast(IReadOnlyList<ImageStepActor> cast)
     {

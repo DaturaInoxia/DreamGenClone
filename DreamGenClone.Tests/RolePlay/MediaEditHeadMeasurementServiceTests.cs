@@ -139,5 +139,11 @@ public sealed class MediaEditHeadMeasurementServiceTests
         public Task<ImageEditResultView> RunEnhanceAsync(ImageEditSubject subject, MediaEditEnhanceOperation enhance, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ImageEditResultView?> ResolveResultAsync(ImageEditSubject subject, string? sessionId, string? trackedResultId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<ImageEditLineageItem>> ListLineageAsync(ImageEditSubject subject, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<ImageEditSourceReferences> GetSourceReferencesAsync(ImageEditSubject subject, CancellationToken cancellationToken = default)
+            => Task.FromResult(ImageEditSourceReferences.None);
+
+        public Task<IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>> GetSourceSceneLorasAsync(ImageEditSubject subject, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<DreamGenClone.Web.Application.RolePlay.Models.SceneImageLoraSelection>>([]);
     }
 }

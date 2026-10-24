@@ -102,6 +102,37 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
         return record is null ? null : ToSource(record);
     }
 
+    /// <summary>
+    /// A scene image records the references it was made with on its OWN row: a render writes them at enqueue
+    /// (<c>SceneImageService.EnqueueRenderAsync</c>) and an edit writes the ones its own run carried
+    /// (<c>EnqueueEditAsync</c>), so the same column answers "what was this image made from" for both.
+    /// </summary>
+    public async Task<ImageEditSourceReferences> GetSourceReferencesAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
+    {
+        var record = (await ListInteractionImagesAsync(subject, cancellationToken))
+            .FirstOrDefault(image => string.Equals(image.Id, subject.ImageId, StringComparison.OrdinalIgnoreCase));
+        return record is null
+            ? ImageEditSourceReferences.None
+            : SourceReferenceProvenance.ReadSceneImage(record.AppliedReferenceBindingsJson, record.Id);
+    }
+
+    /// <summary>
+    /// A scene image records the scene LoRAs it was made with in its own SETTINGS snapshot - the same column the studio
+    /// reads when it restores an image's settings - so the edit opens on the stack the operator already picked rather
+    /// than silently running with none. Read through the ONE owner of that snapshot
+    /// (<see cref="SceneImageRecordedInputs"/>), not a second JSON reader.
+    /// </summary>
+    public async Task<IReadOnlyList<SceneImageLoraSelection>> GetSourceSceneLorasAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default)
+    {
+        var record = (await ListInteractionImagesAsync(subject, cancellationToken))
+            .FirstOrDefault(image => string.Equals(image.Id, subject.ImageId, StringComparison.OrdinalIgnoreCase));
+        return record is null
+            ? []
+            : SceneImageRecordedInputs.Read(record.SettingsJson).SceneLoras;
+    }
+
     public async Task<ImageEditSessionView> OpenSessionAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default)
     {
@@ -203,7 +234,10 @@ public sealed class SceneImageEditWorkspaceService : IImageEditWorkspaceService,
             EditorModelId = request.EditorModelId,
             ReferenceApplications = request.ReferenceApplications.ToList(),
             Region = request.Region,
-            Outpaint = request.Outpaint
+            Outpaint = request.Outpaint,
+            // The scene-LoRA stack the operator picked travels with the run. Null stays null ("no scene LoRA"), so
+            // an edit made without a selection is queued exactly as it was before this field existed.
+            SceneLoras = request.SceneLoras
         }, cancellationToken);
         return ToResult(image);
     }

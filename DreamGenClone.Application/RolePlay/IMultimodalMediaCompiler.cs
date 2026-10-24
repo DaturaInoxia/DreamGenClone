@@ -20,7 +20,13 @@ public sealed record CompileMediaBriefRequest(
     IReadOnlyList<string> SoundCueIds,
     IReadOnlyList<string> MusicSectionKeys,
     ApprovedMediaDerivative? ApprovedVisualDerivative,
-    ApprovedMediaDerivative? ApprovedSpeechDerivative);
+    ApprovedMediaDerivative? ApprovedSpeechDerivative,
+    // B-157: how the scene is FRAMED, derived by the caller from the moment plus the staging profile before
+    // compilation. Null for a non-still media kind. For a still it is built by ISceneBlockingBuilder BEFORE
+    // compilation, because a still's brief must be the single snapshot of what the scene is and how it is framed —
+    // deriving it after the fact would let a later staging-profile edit rewrite a past render's framing. The
+    // compiler itself stays synchronous and pure: it records the blocking it is handed and resolves no configuration.
+    SceneBlocking? SceneBlocking = null);
 
 public interface IMultimodalMediaCompiler
 {

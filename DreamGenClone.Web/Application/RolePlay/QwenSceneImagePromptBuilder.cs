@@ -29,4 +29,21 @@ public sealed class QwenSceneImagePromptBuilder : NaturalLanguageSceneImagePromp
     /// the beat path, adapted to the immutable canonical Still brief.
     /// </summary>
     protected override string BuildCanonicalSystemPrompt() => SceneImageCompilerSystemPrompts.Qwen21Canonical;
+
+    /// <summary>
+    /// A User Intent draft that BINDS reference images is compiled under the ACTION-ONLY contract, not the long-form
+    /// one: the long-form contract requires a full description of the picture, which is exactly what the bound images
+    /// supply, and the compiler resolves that conflict by inventing the room, the outfit and the objects.
+    /// </summary>
+    /// <remarks>
+    /// The contract is composed from what the bound images actually supply. Selecting it for ANY bound reference while
+    /// asserting all four element classes as supplied is what made a clothing change unwritable — SceneImage a597ba82
+    /// (2026-10-18) bound identity + location only, and every compiled prompt was forbidden from stating the clothing
+    /// state the operator asked for. With no clothing reference bound, the contract now REQUIRES that state instead.
+    /// See <see cref="SceneImageCompilerSystemPrompts.Qwen21CanonicalActionOnly(IntentReferenceCoverage)"/> and the
+    /// measured findings behind it (SceneImage f74058d3, 87454bef).
+    /// </remarks>
+    protected override string BuildIntentSystemPrompt(IntentReferenceCoverage coverage) => coverage.Any
+        ? SceneImageCompilerSystemPrompts.Qwen21CanonicalActionOnly(coverage)
+        : base.BuildIntentSystemPrompt(coverage);
 }

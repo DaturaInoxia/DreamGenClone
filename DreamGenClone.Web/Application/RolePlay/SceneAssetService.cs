@@ -15,7 +15,7 @@ namespace DreamGenClone.Web.Application.RolePlay;
 /// profile-pack generation onto the background job queue, and provides query/delete/download
 /// operations with the file-reference guard applied on deletion.
 /// </summary>
-public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagService
+public sealed class SceneAssetService : ISceneAssetService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -465,29 +465,6 @@ public sealed class SceneAssetService : ISceneAssetService, ISceneAssetImageTagS
     /// the same tag.
     /// </para>
     /// </summary>
-    public async Task<IReadOnlyList<string>> SetImageTagsAsync(
-        string imageId,
-        IReadOnlyList<string> tags,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(tags);
-        var normalized = ImageTagCatalog.NormalizeAll(tags);
-        await _repository.SetImageTagsAsync(imageId, normalized, cancellationToken);
-        _logger.LogInformation("Scene asset image tags set: ImageId={ImageId}, Count={Count}", imageId, normalized.Count);
-        return normalized;
-    }
-
-    /// <summary>
-    /// Images carrying a tag matching what the operator typed, matched on the tag's VALUE so a search for
-    /// "kneeling" cannot be satisfied by a character's name that happens to contain the word.
-    /// </summary>
-    public async Task<IReadOnlyList<SceneAssetImage>> SearchImagesByTagAsync(
-        string tagQuery,
-        int maxResults = 200,
-        CancellationToken cancellationToken = default)
-        => await _repository.SearchImagesByTagAsync(
-            ImageTagCatalog.Normalize(tagQuery), maxResults, cancellationToken);
-
     public Task<SceneAssetImage?> GetImageAsync(
         string imageId, CancellationToken cancellationToken = default)
         => _repository.GetImageAsync(imageId, cancellationToken);

@@ -1,7 +1,8 @@
 # B-157 — Image composition blocking & reference-role prompt assembly
 
-State: `designed` (design written and reviewed 2026-10-09; all six open questions resolved in
-[`plan.md`](plan.md)).
+State: `implemented` (design written and reviewed 2026-10-09; implemented 2026-10-11 — see
+[`tasks.md`](tasks.md) → *Implementation record* for what landed, what remains, and the pre-existing double-append
+defect found on the way).
 
 The app can bind face / body / wardrobe / pose / location reference images to a render, and it sends
 them with correct `<imageN>` tags. What it cannot do is tell the image model *where each person is in

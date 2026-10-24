@@ -18,7 +18,26 @@ public sealed record MediaEditReference(
     string FileName,
     string Sha256,
     Func<CancellationToken, Task<Stream>> OpenAsync,
-    ImageStepSlotKind? SlotKind = null);
+    ImageStepSlotKind? SlotKind = null,
+
+    /// <summary>
+    /// What this image is a view OF — the asset container it lives in, or null when it is not an approved scene asset
+    /// (a pack image, say).
+    ///
+    /// <para>
+    /// The role clause needs it to tell "several views of one place" from "several different places in one frame":
+    /// two views of the same shed share a container and stay the same room, while two different trailers do not and
+    /// must not each be described as the whole room. Without it here the edit surface could never reach that branch,
+    /// so the fix would have been silently inert on exactly the surface the operator reaches for first (2026-10-12).
+    /// </para>
+    /// </summary>
+    string? AssetContainerId = null,
+
+    /// <summary>
+    /// What the OPERATOR says this reference is doing in this frame (B-159) — side, facing, and their own note. Null
+    /// when they said nothing, which is the state every reference starts in.
+    /// </summary>
+    ReferenceDirections? Directions = null);
 
 /// <summary>What the enqueue-time payload carried that preparation still needs.</summary>
 public sealed record MediaEditRunContext(
@@ -59,7 +78,15 @@ public sealed record MediaEditRunOutput(
     MediaEditOperationKind Operation,
     string? ModelIdentifier = null,
     string? ProviderName = null,
-    ImageContentPolicy? ContentPolicy = null);
+    ImageContentPolicy? ContentPolicy = null,
+
+    /// <summary>
+    /// The instruction the editor was ACTUALLY given, when it differs from the prompt the row was queued with. The
+    /// send-time reference role clause — the <c>&lt;imageN&gt;</c> tags and the sentences naming each reference — is
+    /// appended here and never rewrote the queued prompt, so without this the row cannot say what the model read.
+    /// Null for an operation that reaches no model.
+    /// </summary>
+    string? SentInstruction = null);
 
 /// <summary>
 /// The ONE seam of the editing step: how to validate a queued image and assemble its run, and how to

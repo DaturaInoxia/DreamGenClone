@@ -119,7 +119,7 @@ if ($IdentityBindingsPath) {
         # approved asset (so an angle-matched view can be supplied) rather than the pack canonical.
         $mappingParts = @()
         for ($i = 0; $i -lt $identitySubjects.Count; $i++) {
-            $mappingParts += "Apply the face of the person shown in Picture $($i + 2) to the $($identitySubjects[$i]) at $($identityLocators[$i]). Keep that person's facial identity consistent with Picture $($i + 2) for the entire image; do not change anyone else."
+            $mappingParts += "Apply the face of the person shown in Picture $($i + 2) to the $($identitySubjects[$i]) (position: $($identityLocators[$i])). Keep that person's facial identity consistent with Picture $($i + 2) for the entire image; do not change anyone else."
         }
         $facesWord = if ($identitySubjects.Count -gt 1) { 'faces' } else { 'face' }
         $Instruction = ($mappingParts -join ' ') + " Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected $facesWord."

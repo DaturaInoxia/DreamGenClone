@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.ImageStep;
@@ -43,12 +44,20 @@ public sealed class ReferenceBindingPromptRemovalTests
     /// </para>
     /// </summary>
     [Fact]
-    public void Derive_LocationBinding_RemovesTheLocationEnvironmentAndLightingProse()
+    public void Derive_LocationBinding_RemovesEveryRoomCarryingElement()
     {
         var fields = ReferenceBindingPromptRemoval.Derive([Binding("Location")]);
 
+        // The room is repeated across the whole brief, so every place that restates it is removed. Leaving the
+        // neighbours behind is how a bound location still produced a room-dominated prompt (2026-10-20).
         Assert.Equal(
-            ["frozenState.location", "frozenState.environment", "frozenState.lighting"],
+            [
+                "frozenState.location", "frozenState.environment", "frozenState.lighting",
+                "frozenState.objects", "frozenState.visualDescription", "frozenState.continuityState",
+                "moment.frozenState", "moment.compositionRationale",
+                "continuity.start.location", "continuity.start.objectStates", "continuity.start.lighting", "continuity.start.characterStates", "continuity.start.stateSummary",
+                "continuity.end.location", "continuity.end.objectStates", "continuity.end.lighting", "continuity.end.characterStates", "continuity.end.stateSummary"
+            ],
             fields.Select(field => field.ElementKey));
         Assert.All(fields, field => Assert.True(field.Removed));
         Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.timeOfDay");
@@ -69,12 +78,12 @@ public sealed class ReferenceBindingPromptRemovalTests
     }
 
     [Fact]
-    public void Derive_FaceBindingWithAnActorKey_RemovesThatCharactersAppearanceLine()
+    public void Derive_FaceBindingWithAnActorKey_RemovesThatCharactersFaceAppearance()
     {
         var fields = ReferenceBindingPromptRemoval.Derive([Binding("Identity", actorKey: "p-becky")]);
 
         var field = Assert.Single(fields);
-        Assert.Equal("character:p-becky.appearance", field.ElementKey);
+        Assert.Equal("character:p-becky.appearance.face", field.ElementKey);
     }
 
     /// <summary>
@@ -105,6 +114,11 @@ public sealed class ReferenceBindingPromptRemovalTests
         Assert.Empty(ReferenceBindingPromptRemoval.Derive([Binding("SomethingElse")]));
     }
 
+    /// <summary>
+    /// A body view is composed at the same angle as the face views, so the body image carries that angle's FACE as
+    /// well as the build. B-166 D10 therefore removes BOTH elements for a body binding, and a face binding for the
+    /// same character adds nothing that is not already removed — the list is de-duplicated, not duplicated.
+    /// </summary>
     [Fact]
     public void Derive_DuplicateScopesAcrossBindings_AreEmittedOnce()
     {
@@ -114,8 +128,53 @@ public sealed class ReferenceBindingPromptRemovalTests
             Binding("Body", kind: nameof(ImageStepSlotKind.Body), actorKey: "p-becky")
         ]);
 
+        Assert.Equal(
+            ["character:p-becky.appearance.face", "character:p-becky.appearance.build"],
+            fields.Select(field => field.ElementKey));
+    }
+
+    [Fact]
+    public void DeriveForCharacterLoras_RemovesTheFaceElementForEachCharacter()
+    {
+        // B-166 D6: a character LoRA carries identity the way a face reference does.
+        var fields = ReferenceBindingPromptRemoval.DeriveForCharacterLoras(
+        [
+            new ResolvedCharacterLora("a1", "p-becky", "Becky", "becky_token", "becky.safetensors", 0.8, "sha")
+        ]);
+
         var field = Assert.Single(fields);
-        Assert.Equal("character:p-becky.appearance", field.ElementKey);
+        Assert.Equal("character:p-becky.appearance.face", field.ElementKey);
+        Assert.True(field.Removed);
+    }
+
+    [Fact]
+    public void DeriveForCharacterLoras_WithNoSelection_ContributesNothing()
+    {
+        Assert.Empty(ReferenceBindingPromptRemoval.DeriveForCharacterLoras(null));
+        Assert.Empty(ReferenceBindingPromptRemoval.DeriveForCharacterLoras([]));
+    }
+
+    [Fact]
+    public void DeriveForCharacterLoras_WithoutACharacter_FailsFast()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => ReferenceBindingPromptRemoval.DeriveForCharacterLoras(
+            [
+                new ResolvedCharacterLora("a1", "  ", "Becky", "becky_token", "becky.safetensors", 0.8, "sha")
+            ]));
+
+        Assert.Contains("a1", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImpliesRemoval_AnswersForExactlyTheBindingsDeriveActsOn()
+    {
+        // The caller that refuses a reference the model cannot carry asks THIS, so it cannot refuse a binding this
+        // class would never have removed anything for.
+        Assert.True(ReferenceBindingPromptRemoval.ImpliesRemoval(Binding("Location")));
+        Assert.False(ReferenceBindingPromptRemoval.ImpliesRemoval(Binding("Location", strategy: "TextOnly")));
+        Assert.False(ReferenceBindingPromptRemoval.ImpliesRemoval(Binding("Location", withReference: false)));
+        Assert.False(ReferenceBindingPromptRemoval.ImpliesRemoval(Binding("Identity")));
     }
 
     [Fact]

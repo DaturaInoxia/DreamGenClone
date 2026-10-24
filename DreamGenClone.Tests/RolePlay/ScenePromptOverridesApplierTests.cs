@@ -81,6 +81,127 @@ public sealed class ScenePromptOverridesApplierTests
     }
     """;
 
+    /// <summary>
+    /// The appearance suppression has to be readable by the component that consumes it, which matches a frozen
+    /// character by <c>characterId</c> and then <c>name</c>.
+    ///
+    /// <para>
+    /// The key a binding addresses a character by is the PARTICIPANT profile key (<c>p0</c>, <c>p1</c>, ...), so
+    /// writing the raw key suppressed nothing at all — and did it silently. Measured live 2026-10-12: the prompt held
+    /// an authoritative "do not describe the appearance for &lt;identity-owner id&gt;" notice AND the complete
+    /// appearance description, so the model wrote the description and the bound face reference lost.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Only the OPERATOR's character VALUE edits are applied by
+    /// <see cref="ScenePromptOverridesApplier.ApplyOperatorCharacterEdits"/>. The suppression half of the same override
+    /// set — the room is removed because a location image supplies it — must not reach the projection, which derives the
+    /// frame's geometry from the scene anchors.
+    /// </summary>
+    [Fact]
+    public void ApplyOperatorCharacterEdits_AppliesOnlyCharacterValues()
+    {
+        var overrides = new ScenePromptOverrides
+        {
+            Fields =
+            [
+                new ScenePromptFieldOverride { ElementKey = "character:dean.actionOrObservation", Value = "Standing with pants undone" },
+                new ScenePromptFieldOverride { ElementKey = "scene.location", Removed = true },
+                new ScenePromptFieldOverride { ElementKey = "character:dean.clothing", Removed = true }
+            ]
+        };
+
+        var edited = ScenePromptOverridesApplier.ApplyOperatorCharacterEdits(Snapshot, overrides);
+
+        Assert.Contains("Standing with pants undone", edited, StringComparison.Ordinal);
+        // The removals are the projection's own decision, never this application of the operator's text.
+        Assert.Contains("Original location", edited, StringComparison.Ordinal);
+        Assert.Contains("Dean clothing", edited, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApplyOperatorCharacterEdits_WithNoCharacterEdits_ReturnsTheSnapshotUnchanged()
+        => Assert.Equal(
+            Snapshot,
+            ScenePromptOverridesApplier.ApplyOperatorCharacterEdits(
+                Snapshot,
+                new ScenePromptOverrides
+                {
+                    Fields = [new ScenePromptFieldOverride { ElementKey = "scene.mood", Removed = true }]
+                }));
+
+    [Fact]
+    public void ApplySnapshot_AppearanceRemovalByProfileKey_KeysTheSuppressionByTheResolvedIdentity()
+    {
+        var overrides = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "character:p-becky.appearance", Removed = true }]
+        };
+
+        var result = ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides);
+
+        Assert.Equal(string.Empty, result.AppearanceOverrides["becky"]);
+    }
+
+    [Fact]
+    public void ApplySnapshot_AppearanceElementRemoval_KeysOnlyThatElement()
+    {
+        // B-166 D10: a face reference removes the FACE element and leaves the BUILD element alone.
+        var overrides = new ScenePromptOverrides
+        {
+            Fields =
+            [
+                new ScenePromptFieldOverride { ElementKey = "character:p-becky.appearance.face", Removed = true }
+            ]
+        };
+
+        var result = ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides);
+
+        Assert.Equal(string.Empty, result.AppearanceElementOverrides!["becky|face"]);
+        Assert.False(result.AppearanceElementOverrides!.ContainsKey("becky|build"));
+        Assert.Empty(result.AppearanceOverrides);
+    }
+
+    [Fact]
+    public void ApplySnapshot_BodyBinding_RemovesFaceAndBuildElements()
+    {
+        var overrides = new ScenePromptOverrides
+        {
+            Fields =
+            [
+                new ScenePromptFieldOverride { ElementKey = "character:p-becky.appearance.face", Removed = true },
+                new ScenePromptFieldOverride { ElementKey = "character:p-becky.appearance.build", Removed = true }
+            ]
+        };
+
+        var result = ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides);
+
+        Assert.Equal(string.Empty, result.AppearanceElementOverrides!["becky|face"]);
+        Assert.Equal(string.Empty, result.AppearanceElementOverrides!["becky|build"]);
+    }
+
+    /// <summary>
+    /// A removal that resolves to no character in the brief is a contract-drift bug, and it used to be invisible:
+    /// the applier wrote the key through and the notice printed the raw GUID. It fails fast now and names the
+    /// characters the brief does contain, because a suppression nobody can read is a prompt that describes an element
+    /// a reference image already supplies.
+    /// </summary>
+    [Fact]
+    public void ApplySnapshot_AppearanceRemovalForACharacterTheBriefDoesNotContain_FailsFast()
+    {
+        var overrides = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "character:de351eb3-1111.appearance", Removed = true }]
+        };
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => ScenePromptOverridesApplier.ApplySnapshot(Snapshot, overrides));
+
+        Assert.Contains("de351eb3-1111", error.Message, StringComparison.Ordinal);
+        Assert.Contains("p-becky", error.Message, StringComparison.Ordinal);
+        Assert.Contains("p-dean", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ApplySnapshot_WithNoOverrides_ReturnsSnapshotUnchanged()
     {

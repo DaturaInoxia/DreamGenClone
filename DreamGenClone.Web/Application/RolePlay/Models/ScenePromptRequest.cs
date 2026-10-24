@@ -17,6 +17,16 @@ public sealed class ScenePromptRequest
     public SceneImagePromptStyle PromptStyle { get; set; } = SceneImagePromptStyle.Unknown;
 
     /// <summary>
+    /// What the compiler reads. <see cref="SceneImagePromptSource.Scene"/> drafts from the compiled Still brief;
+    /// <see cref="SceneImagePromptSource.UserIntent"/> compiles <see cref="UserIntent"/> instead. Exactly one of the
+    /// two is consulted — a blank intent with the UserIntent source fails fast rather than falling back to the scene.
+    /// </summary>
+    public SceneImagePromptSource PromptSource { get; set; } = SceneImagePromptSource.Scene;
+
+    /// <summary>The operator's own instruction. Required when <see cref="PromptSource"/> is UserIntent.</summary>
+    public string? UserIntent { get; set; }
+
+    /// <summary>
     /// The image model the user has selected in the Studio dropdown (optional). When its family
     /// produces the requested <see cref="PromptStyle"/> it is the generation target; otherwise the
     /// first enabled model of that style is used so the correct compiler/content policy runs.

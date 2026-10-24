@@ -340,33 +340,52 @@ public sealed class ImageStepBlueprintFactoryTests
     }
 
     /// <summary>
-    /// The edit workspace's STEP can bind a character's BUILD from that character's approved identity pack. The pack is
-    /// where a character's curated builds actually live, so offering only approved scene assets left the edit surface
-    /// unable to condition a build on the character's own pack — reported live 2026-10-03 as "make the edit behave
-    /// just the composition … face, body, wardrobe, location".
+    /// The edit workspace's STEP declares the SAME element set as the composition: per character a FACE and a BUILD,
+    /// both able to come from that character's approved identity pack, plus a wardrobe, and frame-wide a location and a
+    /// POSE.
     ///
     /// <para>
-    /// The FACE stays absent from this blueprint ON PURPOSE, and that is not the defect: this workspace binds each
-    /// detected person to a pack face through its own Identity tab and runs a face-only correction there, so a face
-    /// slot would give each person two mechanisms in one render.
+    /// The face slot was deliberately absent before 2026-10-15 (B-147 D5) because the workspace's own Identity tab
+    /// binds detected people to pack faces. That tab is a SEPARATE run, and the operator asked for the edit's
+    /// reference set to match the composition's — so the slot is declared, and this test now holds the parity rather
+    /// than the absence. The build acceptance is the part of the earlier fix that stays.
     /// </para>
     /// </summary>
     [Fact]
-    public void EditElements_TakesTheBuildFromTheCharactersIdentityPack_AndStillDeclaresNoFaceSlot()
+    public void EditElements_DeclaresTheSameElementsAsTheComposition()
     {
         var blueprint = ImageStepBlueprintFactory.ForEditElements(Cast);
+        var composition = ImageStepBlueprintFactory.ForPackIdentityComposition(Cast);
+
+        Assert.Equal(
+            composition.Slots.Select(slot => slot.SlotKind),
+            blueprint.Slots.Select(slot => slot.SlotKind));
+
+        // The FACE is declared FIRST for every character: the ordinal is request data and the first reference anchors
+        // the frame, so identity is placed before the build that follows it.
+        Assert.Equal(ImageStepSlotKind.Face, blueprint.Slots[0].SlotKind);
+        Assert.All(
+            blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Face),
+            face =>
+            {
+                Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, face.AllowedSources);
+                Assert.Contains(ImageStepReferenceSourceKind.ApprovedSceneAsset, face.AllowedSources);
+                Assert.Contains(ImageStepReferenceSourceKind.ScratchImage, face.AllowedSources);
+            });
 
         var bodies = blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Body).ToList();
         Assert.NotEmpty(bodies);
         Assert.All(bodies, body => Assert.Contains(ImageStepReferenceSourceKind.IdentityPackAsset, body.AllowedSources));
 
+        // The pose is frame-wide and comes from the library's own skeletons, exactly as the composition declares it.
+        var pose = blueprint.Slots.Single(slot => slot.SlotKind == ImageStepSlotKind.Pose);
+        Assert.Equal([ImageStepReferenceSourceKind.PoseLibrarySkeleton], pose.AllowedSources);
+        Assert.Null(pose.ActorKey);
+
         // …and the pack is NOT offered where it cannot supply anything: a pack carries faces and builds only.
         Assert.All(
             blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Wardrobe),
             wardrobe => Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, wardrobe.AllowedSources));
-
-        // The face slot's absence is deliberate (the workspace's own Identity tab owns face conditioning here).
-        Assert.DoesNotContain(blueprint.Slots, slot => slot.SlotKind == ImageStepSlotKind.Face);
     }
 
     /// <summary>
@@ -478,9 +497,59 @@ public sealed class ImageStepBlueprintFactoryTests
             [
                 ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe,
                 ImageStepSlotKind.Face, ImageStepSlotKind.Body, ImageStepSlotKind.Wardrobe,
-                ImageStepSlotKind.Location, ImageStepSlotKind.Pose
+                ImageStepSlotKind.Location, ImageStepSlotKind.Prop, ImageStepSlotKind.Pose
             ],
             slots.Select(slot => slot.SlotKind));
+    }
+
+    /// <summary>
+    /// A prop is an object the operator ADDS to the frame: scene-level, several allowed, and never required — a
+    /// composition with no props must not be blocked, and a prop belongs to nobody in particular.
+    /// </summary>
+    [Fact]
+    public void PropSlot_IsSceneLevelMultiValuedAndNeverRequired_OnBothSurfaces()
+    {
+        var blueprints = new (string Name, ImageStepBlueprint Blueprint)[]
+        {
+            ("Composition", ImageStepBlueprintFactory.ForPackIdentityComposition(Cast)),
+            ("Edit", ImageStepBlueprintFactory.ForEditElements(Cast))
+        };
+
+        foreach (var (name, blueprint) in blueprints)
+        {
+            var props = blueprint.Slots.Where(slot => slot.SlotKind == ImageStepSlotKind.Prop).ToList();
+
+            Assert.Single(props);
+            var prop = props[0];
+            Assert.Null(prop.ActorKey);
+            Assert.True(prop.AllowsMultiple, $"{name} declares a single-valued prop slot.");
+            Assert.False(prop.Required, $"{name} makes the prop slot required, so a frame with no props could not render.");
+
+            // A prop is picked from approved props, and from the app's own rendered images — the same pair a location
+            // offers, because a prop the operator made in the app is a legitimate reference for an object.
+            Assert.Contains(ImageStepReferenceSourceKind.ApprovedSceneAsset, prop.AllowedSources);
+            Assert.Contains(ImageStepReferenceSourceKind.AppImage, prop.AllowedSources);
+            Assert.DoesNotContain(ImageStepReferenceSourceKind.IdentityPackAsset, prop.AllowedSources);
+        }
+    }
+
+    /// <summary>A prop names a character only when the operator says whose it is, so the slot kind must allow both.</summary>
+    [Fact]
+    public void PropSlot_MayOrMayNotNameACharacter()
+    {
+        Assert.Equal(
+            ImageStepActorKeyRequirement.Optional,
+            ImageStepSlotBlueprint.ActorKeyRequirementFor(ImageStepSlotKind.Prop));
+
+        // Both shapes are accepted: scene-level, and addressed to a character (an object someone is holding).
+        var sceneLevel = new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Prop, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset]);
+        var owned = new ImageStepSlotBlueprint(
+            ImageStepSlotKind.Prop, ImageStepSlotPrefill.None, [ImageStepReferenceSourceKind.ApprovedSceneAsset],
+            ActorKey: "p0");
+
+        sceneLevel.Validate();
+        owned.Validate();
     }
 
     /// <summary>A pack carries faces and builds and nothing else, so the shared elements must not offer it.</summary>
@@ -488,6 +557,7 @@ public sealed class ImageStepBlueprintFactoryTests
     [InlineData(ImageStepSlotKind.Wardrobe)]
     [InlineData(ImageStepSlotKind.Location)]
     [InlineData(ImageStepSlotKind.Pose)]
+    [InlineData(ImageStepSlotKind.Prop)]
     public void PackIdentityComposition_DoesNotOfferThePackForSharedElements(ImageStepSlotKind slotKind)
     {
         var slot = ImageStepBlueprintFactory.ForPackIdentityComposition(Cast).Slots

@@ -84,6 +84,13 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
 
     private readonly IImageGateEvaluator _gateEvaluator;
 
+    /// <summary>
+    /// Optional: the Asset Manager's framer (B-157 T6). It reads the AssetManager staging profile on /profiles, so the
+    /// placement ladder and camera have one owner shared with a Composition. Absent, no frame is claimed and the clause
+    /// keeps its scene-level sentences — the behaviour every asset render had before this feature.
+    /// </summary>
+    private readonly ISceneBlockingBuilder? _blockingBuilder;
+
     private readonly ILogger<SceneAssetGenerationJobHandler> _logger;
 
     public SceneAssetGenerationJobHandler(
@@ -108,7 +115,8 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         ISceneImageCharacterLoraResolver? characterLoraResolver = null,
         ISceneLoraResolver? sceneLoraResolver = null,
         MediaEditReferenceResolver? assetReferenceResolver = null,
-        IImageGateEvaluator gateEvaluator = null!)
+        IImageGateEvaluator gateEvaluator = null!,
+        ISceneBlockingBuilder? blockingBuilder = null)
     {
         _repository = repository;
         _storage = storage;
@@ -131,8 +139,21 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         _sceneLoraResolver = sceneLoraResolver;
         _assetReferenceResolver = assetReferenceResolver;
         _gateEvaluator = gateEvaluator;
+        _blockingBuilder = blockingBuilder;
         _logger = logger;
     }
+
+    /// <summary>
+    /// The Asset Manager's framing for the subjects these roles bind, or null when nothing is bound per character
+    /// (B-157 T6).
+    /// </summary>
+    private async Task<SceneBlocking?> BuildAssetBlockingAsync(
+        IReadOnlyList<ReferenceRoleClauses.ReferenceRole> roles,
+        CancellationToken cancellationToken)
+        => _blockingBuilder is null
+            ? null
+            : await _blockingBuilder.BuildAssetAsync(
+                [.. roles.Select(role => role.SubjectKey)], cancellationToken);
 
     public string JobType => BackgroundJobTypes.SceneAssetGeneration;
 
@@ -604,13 +625,17 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         List<ReferenceConditionedImageInput> references = [.. assetReferences, skeleton];
         List<ReferenceRoleClauses.ReferenceRole> roles =
             [.. assetRoles, new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null)];
-        var prompt = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, roles);
+        // B-157: assembled through the ONE plan owner, framed by the Asset Manager's own staging profile (T6). The
+        // Asset Manager has no beat/moment scene, so its framing comes from that profile rather than from a brief;
+        // when nothing is bound per character it carries none, and the clause keeps its scene-level sentences.
+        var prompt = FinalImagePromptPlanBuilder.Build(
+            compiledPrompt, roles, blocking: await BuildAssetBlockingAsync(roles, cancellationToken)).Prompt;
 
         _logger.LogInformation(
             "Scene asset pose render via NATIVE reference: ImageId={ImageId}, Model={Model}, Stance={Stance}, "
             + "Skeleton={Skeleton}, References={References}, TaggedReferences={Tagged}, ControlNetStrength=not-applicable",
             image.Id, model.ModelIdentifier, payload.PoseStance, skeleton.FileName, references.Count,
-            roles.Count > 1 ? roles.Count : 0);
+            ReferenceRoleClauses.TaggedReferenceCount(roles.Count));
 
         return await _referenceClient.GenerateWithReferencesAsync(
             model,
@@ -702,7 +727,18 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
             });
             roles.Add(new ReferenceRoleClauses.ReferenceRole(
                 ReferenceBindingShape.SlotKindOf(bound[index]),
-                ReferenceRoleClauses.LabelFor(bound[index], reference.Description)));
+                ReferenceRoleClauses.LabelFor(bound[index], reference.Description),
+                // B-157: the binding's actor key is the participant profile key, so the Asset Manager's own staging
+                // profile can place this subject and the clause can name them by position instead of by asset label.
+                ReferenceRoleClauses.SubjectKeyOf(bound[index]),
+                // ...and the CONTAINER, so two location bindings drawn from different places are described as separate
+                // places in one frame instead of each claiming to be the whole room. Without it here this route kept the
+                // "do not replace it with the setting of any other reference image" exclusivity for every location,
+                // which is the route an operator uses to build a combined reference out of two others (found
+                // 2026-10-13, from a render whose trailers were not the referenced ones).
+                bound[index].SceneAssetId,
+                // The operator's own statement about this reference, if they made one (B-159).
+                bound[index].Directions));
         }
 
         _logger.LogInformation(
@@ -732,13 +768,14 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         // A render whose references ARE the bound assets still has to say WHICH image is which: 2.1 reads N
         // references by <imageN> tag, and an untagged pair made the model average them (measured 2026-10-04 —
         // L1 1.574 untagged vs 0.887 tagged against the location reference).
-        var prompt = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, assetRoles);
+        var prompt = FinalImagePromptPlanBuilder.Build(
+            compiledPrompt, assetRoles, blocking: await BuildAssetBlockingAsync(assetRoles, cancellationToken)).Prompt;
 
         _logger.LogInformation(
             "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
             + "References={References}, TaggedReferences={Tagged}",
             image.Id, model.ModelIdentifier, assetReferences.Count,
-            assetRoles.Count > 1 ? assetRoles.Count : 0);
+            ReferenceRoleClauses.TaggedReferenceCount(assetRoles.Count));
 
         return await _referenceClient.GenerateWithReferencesAsync(
             model,
@@ -1131,7 +1168,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
             }
 
-            var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(compiledPrompt, roles);
+            var promptWithRoles = FinalImagePromptPlanBuilder.Build(compiledPrompt, roles).Prompt;
 
             _logger.LogInformation(
                 "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
@@ -1140,7 +1177,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 face?.PackId ?? bodyReference!.PackId,
                 face?.PackVersion ?? bodyReference!.PackVersion,
                 face?.FaceAssetId, bodyReference?.BodyAssetId, references.Count,
-                roles.Count > 1 ? roles.Count : 0);
+                ReferenceRoleClauses.TaggedReferenceCount(roles.Count));
 
             return await _referenceClient.GenerateWithReferencesAsync(
                 model,

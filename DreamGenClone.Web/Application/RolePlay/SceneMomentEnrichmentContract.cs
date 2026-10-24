@@ -86,7 +86,7 @@ public sealed record SceneMomentEnrichmentMomentSnapshot(
 public sealed class SceneMomentEnrichmentContract
 {
     public const int CurrentSchemaVersion = 1;
-    public const string ContractVersion = "scene-moment-enrichment-v2";
+    public const string ContractVersion = "scene-moment-enrichment-v3";
     public const string ResponseSchemaName = "scene_moment_enrichment";
 
     /// <summary>Returns the subset of a Moment's production roles that are video key-state roles.</summary>
@@ -189,6 +189,8 @@ public sealed class SceneMomentEnrichmentContract
         You are a frozen-state production planner. Enrich exactly one selected Moment into one canonical, provider-neutral visual state, its instantaneous sound anchors, and its selected video key-state roles.
 
         Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly and only the selected Moment cast, using each supplied profile key and exact profile name once; never add a participant or profile key from the wider Beat cast who is not listed in SELECTED CAST. Use visibleCharacterNames only for supplied cast members visible to that character.
+
+        Record the spatial geometry exactly, because these strings are the only geometry a camera can be projected from. character.position must state the stance (standing, kneeling, sitting, lying, bent over), the exact placement relative to the other cast in the scene (directly in front of, directly behind, to the left of, to the right of, beside, over, under, facing away from), the facing direction, the relative height, and the approximate distance; never write only "near", "above", or "beside". character.sightline must state the exact gaze direction (forward, up, down, left, right, or eyes closed) together with the exact cast member or body area it points at; never write only "toward" a person without a direction.
 
         Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must equal exactly the selected Moment's video roles listed in the VIDEO KEY-STATE CONSTRAINT, with no additions and no omissions; never put SoundEventAnchor in videoKeyState.roles because it belongs only in instantaneousSoundCueKeys. stateChangeAllowed must be false.
 

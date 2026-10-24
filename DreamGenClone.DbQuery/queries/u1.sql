@@ -1,0 +1,1 @@
+﻿SELECT ImageEditorDiffusionModel, ImageEditorTextEncoder, ImageEditorVae, ImageEditorSteps, ImageEditorCfg, ImageEditorSampler, ImageEditorScheduler, ImageEditorDenoise, CapabilityQualificationsJson FROM RegisteredModels WHERE DisplayName LIKE 'Qwen-Image-2.1 Editor%';

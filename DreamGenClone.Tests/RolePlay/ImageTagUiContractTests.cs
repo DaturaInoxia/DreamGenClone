@@ -26,9 +26,16 @@ public sealed class ImageTagUiContractTests
     [Fact]
     public void TagComponent_OffersEditingOnlyWhenAskedAndAlwaysThroughTheCatalog()
     {
-        Assert.Contains("@inject ISceneAssetImageTagService TagService", TagComponentSource, StringComparison.Ordinal);
+        // ONE component serves BOTH tag stores, and the caller names which through Target: an id is only meaningful
+        // inside the store that issued it, so a component that guessed the store would write to the wrong row.
+        Assert.Contains("@inject IImageTagService TagService", TagComponentSource, StringComparison.Ordinal);
+        Assert.Contains("[Parameter, EditorRequired] public ImageTagTarget Target { get; set; }",
+            TagComponentSource, StringComparison.Ordinal);
         Assert.Contains("[Parameter] public bool Editable", TagComponentSource, StringComparison.Ordinal);
-        Assert.Contains("ImageTagCatalog.Parse(Image.TagsJson)", TagComponentSource, StringComparison.Ordinal);
+        Assert.Contains("ImageTagCatalog.Parse(TagsJson)", TagComponentSource, StringComparison.Ordinal);
+
+        // The store is chosen in ONE place, from the target the caller named - never by the component.
+        Assert.Contains("TagService.SetTagsAsync(Target, ImageId, next)", TagComponentSource, StringComparison.Ordinal);
 
         // The axis is a PICK LIST from the catalog's own prefixes: a hand-typed prefix would be stored (or refused) as a
         // surprise, and the operator would have no way to know which axes exist.
@@ -51,9 +58,10 @@ public sealed class ImageTagUiContractTests
 
         // The tag editor is host content handed to the card, and it sits inside the completed-image branch so a
         // pending or failed row never offers to tag a picture that does not exist.
-        Assert.Contains("<ImageTags Image=\"image\" Editable=\"true\" TagsChanged=\"LoadAsync\" />",
+        Assert.Contains("<ImageTags ImageId=\"image.Id\" Target=\"ImageTagTarget.AssetLibrary\"",
             DetailSource, StringComparison.Ordinal);
-        var tagEditor = DetailSource.IndexOf("<ImageTags Image=\"image\" Editable=\"true\"", StringComparison.Ordinal);
+        Assert.Contains("TagsChanged=\"LoadAsync\"", DetailSource, StringComparison.Ordinal);
+        var tagEditor = DetailSource.IndexOf("<ImageTags ImageId=\"image.Id\"", StringComparison.Ordinal);
         var completionGuard = DetailSource.LastIndexOf(
             "image.Status == SceneAssetStatus.Complete", tagEditor, StringComparison.Ordinal);
         Assert.True(completionGuard >= 0,
@@ -63,11 +71,12 @@ public sealed class ImageTagUiContractTests
     [Fact]
     public void AssetManager_SearchesTagsThroughTheServiceAndShowsMatchingChips()
     {
-        Assert.Contains("@inject ISceneAssetImageTagService TagService", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("@inject IImageTagService TagService", ManagerSource, StringComparison.Ordinal);
         Assert.Contains("await TagService.SearchImagesByTagAsync(_tagSearch)", ManagerSource, StringComparison.Ordinal);
 
         // The results show their OWN tags read-only, which is what makes a hit explicable ("why did this match?").
-        Assert.Contains("<ImageTags Image=\"tagged\" />", ManagerSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageTags ImageId=\"tagged.Id\" Target=\"ImageTagTarget.AssetLibrary\" TagsJson=\"tagged.TagsJson\" />",
+            ManagerSource, StringComparison.Ordinal);
 
         // The search matches a tag VALUE, and the page says so: an operator who typed "lora" and found nothing because
         // it is a prefix needs to know that, not to conclude the library is empty.
@@ -87,7 +96,9 @@ public sealed class ImageTagUiContractTests
     [Fact]
     public void ReviewPage_TagsTheImageAndRoutesTheRoundTripToTheGeneratorsOwnLoad()
     {
-        Assert.Contains("<ImageTags Image=\"_image\" Editable=\"true\" />", ReviewSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageTags ImageId=\"_image.Id\" Target=\"ImageTagTarget.AssetLibrary\"", ReviewSource,
+            StringComparison.Ordinal);
+        Assert.Contains("TagsChanged=\"ReloadImageAsync\"", ReviewSource, StringComparison.Ordinal);
         Assert.Contains("href=\"/asset-studio/@AssetId?loadImageId=@ImageId\"", ReviewSource, StringComparison.Ordinal);
 
         // The consuming half of that link: the asset page reads the parameter and applies the load through the SAME

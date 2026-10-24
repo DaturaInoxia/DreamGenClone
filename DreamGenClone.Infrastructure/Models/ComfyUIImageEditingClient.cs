@@ -206,6 +206,19 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                 + "Qwen-Image-2.1 for this model in Model Manager (/model-manager), or edit without a region.");
         }
 
+        // Scene LoRAs are implemented in ONE graph too. A selection on any other graph would be dropped by the builder
+        // and the run would produce an image nobody asked for while looking exactly like success, so it is refused
+        // here with the fix named.
+        if (model.SceneLoras is { Count: > 0 } unsupportedSceneLoras
+            && model.GraphKind != ImageEditorGraphKind.QwenImage21Native)
+        {
+            throw new InvalidOperationException(
+                $"Image editor model '{model.ModelIdentifier}' cannot apply the {unsupportedSceneLoras.Count} selected "
+                + "scene LoRA(s): edit-mode LoRA wiring is implemented only in the Qwen-Image-2.1 native graph. Set "
+                + "'Editor Graph' to Qwen-Image-2.1 for this model in Model Manager (/model-manager), or edit without "
+                + "a scene LoRA.");
+        }
+
         return model.GraphKind switch
         {
             ImageEditorGraphKind.SplitUnet =>
@@ -384,6 +397,46 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
             ((JsonObject)wf["7"]!["inputs"]!)["latent_image"] = new JsonArray("42", 0);
         }
 
+        // Scene LoRAs the operator picked for THIS edit (unlock / act / anatomy / style). They are model-only files -
+        // the 2.1 scene catalogue carries no text-encoder weights, so the clip branch keeps reading CLIPLoader
+        // directly. They chain ABOVE the cache and BELOW the per-model editor LoRA below, so the editor adapter stays
+        // closest to the sampler. Node ids come from the graph's own highest id because references already occupy 20+
+        // and masks 40-43; a hardcoded id would overwrite those nodes.
+        // Held as an ID rather than a JsonArray: a JsonNode instance can only have ONE parent, so reusing the same
+        // array for the sampler and again for the editor LoRA throws "The node already has a parent".
+        var modelSourceNodeId = "5";
+        if (model.SceneLoras is { Count: > 0 } sceneLoras)
+        {
+            var nextNodeNumber = Math.Max(20, ComfyUIImageClient.HighestNodeNumber(wf) + 1);
+            foreach (var sceneLora in sceneLoras)
+            {
+                if (sceneLora.Strength <= 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Scene LoRA '{sceneLora.FileName}' reached the Qwen-Image-2.1 edit graph with strength "
+                        + $"{sceneLora.Strength}. A strength nobody chose is a different LoRA, so the run is refused "
+                        + "rather than rendered at a guessed weight.");
+                }
+
+                var nodeId = nextNodeNumber++.ToString();
+                wf[nodeId] = new JsonObject
+                {
+                    ["class_type"] = "LoraLoaderModelOnly",
+                    ["inputs"] = new JsonObject
+                    {
+                        ["model"] = new JsonArray(modelSourceNodeId, 0),
+                        ["lora_name"] = sceneLora.FileName,
+                        ["strength_model"] = sceneLora.Strength
+                    }
+                };
+                modelSourceNodeId = nodeId;
+            }
+
+            // The sampler reads the chain end. When an editor LoRA is configured it re-points this to node 17 below,
+            // which is what keeps the per-model adapter LAST.
+            wf["7"]!["inputs"]!["model"] = new JsonArray(modelSourceNodeId, 0);
+        }
+
         // Editor LoRA feeds the MODEL and the CLIP: wiring only the model branch would silently apply
         // the LoRA to half the stack (the rule the 2511 editor path learned the hard way).
         if (!string.IsNullOrWhiteSpace(model.LoraName))
@@ -400,7 +453,7 @@ public sealed class ComfyUIImageEditingClient : IImageEditingClient
                     ["lora_name"] = model.LoraName,
                     ["strength_model"] = strength,
                     ["strength_clip"] = strength,
-                    ["model"] = new JsonArray("5", 0),
+                    ["model"] = new JsonArray(modelSourceNodeId, 0),
                     ["clip"] = new JsonArray("3", 0)
                 }
             };

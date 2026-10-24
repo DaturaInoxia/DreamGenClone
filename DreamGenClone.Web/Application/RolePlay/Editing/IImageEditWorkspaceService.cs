@@ -1,5 +1,6 @@
 using DreamGenClone.Domain.Processing;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.Editing;
 
@@ -124,6 +125,28 @@ public interface IImageEditWorkspaceService
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ImageEditLineageItem>> ListLineageAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The references the source image was MADE with, as its own row records them. Read so the workspace can offer the
+    /// operator the same references instead of making them bind each one again; each store knows where its own rows
+    /// keep that record, which is why this lives on the adapter.
+    /// </summary>
+    Task<ImageEditSourceReferences> GetSourceReferencesAsync(
+        ImageEditSubject subject, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The scene LoRAs the source image was MADE with, as its own row records them — the same reason the references are
+    /// seeded: an edit should OPEN on the stack the operator already picked instead of making them pick it again on a
+    /// second surface. Each store knows where its own row keeps that record.
+    ///
+    /// <para>
+    /// Empty is a configured state (the image was made with no scene LoRA) and is not an error. The value is a SEED for
+    /// the workspace's own selection, never a second decision path: once loaded, the workspace's picker owns it, and the
+    /// run re-validates it against the editor model's family exactly as it validates a hand-picked stack.
+    /// </para>
+    /// </summary>
+    Task<IReadOnlyList<SceneImageLoraSelection>> GetSourceSceneLorasAsync(
         ImageEditSubject subject, CancellationToken cancellationToken = default);
 }
 

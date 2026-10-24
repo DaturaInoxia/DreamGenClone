@@ -330,8 +330,6 @@ public sealed class CharacterIdentityBodyViewsPanelTests
                      "BodyService.UploadAsync(",
                      "BodyService.RecordSourceAsResultAsync(",
                      "BodyService.AcceptAsync(",
-                     "BodyService.RecordFindingsAsync(",
-                     "BodyService.RecordOverrideAsync(",
                      "BodyService.AnalyzeQualityAsync(",
                      "BodyService.ResolvePromptAsync(",
                      "BodyService.ListViewsAsync("
@@ -340,9 +338,28 @@ public sealed class CharacterIdentityBodyViewsPanelTests
             Assert.Contains(action, source, StringComparison.Ordinal);
         }
 
-        // Quality evidence per view, and the findings the acceptance gate refuses on.
+        // Quality evidence per view.
         Assert.Contains("view.QualityRating", source, StringComparison.Ordinal);
-        Assert.Contains("view.Findings.NotPassed", source, StringComparison.Ordinal);
+
+        // The review form is GONE (operator decision, 2026-10-11): no four checks, no reviewer/note inputs, no
+        // attributed override, and no findings summary — acceptance is one button. Asserted absent so it cannot come
+        // back through a copy of an older panel.
+        foreach (var removed in new[]
+                 {
+                     "Record findings",
+                     "All four pass",
+                     "Record front override",
+                     "Record override",
+                     "body-invariant",
+                     "Findings —",
+                     "Reviewer",
+                     "Attributed override",
+                     "view.Findings.NotPassed",
+                     "RecordChecksPassedAndAccept"
+                 })
+        {
+            Assert.DoesNotContain(removed, source, StringComparison.Ordinal);
+        }
     }
 
     [Fact]

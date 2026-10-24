@@ -111,6 +111,63 @@ public sealed class SdxlSceneImagePromptBuilderTests
 
     // ---- Canonical (B-100 CompiledMediaBrief) path — B-104 / B-103 part B ----
 
+    /// <summary>
+    /// B-161 — the reported defect, as a test. The compiled frame said "medium shot", and the prompt-writing model read
+    /// that straight out of the brief and wrote it into the prose, which is why a subject marked "in the background,
+    /// far from the camera" still rendered at full height on the lawn standing nowhere near his own open slider.
+    ///
+    /// <para>
+    /// The operator's framing now replaces the compiled one INSIDE the brief the model reads, so the prose and the
+    /// authoritative block the render appends describe one camera. The compiled value is asserted ABSENT: leaving it in
+    /// place would put two cameras in one prompt, which is the failure this closes.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_AppliesTheOperatorsFramingToTheBriefTheModelReads()
+    {
+        var (_, user) = _preprocessor.BuildMessages(
+            BriefWithAFrame(),
+            "Omniscient",
+            new SceneImageStudioSettings
+            {
+                Style = "realistic",
+                ImageSize = "1024x1024",
+                SceneBlockingOverride = new SceneBlockingOverride(
+                    [], new SceneBlockingCameraOverride("wide establishing shot"))
+            },
+            ImageContentPolicy.AdultAllowed,
+            null);
+
+        Assert.Contains("\"shotSize\":\"wide establishing shot\"", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("medium shot", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The default is untouched: with no framing chosen, the frame the brief was COMPILED with is the one the model
+    /// reads. Nothing is substituted, so every existing composition drafts exactly as it did before.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_WithoutAFramingChoice_SendsTheCompiledFrame()
+    {
+        var (_, user) = _preprocessor.BuildMessages(
+            BriefWithAFrame(),
+            "Omniscient",
+            new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" },
+            ImageContentPolicy.AdultAllowed,
+            null);
+
+        Assert.Contains("\"shotSize\":\"medium shot\"", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("wide establishing shot", user, StringComparison.Ordinal);
+    }
+
+    /// <summary>A canonical still brief carrying a compiled frame, camelCase, exactly as the compiler writes it.</summary>
+    private static CompiledMediaBrief BriefWithAFrame() => MakeCanonicalStillBrief() with
+    {
+        SemanticInputSnapshotJson = """
+            {"frozenState":{"visualDescription":"a woman at the deck railing","characters":[{"profileKey":"p0","characterId":"char-becky","name":"Becky","involvement":"active","physicalLocation":"deck","position":"standing at the railing","actionOrObservation":"one hand beside a glass","sightline":"toward the pines","visibleCharacterNames":["Dean"],"clothing":"unbuttoned pale-blue camp shirt"},{"profileKey":"p1","characterId":"char-dean","name":"Dean","involvement":"active","physicalLocation":"deck","position":"beside the door","actionOrObservation":"watching Becky","sightline":"toward Becky","visibleCharacterNames":["Becky"],"clothing":"dark jacket"}],"location":"the yard","timeOfDay":"night","lighting":"blue TV light","environment":"wooded clearing","mood":"quiet","objects":["glass"],"continuityState":"stable"},"blocking":{"profileVersion":"1","subjects":[{"subjectKey":"p0","position":{"horizontal":"Center","depth":"Foreground"},"roleText":"the person in the CENTER in the foreground, close to the camera and large in the frame"}],"camera":{"angle":"eye level","shotSize":"medium shot","side":null},"layering":["p0"],"rationale":"establishes the yard"}}
+            """
+    };
+
     private static CompiledMediaBrief MakeCanonicalStillBrief() => new(
         Id: "brief1",
         MediaKind: MediaProductionKind.StillImage,
@@ -122,7 +179,29 @@ public sealed class SdxlSceneImagePromptBuilderTests
         ProviderRequestContractVersion: "still-v1",
         Lineage: new CompiledMediaLineage("cat1", "beat1", "plan1", 1, "momset1", 1, "mom1", "enr1", 1),
         CanonicalSourceIds: ["src1"],
-        SemanticInputSnapshotJson: """{"people":[{"name":"Becky","appearance":"dark hair in a loose bun, bare-legged","clothing":"unbuttoned pale-blue camp shirt"}],"location":"deck of a silver trailer at night","lighting":"blue TV light through warped blinds","frozenAction":"standing at the wooden railing, one hand beside a glass"}""",
+        SemanticInputSnapshotJson: """
+            {
+              "lineage": {},
+              "moment": {},
+              "frozenState": {
+                "visualDescription": "Becky stands at the deck railing of a trailer at night while Dean waits by the door",
+                "characters": [
+                  { "profileKey": "p0", "characterId": "char-becky", "name": "Becky", "involvement": "active", "physicalLocation": "deck", "position": "standing at the railing, directly in front of Dean", "actionOrObservation": "one hand resting beside a glass", "sightline": "forward toward the dark pines", "visibleCharacterNames": ["Dean"], "clothing": "unbuttoned pale-blue camp shirt" },
+                  { "profileKey": "p1", "characterId": "char-dean", "name": "Dean", "involvement": "active", "physicalLocation": "deck", "position": "standing beside the sliding door, behind Becky", "actionOrObservation": "watching Becky", "sightline": "forward toward Becky", "visibleCharacterNames": ["Becky"], "clothing": "dark jacket" }
+                ],
+                "location": "deck of a silver trailer at night",
+                "timeOfDay": "night",
+                "lighting": "blue TV light through warped blinds",
+                "environment": "wooded clearing",
+                "mood": "quiet",
+                "objects": ["glass"],
+                "continuityState": "stable"
+              },
+              "continuity": {},
+              "typedReferences": [],
+              "videoKeyState": {}
+            }
+            """,
         ProviderRequestSnapshotJson: """{"contract":"still-v1"}""",
         RequiredIntentCoverageJson: """{"entries":[]}""",
         Status: MediaCompilerStatus.Complete,
@@ -138,8 +217,11 @@ public sealed class SdxlSceneImagePromptBuilderTests
         var (system, user) = _preprocessor.BuildMessages(
             MakeCanonicalStillBrief(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
 
-        // POV framing: never include the POV character in frame.
-        Assert.Contains("NEVER include the POV character in the frame", system, StringComparison.OrdinalIgnoreCase);
+        // POV framing: camera at the viewpoint's own eye height, aimed along its recorded sightline, and the viewpoint
+        // itself is never shown.
+        Assert.Contains("at that character's own eye height", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never show the viewpoint itself", system, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LEFT/CENTER/RIGHT placement", system, StringComparison.OrdinalIgnoreCase);
         // No names / relations / ownership (grounded in model behavior).
         Assert.Contains("do not know character names, relationships, or ownership", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NO NAMES", system, StringComparison.OrdinalIgnoreCase);
@@ -375,6 +457,167 @@ public sealed class SdxlSceneImagePromptBuilderTests
 
         Assert.Contains("a hooded figure", user, StringComparison.Ordinal);
         Assert.DoesNotContain("copper", user, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_ParticipantPovs_ProjectDifferentFrames()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, deanUser) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
+        var (_, beckyUser) = _preprocessor.BuildMessages(
+            MakeCanonicalBriefWithFrozenCharacters(), "Becky", settings, ImageContentPolicy.AdultAllowed, null);
+
+        // Each POV sees only its own visible cast, as its own camera.
+        Assert.Contains("SHOT (authoritative frame", deanUser, StringComparison.Ordinal);
+        Assert.Contains("In frame (this is the whole cast", deanUser, StringComparison.Ordinal);
+        Assert.Contains("- Becky — position:", deanUser, StringComparison.Ordinal);
+        Assert.DoesNotContain("- Dean — position:", deanUser, StringComparison.Ordinal);
+        Assert.Contains("- Dean — position:", beckyUser, StringComparison.Ordinal);
+        Assert.DoesNotContain("- Becky — position:", beckyUser, StringComparison.Ordinal);
+        Assert.NotEqual(deanUser, beckyUser);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_OmniscientPov_StatesTheCompiledFramePlacements()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, user) = _preprocessor.BuildMessages(
+            BriefWithAFrame(), SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null);
+
+        Assert.Contains("Exact frame placement", user, StringComparison.Ordinal);
+        Assert.Contains("Becky — CENTER, in the foreground, nearest the camera", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("strict first person", user, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_ParticipantPov_DropsTheExternalFrameFromTheBrief()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+
+        var (_, deanUser) = _preprocessor.BuildMessages(
+            BriefWithAFrame(), "Dean", settings, ImageContentPolicy.AdultAllowed, null);
+
+        // The compiled blocking describes an EXTERNAL frame; a first-person projection must not carry it too.
+        Assert.DoesNotContain("\"blocking\"", deanUser, StringComparison.Ordinal);
+        Assert.Contains("- Becky — position:", deanUser, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// B-166 POV fix (measured live 2026-10-20): the projection text alone was not enough — the brief still carried the
+    /// camera holder's full frozen entry, so the compiler wrote an external two-person scene and all three POV prompts
+    /// looked the same. The viewpoint must be GONE from the data, and the system prompt must state the frame.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_ParticipantPov_RemovesTheCameraHolderFromTheBriefAndStatesTheFrame()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var brief = MakeCanonicalBriefWithFrozenCharacters();
+        var blocking = SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson);
+
+        var deanProjection = SceneImagePovProjection.Resolve(brief, "Dean", blocking);
+        var beckyProjection = SceneImagePovProjection.Resolve(brief, "Becky", blocking);
+
+        var (deanSystem, deanUser) = _preprocessor.BuildMessages(
+            brief, "Dean", settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, null, deanProjection);
+        var (beckySystem, beckyUser) = _preprocessor.BuildMessages(
+            brief, "Becky", settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, null, beckyProjection);
+
+        // The camera holder is not a subject in the brief the compiler reads — in fact NO per-character entry is:
+        // the projection states the in-frame cast and its facts.
+        Assert.DoesNotContain("\"characters\"", deanUser, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"characters\"", beckyUser, StringComparison.Ordinal);
+        // Each POV carries the OTHER person as its in-frame subject.
+        Assert.Contains("  - Becky — position:", deanUser, StringComparison.Ordinal);
+        Assert.Contains("  - Dean — position:", beckyUser, StringComparison.Ordinal);
+        Assert.NotEqual(deanUser, beckyUser);
+
+        Assert.Contains("THIS IS A FIRST-PERSON PHOTOGRAPH", deanSystem, StringComparison.Ordinal);
+        Assert.Contains("THIS IS A FIRST-PERSON PHOTOGRAPH", beckySystem, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The camera holder's NAME must not reach the compiler at all. It used to read "PRODUCTION POV: Becky", and the
+    /// model copied the name straight into the caption ("…as seen by Becky"), which the contract then rejected on both
+    /// attempts and failed the compile — record f5a2a9df, 2026-10-22. A name compiles no shot; the SHOT block carries
+    /// the frame.
+    /// </summary>
+    [Fact]
+    public void BuildCanonicalMessages_ParticipantPov_NeverSuppliesTheCameraHoldersName()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var brief = MakeCanonicalBriefWithFrozenCharacters();
+        var blocking = SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson);
+
+        var (_, beckyUser) = _preprocessor.BuildMessages(
+            brief, "Becky", settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, null, SceneImagePovProjection.Resolve(brief, "Becky", blocking));
+
+        Assert.DoesNotContain("Becky", beckyUser, StringComparison.Ordinal);
+        Assert.Contains("that person IS the camera", beckyUser, StringComparison.Ordinal);
+        // The cast member who IS in frame is still named — it is the camera holder alone that is never named.
+        Assert.Contains("  - Dean — position:", beckyUser, StringComparison.Ordinal);
+
+        // The omniscient POV label is not a person in the frame, so it is still stated.
+        var (_, omniscientUser) = _preprocessor.BuildMessages(
+            brief, SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, null, SceneImagePovProjection.Resolve(brief, SceneImagePovFramer.Omniscient, blocking));
+        Assert.Contains("PRODUCTION POV: Omniscient", omniscientUser, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_WithAReferenceSuppliedRoom_RemovesTheRoomFromTheRequiredElementOrder()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var brief = BriefWithAFrame();
+        var projection = SceneImagePovProjection.Resolve(
+            brief, SceneImagePovFramer.Omniscient,
+            SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson),
+            suppression: null,
+            sceneSuppliedByReference: true);
+
+        var (system, user) = _preprocessor.BuildMessages(
+            brief, SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, null, null, projection);
+
+        // The room is an image in this request: the system prompt must drop it from the element order, and the user
+        // prompt must spend the caption on the people and their exact frame positions.
+        Assert.Contains("THE ROOM IS A REFERENCE IMAGE IN THIS REQUEST", system, StringComparison.Ordinal);
+        // B-166 D5: the geometry is the image's, but the KIND of place is still named so the caption stays coherent.
+        Assert.Contains("name it only as that kind of place", user, StringComparison.Ordinal);
+        Assert.Contains("never its structure, surfaces, fixtures, objects or lighting", user, StringComparison.Ordinal);
+        Assert.Contains("exactly where they are in the frame", user, StringComparison.Ordinal);
+
+        // Without that fact the rule is absent — a fully-textual step still describes the room.
+        var (plainSystem, _) = _preprocessor.BuildMessages(
+            brief, SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null);
+        Assert.DoesNotContain("THE ROOM IS A REFERENCE IMAGE IN THIS REQUEST", plainSystem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildCanonicalMessages_WithARemovedLocation_NoLongerCarriesRoomAnchors()
+    {
+        var settings = new SceneImageStudioSettings { Style = "realistic", ImageSize = "1024x1024" };
+        var brief = BriefWithAFrame();
+        var suppression = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "frozenState.location", Removed = true }]
+        };
+        var projection = SceneImagePovProjection.Resolve(
+            brief, SceneImagePovFramer.Omniscient,
+            SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson), suppression, sceneSuppliedByReference: true);
+
+        var (_, user) = _preprocessor.BuildMessages(
+            brief, SceneImagePovFramer.Omniscient, settings, ImageContentPolicy.AdultAllowed, null,
+            null, null, null, suppression, null, projection);
+
+        // A character's physicalLocation is a ROOM anchor ("the yard"), and one would leak the place back in.
+        Assert.DoesNotContain("\"physicalLocation\"", user, StringComparison.Ordinal);
+        Assert.Contains("\"position\":\"standing at the railing", user, StringComparison.Ordinal);
     }
 
     [Fact]

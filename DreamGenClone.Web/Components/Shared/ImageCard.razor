@@ -8,7 +8,7 @@
    verdicts, so a decision taken here and one taken in the deck are the same fact; a host whose entity has no "accept"
    (e.g. the gallery's Active / Shortlisted / Rejected lifecycle) simply does not wire that callback. *@
 
-<article class="card h-100 @(Model.IsSelected ? "border-primary border-3" : string.Empty)">
+<article class="card h-100 @(EffectiveSelected ? "border-primary border-3" : string.Empty)">
     <div class="ratio ratio-1x1 bg-dark">
         @if (Model.IsComplete && !string.IsNullOrWhiteSpace(Model.FileRelativePath))
         {
@@ -22,6 +22,131 @@
         }
     </div>
 
+    @if (Model.IsComplete)
+    {
+        <div class="card-footer d-flex flex-wrap gap-1 justify-content-end">
+            @if (SelectRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm py-0 px-1 @(EffectiveSelected ? "btn-primary" : "btn-outline-primary")"
+                        aria-pressed="@EffectiveSelected.ToString().ToLowerInvariant()"
+                        title="@(SelectTitle ?? DefaultSelectTitle)" disabled="@Busy" @onclick="() => SelectRequested.InvokeAsync()">
+                    <i class="bi bi-check2-square"></i>
+                </button>
+            }
+            <button type="button" class="btn btn-sm btn-outline-light py-0 px-1" title="View larger"
+                    @onclick="OpenViewer">
+                <i class="bi bi-arrows-fullscreen"></i>
+            </button>
+            @if (ShowVerdicts && AcceptRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1"
+                        title="@(AcceptTitle ?? "Choose this as the batch's pick — this is NOT a production approval, so it will not become a usable reference until it is approved on the review page")"
+                        disabled="@Busy" @onclick="() => AcceptRequested.InvokeAsync()">
+                    <i class="bi bi-check2-circle"></i>
+                </button>
+            }
+            @if (ShowVerdicts && ShortlistRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist"
+                        disabled="@Busy" @onclick="() => ShortlistRequested.InvokeAsync()">
+                    <i class="bi bi-star"></i>
+                </button>
+            }
+            @if (ShowVerdicts && RejectRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject"
+                        disabled="@Busy" @onclick="() => RejectRequested.InvokeAsync()">
+                    <i class="bi bi-x-circle"></i>
+                </button>
+            }
+            @if (EditRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit image"
+                        disabled="@Busy" @onclick="() => EditRequested.InvokeAsync()">
+                    <i class="bi bi-magic"></i>
+                </button>
+            }
+            @if (ReviewRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Review image"
+                        disabled="@Busy" @onclick="() => ReviewRequested.InvokeAsync()">
+                    <i class="bi bi-check2-circle"></i>
+                </button>
+            }
+            @if (ShowBatchLink && !string.IsNullOrWhiteSpace(Model.CandidateBatchId))
+            {
+                <a class="btn btn-sm btn-outline-info py-0 px-1" href="/review-deck/asset/@Model.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
+            }
+            @if (DownloadRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Download image"
+                        disabled="@Busy" @onclick="() => DownloadRequested.InvokeAsync()">
+                    <i class="bi bi-download"></i>
+                </button>
+            }
+            @if (VideoRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Compose a video from this image"
+                        disabled="@Busy" @onclick="() => VideoRequested.InvokeAsync()">
+                    <i class="bi bi-camera-video"></i>
+                </button>
+            }
+            @if (LoadIntoGeneratorRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" disabled="@Busy"
+                        @onclick="() => LoadIntoGeneratorRequested.InvokeAsync()"
+                        title="@(LoadIntoGeneratorTitle ?? DefaultLoadIntoGeneratorTitle)">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                </button>
+            }
+            @if (UseAsReferenceRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1" disabled="@Busy"
+                        @onclick="() => UseAsReferenceRequested.InvokeAsync()"
+                        title="@(UseAsReferenceTitle ?? DefaultUseAsReferenceTitle)">
+                    <i class="bi bi-bookmark-plus"></i>
+                </button>
+            }
+            @if (Model.IsProductionApproved && RevokeRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" disabled="@Busy"
+                        title="Take this image out of production: it stops being offered as a reference, and deleting it then works"
+                        @onclick="() => RevokeRequested.InvokeAsync()">
+                    <i class="bi bi-slash-circle"></i>
+                </button>
+            }
+            @if (DeleteRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" disabled="@Busy"
+                        title="Delete this image" @onclick="() => DeleteRequested.InvokeAsync()">
+                    <i class="bi bi-trash"></i>
+                </button>
+            }
+            @if (FooterContent is not null)
+            {
+                @FooterContent
+            }
+        </div>
+    }
+    else
+    {
+        <div class="card-footer d-flex gap-1 justify-content-end">
+            @if (DeleteRequested.HasDelegate)
+            {
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" disabled="@Busy"
+                        title="Delete this image" @onclick="() => DeleteRequested.InvokeAsync()">
+                    <i class="bi bi-trash"></i>
+                </button>
+            }
+            @if (FooterContent is not null)
+            {
+                @FooterContent
+            }
+        </div>
+    }
+
+    @* The badges, the id and the host's body content sit BELOW the actions, not above them: the buttons are the
+       thing the operator reaches for, so they belong against the picture they act on. *@
     <div class="card-body py-2 small">
         <div class="d-flex flex-wrap gap-2">
             <span class="badge @Model.StatusBadgeClass">@Model.StatusText</span>
@@ -72,120 +197,6 @@
             @BodyContent
         }
     </div>
-
-    @if (Model.IsComplete)
-    {
-        <div class="card-footer d-flex flex-wrap gap-1 justify-content-end">
-            @if (SelectRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm py-0 px-1 @(Model.IsSelected ? "btn-primary" : "btn-outline-primary")"
-                        title="Show this image in the viewer above" disabled="@Busy" @onclick="() => SelectRequested.InvokeAsync()">
-                    <i class="bi bi-check2-square"></i>
-                </button>
-            }
-            <button type="button" class="btn btn-sm btn-outline-light py-0 px-1" title="View larger"
-                    @onclick="OpenViewer">
-                <i class="bi bi-arrows-fullscreen"></i>
-            </button>
-            @if (ShowVerdicts && AcceptRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1"
-                        title="@(AcceptTitle ?? "Choose this as the batch's pick — this is NOT a production approval, so it will not become a usable reference until it is approved on the review page")"
-                        disabled="@Busy" @onclick="() => AcceptRequested.InvokeAsync()">
-                    <i class="bi bi-check2-circle"></i>
-                </button>
-            }
-            @if (ShowVerdicts && ShortlistRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Shortlist"
-                        disabled="@Busy" @onclick="() => ShortlistRequested.InvokeAsync()">
-                    <i class="bi bi-star"></i>
-                </button>
-            }
-            @if (ShowVerdicts && RejectRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject"
-                        disabled="@Busy" @onclick="() => RejectRequested.InvokeAsync()">
-                    <i class="bi bi-x-circle"></i>
-                </button>
-            }
-            @if (EditRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1" title="Edit image"
-                        disabled="@Busy" @onclick="() => EditRequested.InvokeAsync()">
-                    <i class="bi bi-magic"></i>
-                </button>
-            }
-            @if (ReviewRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-success py-0 px-1" title="Review image"
-                        disabled="@Busy" @onclick="() => ReviewRequested.InvokeAsync()">
-                    <i class="bi bi-check2-circle"></i>
-                </button>
-            }
-            @if (!string.IsNullOrWhiteSpace(Model.CandidateBatchId))
-            {
-                <a class="btn btn-sm btn-outline-info py-0 px-1" href="/review-deck/asset/@Model.CandidateBatchId" title="Review candidate batch"><i class="bi bi-collection-play"></i></a>
-            }
-            @if (DownloadRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1" title="Download image"
-                        disabled="@Busy" @onclick="() => DownloadRequested.InvokeAsync()">
-                    <i class="bi bi-download"></i>
-                </button>
-            }
-            @if (VideoRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-info py-0 px-1" title="Compose a video from this image"
-                        disabled="@Busy" @onclick="() => VideoRequested.InvokeAsync()">
-                    <i class="bi bi-camera-video"></i>
-                </button>
-            }
-            @if (LoadIntoGeneratorRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" disabled="@Busy"
-                        title="Load the prompt, model, size, seed and references that made this image into the generator above"
-                        @onclick="() => LoadIntoGeneratorRequested.InvokeAsync()">
-                    <i class="bi bi-arrow-counterclockwise"></i>
-                </button>
-            }
-            @if (Model.IsProductionApproved && RevokeRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-warning py-0 px-1" disabled="@Busy"
-                        title="Take this image out of production: it stops being offered as a reference, and deleting it then works"
-                        @onclick="() => RevokeRequested.InvokeAsync()">
-                    <i class="bi bi-slash-circle"></i>
-                </button>
-            }
-            @if (DeleteRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" disabled="@Busy"
-                        title="Delete this image" @onclick="() => DeleteRequested.InvokeAsync()">
-                    <i class="bi bi-trash"></i>
-                </button>
-            }
-            @if (FooterContent is not null)
-            {
-                @FooterContent
-            }
-        </div>
-    }
-    else
-    {
-        <div class="card-footer d-flex gap-1 justify-content-end">
-            @if (DeleteRequested.HasDelegate)
-            {
-                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" disabled="@Busy"
-                        title="Delete this image" @onclick="() => DeleteRequested.InvokeAsync()">
-                    <i class="bi bi-trash"></i>
-                </button>
-            }
-            @if (FooterContent is not null)
-            {
-                @FooterContent
-            }
-        </div>
-    }
 </article>
 
 @* The inspector is the SHARED component, so the deck and the card open the same popup with the same pan and zoom. *@
@@ -230,6 +241,29 @@
 
     [Parameter] public EventCallback LoadIntoGeneratorRequested { get; set; }
 
+    /// <summary>
+    /// The "use as reference" command: reload what made this image AND bind the image itself as a reference — for a
+    /// location slot, a place the composition is anchored to. Wired only by hosts whose generator has a step that
+    /// accepts one, because a command that cannot be honoured is worse than no command.
+    /// </summary>
+    [Parameter] public EventCallback UseAsReferenceRequested { get; set; }
+
+    /// <summary>
+    /// The reload command's tooltip, for a host whose generator restores a different set of inputs than the default
+    /// promise names. A host that cannot restore a size or a seed must not say it will.
+    /// </summary>
+    [Parameter] public string? LoadIntoGeneratorTitle { get; set; }
+
+    /// <summary>The "use as reference" tooltip, on the same terms as <see cref="LoadIntoGeneratorTitle"/>.</summary>
+    [Parameter] public string? UseAsReferenceTitle { get; set; }
+
+    private const string DefaultLoadIntoGeneratorTitle =
+        "Load the prompt, model, size, seed and references that made this image into the generator above";
+
+    private const string DefaultUseAsReferenceTitle =
+        "Use as reference: reload the prompt, model, size, seed and references that made this image, and add this image "
+        + "itself as a Location reference in the composition";
+
     [Parameter] public EventCallback RevokeRequested { get; set; }
 
     [Parameter] public EventCallback DeleteRequested { get; set; }
@@ -251,6 +285,29 @@
 
     /// <summary>Host-specific content appended to the footer (e.g. a "use this" / "continue" action).</summary>
     [Parameter] public RenderFragment? FooterContent { get; set; }
+
+    /// <summary>
+    /// Overrides <see cref="SceneImageCardModel.IsSelected"/> for a host that owns the choice outside the model — the
+    /// in-app image picker tracks which card is picked while the model stays immutable. Null means the model's own flag
+    /// decides, which is what every list that marks a card on its model already expects.
+    /// </summary>
+    [Parameter] public bool? Selected { get; set; }
+
+    /// <summary>
+    /// The select button's hover title. The default describes the review deck's "show this picture in the viewer
+    /// above"; a host that is CHOOSING an image (the picker) says what its select button actually does.
+    /// </summary>
+    [Parameter] public string? SelectTitle { get; set; }
+
+    /// <summary>
+    /// Draws the review-deck link when the model names a candidate batch. A host that is not the review deck — a
+    /// picker, a plain gallery — turns it off so the card offers only commands that exist in its own context.
+    /// </summary>
+    [Parameter] public bool ShowBatchLink { get; set; } = true;
+
+    private const string DefaultSelectTitle = "Show this image in the viewer above";
+
+    private bool EffectiveSelected => Selected ?? Model.IsSelected;
 
     private bool _viewerOpen;
 

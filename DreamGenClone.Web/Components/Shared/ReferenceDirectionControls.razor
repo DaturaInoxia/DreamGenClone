@@ -1,0 +1,94 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+
+@* B-159: the operator's own statement about ONE reference — which side of the frame it sits on, which way it faces,
+   and whatever else they need the model told about it.
+
+   It is the MANUAL half of the reference reading, and it is additive: the automatic role sentence (what the slot and
+   the image's name imply) is still emitted, because that sentence encodes measured failure-prevention — a studio
+   identity plate donating its background over the room. The operator adds to it; they cannot silently undo it.
+
+   The statement is ANCHORED TO THE REFERENCE, never to a number. The host neither shows nor accepts a <imageN> here,
+   because the tag is assigned at RENDER from the order the images are actually sent: a statement written against
+   "image1" starts describing a different image the moment another reference is added ahead of it. The numbered tag is
+   displayed BESIDE the reference's name by the composer, from the same owner, purely so the operator knows which
+   number to write about in the prompt. *@
+<div class="mt-2">
+    <div class="form-text fw-semibold mb-1">What this image is doing (optional)</div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <select class="form-select form-select-sm" style="width: auto;" disabled="@Busy"
+                aria-label="Where this reference sits in the frame"
+                value="@SideValue" @onchange="SideChanged">
+            <option value="">side: not stated</option>
+            @foreach (var side in SelectableSides)
+            {
+                <option value="@side">@side</option>
+            }
+        </select>
+        <select class="form-select form-select-sm" style="width: auto;" disabled="@Busy"
+                aria-label="Which way this reference faces"
+                value="@FacingValue" @onchange="FacingChanged">
+            <option value="">facing: not stated</option>
+            @foreach (var facing in SelectableFacings)
+            {
+                <option value="@facing">@DescribeFacing(facing)</option>
+            }
+        </select>
+        <input type="text" class="form-control form-control-sm" style="min-width: 18rem;" disabled="@Busy"
+               aria-label="Anything else the model should be told about this reference"
+               placeholder="anything else about it, in your words"
+               value="@(Binding.Directions?.Note ?? string.Empty)" @onchange="NoteChanged" />
+    </div>
+    <div class="form-text">
+        Stated about THIS image, not about a number: the render gives it its <span class="font-monospace">&lt;imageN&gt;</span>
+        when it sends it, so adding another reference cannot make this sentence describe a different one.
+    </div>
+</div>
+
+@code {
+    /// <summary>The binding this statement belongs to. The host owns the value; this control only reports changes.</summary>
+    [Parameter, EditorRequired]
+    public ReferenceApplicationSelection Binding { get; set; } = null!;
+
+    [Parameter]
+    public bool Busy { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> SideChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> FacingChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<ChangeEventArgs> NoteChanged { get; set; }
+
+    /// <summary>
+    /// The sides offered. <c>Unknown</c> is deliberately absent: it is the unset value, and the empty option already
+    /// means "not stated", so offering both would be two controls for one state.
+    /// </summary>
+    private static readonly IReadOnlyList<FrameHorizontal> SelectableSides =
+        [FrameHorizontal.Left, FrameHorizontal.Center, FrameHorizontal.Right];
+
+    private static readonly IReadOnlyList<ReferenceFacing> SelectableFacings =
+    [
+        ReferenceFacing.Left,
+        ReferenceFacing.Right,
+        ReferenceFacing.TowardViewer,
+        ReferenceFacing.AwayFromViewer
+    ];
+
+    private string SideValue =>
+        Binding.Directions?.Side is { } side ? side.ToString() : string.Empty;
+
+    private string FacingValue =>
+        Binding.Directions?.Facing is { } facing && facing != ReferenceFacing.Unknown
+            ? facing.ToString()
+            : string.Empty;
+
+    private static string DescribeFacing(ReferenceFacing facing) => facing switch
+    {
+        ReferenceFacing.TowardViewer => "TowardViewer (at the camera)",
+        ReferenceFacing.AwayFromViewer => "AwayFromViewer",
+        _ => facing.ToString()
+    };
+}

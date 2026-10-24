@@ -495,6 +495,89 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
         Assert.Equal(0, fixture.PromptOnlyClient.Calls);
     }
 
+    /// <summary>
+    /// B-157: when the record points at a compiled brief that carries frame-space blocking, a character's references
+    /// are named by their POSITION in the frame and grouped under that person — the fix for the reported case, where
+    /// both characters' faces were labelled "Front" and the model kept whichever it noticed first.
+    /// </summary>
+    [Fact]
+    public async Task HandleAsync_WithABriefThatCarriesBlocking_NamesTheCharacterByPosition()
+    {
+        await using var fixture = new Fixture();
+        var image = fixture.NewImage();
+        image.CompiledMediaBriefId = "brief-1";
+        image.AppliedReferenceBindingsJson = """
+            [
+              {"elementKey":"Identity","kind":"Face","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"face-1","ordinal":1,
+               "referenceLabel":"Front"},
+              {"elementKey":"Body","kind":"Body","actorKey":"becky","source":"IdentityPackAsset",
+               "strategy":"NativeMultiReference","identityPackId":"pack-1","referenceAssetId":"body-1","ordinal":2,
+               "referenceLabel":"Front · Unclothed"}
+            ]
+            """;
+        await fixture.Repository.InsertImageAsync(image);
+        var referenceClient = new RecordingReferenceClient();
+        var (pack, face, body) = ApprovedPackFaceAndBody();
+
+        var handler = fixture.CreatePackBindingHandler(
+            referenceClient, new StubReferenceStrategies(native: true), pack, face, body,
+            new PathKeyedIdentityStorage(),
+            briefs: new StubBriefWithBlocking());
+
+        await handler.HandleAsync(fixture.JobFor(image), CancellationToken.None);
+
+        // The binding's actor key is the participant profile key the brief's blocking places, so the clause says which
+        // person each image is and where they stand, and the second image refers back to the same person.
+        var request = Assert.Single(referenceClient.Requests);
+        Assert.Contains("is the person in the CENTER", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.Contains("supplies that same person's build", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("<image1> (Front)", request.PositivePrompt, StringComparison.Ordinal);
+    }
+
+    /// <summary>A brief store whose one brief carries the framing a Composition would have compiled.</summary>
+    private sealed class StubBriefWithBlocking : ICompiledMediaBriefRepository
+    {
+        private const string Snapshot = """
+            {"blocking":{"profileVersion":"1","subjects":[{"subjectKey":"becky","position":{"horizontal":"Center","depth":"Foreground"},"roleText":"the person in the CENTER in the foreground"}],"camera":{"angle":"eye level","shotSize":"medium shot","side":null},"layering":["becky"],"rationale":"A wide two-shot."}}
+            """;
+
+        public Task CreateAsync(CompiledMediaBrief brief, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<CompiledMediaBrief?> GetAsync(string briefId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<CompiledMediaBrief?>(new CompiledMediaBrief(
+                "brief-1",
+                MediaProductionKind.StillImage,
+                "still-profile",
+                "1",
+                "canonical",
+                "deterministic",
+                "1",
+                "canonical-request-v1",
+                // Only the semantic snapshot is read on this path; the lineage is not part of what is under test.
+                Lineage: null!,
+                CanonicalSourceIds: [],
+                SemanticInputSnapshotJson: Snapshot,
+                ProviderRequestSnapshotJson: "{}",
+                RequiredIntentCoverageJson: "[]",
+                Status: MediaCompilerStatus.Complete,
+                ErrorCode: null,
+                ErrorMessage: null,
+                CreatedUtc: DateTime.UtcNow,
+                CompletedUtc: DateTime.UtcNow));
+
+        public Task<IReadOnlyList<CompiledMediaBrief>> ListByMomentEnrichmentAsync(
+            string momentEnrichmentId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CompiledMediaBrief>>([]);
+
+        public Task<IReadOnlyList<CompiledMediaBrief>> ListByBeatProductionPlanAsync(
+            string beatProductionPlanId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CompiledMediaBrief>>([]);
+    }
+
     private static SceneAssetImage ApprovedLocationImage() => new()
     {
         Id = "location-image",
@@ -727,7 +810,8 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
             SceneImageReferenceAsset body,
             ICharacterImageAssetStorageService storage,
             MediaEditReferenceResolver? referenceResolver = null,
-            ISceneImageStorageService? sceneStorage = null)
+            ISceneImageStorageService? sceneStorage = null,
+            ICompiledMediaBriefRepository? briefs = null)
         {
             var identity = new StubIdentityRepository(pack, face, body);
             return new SceneImageRenderingJobHandler(
@@ -749,7 +833,8 @@ public sealed class SceneImageRenderingJobHandlerNativeReferenceTests
                 identityStorage: storage,
                 referenceStrategyResolver: strategies,
                 identityFaceResolver: new IdentityFaceReferenceResolver(identity),
-                identityBodyResolver: new IdentityBodyReferenceResolver(identity));
+                identityBodyResolver: new IdentityBodyReferenceResolver(identity),
+                briefs: briefs);
         }
 
         public ValueTask DisposeAsync()

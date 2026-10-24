@@ -742,7 +742,7 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
     /// Highest numeric node id already present in a graph, so an appended chain can never overwrite an existing
     /// node. Only numeric keys count; every builder in this client uses numeric ids.
     /// </summary>
-    private static int HighestNodeNumber(JsonObject workflow)
+    internal static int HighestNodeNumber(JsonObject workflow)
     {
         var highest = 0;
         foreach (var node in workflow)
@@ -1011,7 +1011,9 @@ public sealed class ComfyUIImageClient : IImageGenerationClient, IReferenceCondi
         if (status == "error")
         {
             throw new ImageGenerationException(
-                $"ComfyUI workflow error for prompt {promptId}.", model.ProviderName, reasonCode: "comfyui_error");
+                $"ComfyUI workflow error for prompt {promptId}{ComfyUiWorkflowTransport.DescribeExecutionError(historyEntry)}.",
+                model.ProviderName,
+                reasonCode: "comfyui_error");
         }
         if (status != "success")
         {

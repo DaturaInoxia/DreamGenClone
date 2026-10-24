@@ -970,9 +970,10 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
             throw new InvalidOperationException($"The {Describe(key)} is not complete yet.");
         }
 
-        // The body-invariant gate: nothing is accepted on the strength of the image being complete.
-        RequireFindingsOrOverride(view, key);
-
+        // Acceptance is the operator's call on the image in front of them: it takes the view's current artifact and
+        // marks the view accepted. It deliberately requires NO findings — the four body-invariant checks and the
+        // attributed override were removed from the body workflow (operator decision, 2026-10-11), so the review
+        // form, its reviewer/note inputs and the override escape hatch are gone with it.
         view.Status = CharacterIdentityAngleStatus.Accepted;
         view.UpdatedUtc = DateTime.UtcNow;
         await _repository.UpsertBodyViewAsync(view, cancellationToken);
@@ -1054,30 +1055,6 @@ public sealed class CharacterIdentityBodyService : ICharacterIdentityBodyService
         // The view's own acceptance (and, for the clothed front, the plan step) runs through the ONE acceptance path,
         // so the findings gate cannot be bypassed by accepting from the candidate deck instead of the row button.
         return await AcceptAsync(buildId, key, cancellationToken);
-    }
-
-    /// <summary>
-    /// The body-invariant gate, applied where acceptance happens: a view is accepted only when every check is a
-    /// recorded pass, or an explicit attributed override has been taken. A missing check is not a pass — the
-    /// reviewer who never looked is exactly who this refuses (B-122 B122-013).
-    /// </summary>
-    private static void RequireFindingsOrOverride(CharacterIdentityBodyView view, CharacterIdentityBodyViewKey key)
-    {
-        var notPassed = view.Findings.NotPassed;
-        if (notPassed.Count == 0 || view.ManualOverrideApplied)
-        {
-            return;
-        }
-
-        var detail = string.Join(
-            "; ",
-            notPassed.Select(item => item.Verdict == CharacterIdentityBodyCheckVerdict.NotReviewed
-                ? $"{CharacterIdentityBodyChecks.Label(item.Check)} (not reviewed)"
-                : $"{CharacterIdentityBodyChecks.Label(item.Check)} (failed)"));
-
-        throw new InvalidOperationException(
-            $"The {Describe(key)} cannot be accepted: {detail}. Review those checks against the body card and record "
-            + "the findings, or record an explicit override with a reason and an author.");
     }
 
     private static CharacterIdentityBodyCheckVerdict RequireVerdict(CharacterIdentityBodyCheckVerdict verdict)

@@ -28,6 +28,8 @@
 @inject IReferenceStrategyResolver ReferenceStrategies
 @inject ISceneMomentEnrichmentPipelineService MomentEnrichmentService
 @inject IPoseLibraryService PoseCatalog
+@inject ISceneAssetService AssetService
+@inject IImageStagingProfileResolver StagingProfiles
 
 <PageTitle>Composition Composer - DreamGenClone</PageTitle>
 
@@ -106,70 +108,10 @@
                         <span class="badge text-bg-info">@_productionGroup.Pov</span>
                     </div>
                     <div class="card-body">
-                        <div class="d-flex flex-wrap align-items-center gap-2">
-                            <button class="btn btn-sm btn-primary" disabled="@(_busy || IsPromptPending || _modelChoices.Count == 0)" @onclick="GeneratePromptAsync">
-                                <i class="bi bi-magic me-1"></i>Generate Prompt
-                            </button>
-                            <button class="btn btn-sm btn-success"
-                                    disabled="@(!CanGenerateComposition)"
-                                    @onclick="GenerateCompositionAsync">
-                                <i class="bi bi-image me-1"></i>Generate Composition
-                            </button>
-                        </div>
-
-                        <div class="mt-2 small text-muted">
-                            Each prompt style has its own draft. The selected model's family decides which draft a Composition renders
-                            (<strong>Pony</strong> family = score-tag prompt; <strong>SDXL / FLUX / API</strong> = natural-language prompt), and switching the model
-                            auto-switches to that tab.
-                        </div>
-
-                        <ul class="nav nav-tabs small mt-3" role="tablist" aria-label="Scene image prompt style">
-                            <li class="nav-item" role="presentation">
-                                <button type="button" class="nav-link @(_activeStyle == SceneImagePromptStyle.NaturalLanguage ? "active" : "")"
-                                        @onclick="() => SelectPromptStyleAsync(SceneImagePromptStyle.NaturalLanguage)">
-                                    SDXL / natural language
-                                </button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button type="button" class="nav-link @(_activeStyle == SceneImagePromptStyle.PonyV6Tags ? "active" : "")"
-                                        @onclick="() => SelectPromptStyleAsync(SceneImagePromptStyle.PonyV6Tags)">
-                                    Pony (score tags)
-                                </button>
-                            </li>
-                        </ul>
-
-                        <div class="border border-top-0 p-2">
-                            @if (IsPromptPending && PendingPromptStyle == _activeStyle)
-                            {
-                                <div class="small text-muted mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating @SceneImagePromptStyleResolver.DisplayLabel(_activeStyle) prompt...</div>
-                            }
-                            else if (_pendingPrompt?.Status == SceneImagePromptStatus.Failed && PendingPromptStyle == _activeStyle)
-                            {
-                                <div class="alert alert-danger py-2 small mb-2">Prompt generation failed: @_pendingPrompt.ErrorMessage</div>
-                            }
-
-                            @if (_activeStyle == SceneImagePromptStyle.PonyV6Tags)
-                            {
-                                <label class="form-label small fw-semibold mb-1">Pony prompt (dense comma tags)</label>
-                                <textarea class="form-control font-monospace" rows="6" @bind="_ponyPromptText"
-                                          placeholder="Generate a Pony tag prompt (score_9 …, rating_*, count tag, camera view) for Pony-family checkpoints (Pony Realism, Pony V6 XL), then edit it before generating a Composition."></textarea>
-                                <div class="form-text">@WordCount(_ponyPromptText) words · ~@EstimateTokens(_ponyPromptText) tokens · Pony checkpoints read dense comma-separated tags, not prose.</div>
-                            }
-                            else
-                            {
-                                <label class="form-label small fw-semibold mb-1">Natural-language prompt</label>
-                                <textarea class="form-control font-monospace" rows="6" @bind="_sdxlPromptText"
-                                          placeholder="Generate a natural-language photography brief for SDXL / FLUX / API image models, then edit it before generating a Composition."></textarea>
-                                <div class="form-text">@WordCount(_sdxlPromptText) words · ~@EstimateTokens(_sdxlPromptText) tokens</div>
-                            }
-                        </div>
-
                         <div class="mt-3">
                             @* B-130: the model and the reference slots come from the ONE composer. Its prompt panel and
-                               submit button are off: this page owns the per-style prompt tabs, the generate action and the
-                               prompt-input inspector, so a second prompt box would be two controls over one value. The
-                               three UNADDRESSED element rows this replaces are gone - a body or wardrobe reference must
-                               name the character it belongs to, or its prompt element cannot be scoped at all. *@
+                               submit button are off: this page owns the prompt tabs, the generate action and the
+                               prompt-input inspector, so a second prompt box would be two controls over one value. *@
                             @if (_modelChoices.Count == 0)
                             {
                                 <span class="text-muted d-block">No image models are enabled in Model Manager.</span>
@@ -183,14 +125,30 @@
                                                    ModelPlaceholder="Choose an image model"
                                                    Bindings="_referenceBindings"
                                                    BindingsChanged="OnReferenceBindingsChanged"
+                                                   IdentityOwnerKeys="@IdentityOwnerKeys"
                                                    CharacterLoras="_characterLoras"
                                                    CharacterLorasChanged="OnCharacterLorasChanged"
+                                                   AppImageSearchScope="@CompositionSearchScope()"
+                                                   RequestedLocationReference="_requestedLocationReference"
                                                    Busy="_busy"
                                                    CanSubmit="false"
                                                    ShowPrompt="false" />
                                 <div class="mt-2">
                                     <ResolvedRenderBadge ModelLabel="@SelectedModelLabel()" Selections="_referenceBindings" />
                                 </div>
+
+                                @* B-157: what the model will actually RECEIVE for this Composition — the prompt that renders
+                                   (the style the selected model reads) plus the reference block naming each person and their
+                                   position. The frame comes from the compiled brief's own snapshot, which is the same value
+                                   the render reads, so the preview and the render cannot disagree. *@
+                                <StepPromptFramePreview Prompt="@PromptTextFor(RenderStyle)"
+                                                        Bindings="_referenceBindings"
+                                                        Blocking="@CompositionBlocking"
+                                                        Override="_blockingOverride"
+                                                        FramingChoices="_framingChoices"
+                                                        CompiledFramingLabel="@CompiledFramingLabel"
+                                                        OverrideChanged="OnBlockingOverrideChanged" />
+
                                 @if (!string.IsNullOrWhiteSpace(_locationSeedNotice))
                                 {
                                     <div class="alert alert-warning py-2 small mt-2">@_locationSeedNotice</div>
@@ -211,6 +169,130 @@
                             }
                         </div>
 
+                        <div class="mt-3">
+                            @if (IsPromptPending && PendingPromptStyle == _activeStyle)
+                            {
+                                <div class="small text-muted mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating @SceneImagePromptStyleResolver.DisplayLabel(_activeStyle) prompt...</div>
+                            }
+                            else if (_failedPrompt is not null && FailedPromptStyle == _activeStyle)
+                            {
+                                <div class="alert alert-danger py-2 small mb-2">Prompt generation failed: @_failedPrompt.ErrorMessage</div>
+                            }
+
+                            @if (!string.IsNullOrWhiteSpace(_framingNotice))
+                            {
+                                @* B-161: the frame reaches the prompt twice — as prose written by the pre-processor and
+                                   as the authoritative block appended at render. A framing chosen after a draft exists
+                                   leaves the prose naming the old camera, so the operator is told which half is stale
+                                   rather than being handed one prompt that asserts two cameras. *@
+                                <div class="alert alert-warning py-2 small mb-2" role="alert">@_framingNotice</div>
+                            }
+
+                            <ul class="nav nav-tabs small mb-2" role="tablist" aria-label="Prompt input">
+                                <li class="nav-item" role="presentation">
+                                    <button type="button" class="nav-link @(_promptInputTab == SceneImagePromptSource.Scene ? "active" : "")"
+                                            @onclick="() => _promptInputTab = SceneImagePromptSource.Scene">Scene</button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button type="button" class="nav-link @(_promptInputTab == SceneImagePromptSource.UserIntent ? "active" : "")"
+                                            @onclick="() => _promptInputTab = SceneImagePromptSource.UserIntent">User Intent</button>
+                                </li>
+                            </ul>
+
+                            @if (_promptInputTab == SceneImagePromptSource.UserIntent)
+                            {
+                                <div class="border rounded p-2 mb-2">
+                                    <div class="small fw-semibold mb-1">Reference images in this render</div>
+                                    @if (_referenceBindings.Count == 0)
+                                    {
+                                        <div class="small text-muted">No reference images are bound.</div>
+                                    }
+                                    else
+                                    {
+                                        <ol class="small mb-0 ps-3">
+                                            @foreach (var reference in ReferencesInSendOrder())
+                                            {
+                                                <li>
+                                                    @if (reference.Tag is null)
+                                                    {
+                                                        <span class="text-muted">@ReferenceRoleClauses.UntaggedImageLabel</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <code>@reference.Tag</code>
+                                                    }
+                                                    — @reference.Binding.SemanticRole@(string.IsNullOrWhiteSpace(reference.Binding.ReferenceLabel) ? "" : $" ({reference.Binding.ReferenceLabel})")
+                                                </li>
+                                            }
+                                        </ol>
+                                    }
+                                </div>
+                                <label class="form-label small fw-semibold mb-1">User intent</label>
+                                <textarea class="form-control font-monospace" rows="8" @bind="_userIntentText" @bind:event="oninput" @bind:after="QueuePromptDraftSave"
+                                          placeholder="Write the instruction you want compiled: what the shot is, who is in it, where they stand, how the frame is composed. The reference tags above are the ones this render will receive."></textarea>
+                                <div class="form-text">@WordCount(_userIntentText) words · ~@EstimateTokens(_userIntentText) tokens</div>
+                            }
+                            else
+                            {
+                                <label class="form-label small fw-semibold mb-1">Prompt</label>
+                                <textarea class="form-control font-monospace" rows="8" @bind="PromptText"
+                                          placeholder="Generate a prompt for the selected model's family, then edit it before generating a Composition."></textarea>
+                                <div class="form-text">@WordCount(PromptText) words · ~@EstimateTokens(PromptText) tokens · the selected model's family decides the prompt dialect, so there is one prompt rather than one per style.</div>
+                            }
+
+                            <label class="form-label small fw-semibold mb-1 mt-2" for="compose-prompt-source">Prompt source</label>
+                            <select id="compose-prompt-source" class="form-select form-select-sm" @bind="_promptSource" @bind:after="SavePromptDraftAsync">
+                                <option value="@SceneImagePromptSource.Scene">Scene — compile the selected Moment's scene brief</option>
+                                <option value="@SceneImagePromptSource.UserIntent">User Intent — compile the intent I wrote above</option>
+                            </select>
+                            <div class="form-text">What Generate Prompt sends to the compiler. The tab above only decides which input you are looking at.</div>
+
+                            <label class="form-label small fw-semibold mb-1 mt-2" for="compose-explicitness">Explicitness</label>
+                            <select id="compose-explicitness" class="form-select form-select-sm" @bind="_explicitness" @bind:after="QueuePromptDraftSave">
+                                <option value="@SceneImageExplicitness.Explicit">Explicit — preserve the scene's explicit content</option>
+                                <option value="@SceneImageExplicitness.MatchScene">Match the scene — neither add nor remove</option>
+                                <option value="@SceneImageExplicitness.Sfw">SFW — remove or soften explicit nudity and acts</option>
+                            </select>
+                            <div class="form-text">Stated to the compiler as an authoritative line, so it does not soften or invent explicitness on its own.</div>
+
+                            @if (!string.Equals(_productionGroup?.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <label class="form-label small fw-semibold mb-1 mt-2" for="compose-camera-holder-parts">Camera holder body parts (participant POV)</label>
+                                <select id="compose-camera-holder-parts" class="form-select form-select-sm" @bind="_cameraHolderParts" @bind:after="QueuePromptDraftSave">
+                                    <option value="@CameraHolderPartsMode.None">Off — never show the camera holder</option>
+                                    <option value="@CameraHolderPartsMode.Derived">Derive from the scene — show the parts the moment records</option>
+                                    <option value="@CameraHolderPartsMode.Custom">Custom — I type which parts are visible</option>
+                                </select>
+                                <div class="form-text">For a participant POV the camera holder is normally never in the picture. Show their hands / arms / penis / feet in frame instead.</div>
+                                @if (_cameraHolderParts == CameraHolderPartsMode.Custom)
+                                {
+                                    <textarea class="form-control form-control-sm font-monospace mt-1" rows="2" @bind="_cameraHolderPartsText" @bind:event="oninput" @bind:after="QueuePromptDraftSave"
+                                              placeholder="e.g. his hands grip her hips, his erect penis presses between her thighs"></textarea>
+                                }
+                            }
+
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                <button class="btn btn-sm btn-primary" disabled="@(_busy || IsPromptPending || _modelChoices.Count == 0)" @onclick="GeneratePromptAsync">
+                                    <i class="bi bi-magic me-1"></i>Generate Prompt
+                                </button>
+                            </div>
+
+                            <label class="form-label small fw-semibold mb-1 mt-3">Prompt sent to the model</label>
+                            <textarea class="form-control font-monospace" rows="8" readonly value="@PromptAsSent"></textarea>
+                            <div class="form-text">The complete text, including the reference block and camera clause the render appends — nothing reaches the model that is not shown here.</div>
+
+                            <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
+                                <button class="btn btn-sm btn-success"
+                                        disabled="@(!CanGenerateComposition)"
+                                        @onclick="GenerateCompositionAsync">
+                                    <i class="bi bi-image me-1"></i>Generate Image
+                                </button>
+                                <label class="form-label small mb-0 ms-2" for="compose-image-count">Images</label>
+                                <input id="compose-image-count" type="number" class="form-control form-control-sm" style="width: 80px;"
+                                       min="1" max="8" step="1" @bind="_imageCount" disabled="@_busy" />
+                            </div>
+                        </div>
+
                         @* Collapsed by default. This is an INSPECTOR - the payload the compiler received, with overrides -
                            and expanded it is the longest block on the page, which pushed the things the operator
                            actually came here to do (the prompt, the generate action) below the fold. Collapsed, the
@@ -221,7 +303,7 @@
                                 <span class="d-flex justify-content-between align-items-start gap-2">
                                     <span>
                                         <strong class="text-body">Prompt input (what the compiler receives)</strong>
-                                        <span class="d-block small text-muted">The real payload fields from the compiled brief. Edit a value to override it, or tick remove to drop it. Overrides replace the field in the payload (no duplicates); removing a character drops them, their appearance line, and their identity/reference conditioning from the render.</span>
+                                        <span class="d-block small text-muted">The compiled brief grouped into concepts. A concept may live in several payload spots — editing it rewrites every spot at once, and the coverage is listed on each row. Tick remove to drop the whole concept. Each row says whether its text is restated verbatim by the frame or read by the prompt compiler.</span>
                                     </span>
                                     <span class="small text-nowrap">
                                         <i class="bi @(_showPromptInput ? "bi-chevron-up" : "bi-chevron-down")"></i>
@@ -247,25 +329,54 @@
                                             <span>@PromptGroupHeader(group)</span>
                                             @if (group.CharacterKey is not null)
                                             {
-                                                <label class="form-check-label small">
-                                                    <input class="form-check-input me-1" type="checkbox" @bind="group.Removed" />
-                                                    remove character
-                                                </label>
+                                                @if (IsCameraHolder(group))
+                                                {
+                                                    <span class="small text-muted" title="This character IS the camera for this POV: they hold it, so they are never in the picture. Their position still sets the camera height.">
+                                                        camera holder — not in the picture
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <label class="form-check-label small">
+                                                        <input class="form-check-input me-1" type="checkbox"
+                                                               checked="@group.Removed"
+                                                               @onchange="args => SetGroupRemoved(group, (bool?)args.Value == true)" />
+                                                        remove character
+                                                    </label>
+                                                }
                                             }
                                         </div>
                                         @foreach (var row in group.Rows)
                                         {
                                             <div class="border rounded p-2 mb-2 @(row.Removed ? "opacity-50" : "")">
                                                 <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
-                                                    <strong class="small">@row.Label</strong>
-                                                    <label class="form-check-label small">
-                                                        <input class="form-check-input me-1" type="checkbox" @bind="row.Removed" />
-                                                        remove
-                                                    </label>
+                                                    <span>
+                                                        <strong class="small">@row.Label</strong>
+                                                        <span class="d-block small text-muted">@RowHint(row, group)@CoverageHint(row)</span>
+                                                    </span>
+                                                    @if (IsReferenceSupplied(row))
+                                                    {
+                                                        <span class="badge text-bg-secondary" title="A bound reference image supplies this element, so the prompt must not describe it — unbind that reference to make it editable again.">
+                                                            <i class="bi bi-lock me-1"></i>supplied by reference
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <label class="form-check-label small">
+                                                            <input class="form-check-input me-1" type="checkbox"
+                                                                   checked="@row.Removed"
+                                                                   @onchange="args => SetRowRemoved(group, row, (bool?)args.Value == true)" />
+                                                            remove
+                                                        </label>
+                                                    }
                                                 </div>
                                                 <CommittedTextInput Multiline="true" class="form-control form-control-sm font-monospace" rows="2"
                                                                     Live="@row.Value" LiveChanged="args => SetPromptRowValue(row, args ?? string.Empty)"
-                                                                    disabled="@row.Removed" />
+                                                                    disabled="@(row.Removed || IsReferenceSupplied(row))" />
+                                                @if (row.IsChanged && !row.Removed)
+                                                {
+                                                    <div class="small text-muted mt-1">was: <span class="font-monospace">@row.OriginalValue</span></div>
+                                                }
                                             </div>
                                         }
                                     }
@@ -273,6 +384,8 @@
                             }
                         </div>
 
+                        @if (!IsQwenImage21Selected)
+                        {
                         <div class="border-top mt-3 pt-3" aria-label="Pose reference">
                             <div class="d-flex justify-content-between align-items-start gap-2">
                                 <div>
@@ -317,7 +430,10 @@
                                 }
                             </div>
                         </div>
+                        }
 
+                        @if (!IsQwenImage21Selected)
+                        {
                         <div class="border-top mt-4 pt-3" aria-label="Identity on create">
                             <div class="d-flex justify-content-between align-items-start gap-2">
                                 <div>
@@ -335,6 +451,7 @@
                             }
                             <div class="form-check mt-2">
                                 <input id="compose-with-identity" class="form-check-input" type="checkbox" @bind="_applyIdentityOnCreate"
+                                       @bind:after="OnIdentityOnCreateChangedAsync"
                                        disabled="@(!IdentityAvailable)" />
                                 <label class="form-check-label" for="compose-with-identity">Apply identity while creating this composition</label>
                             </div>
@@ -349,7 +466,7 @@
                                     else
                                     {
                                         <ModelPicker Choices="_identityModelChoices" @bind-SelectedModelId="_selectedIdentityModelId"
-                                                     @bind-SelectedModelId:after="RefreshIdentityResolutionAsync"
+                                                     @bind-SelectedModelId:after="OnIdentityModelSelectedAsync"
                                                      Id="compose-identity-model" CssClass="form-select form-select-sm mb-2" />
                                     }
                                 </div>
@@ -377,6 +494,7 @@
                                 }
                             }
                         </div>
+                        }
 
                         <details class="mt-3">
                             <summary class="small fw-semibold">View what will be submitted</summary>
@@ -392,81 +510,102 @@
             </div>
             <div class="col-xl-5">
                 <section class="card h-100">
-                    <div class="card-header"><strong>Composition Images</strong> <span class="text-muted">(@_compositionAttempts.Count)</span></div>
+                    <div class="card-header"><strong>Images</strong> <span class="text-muted">(@_productionImages.Count)</span></div>
                     <div class="card-body">
-                        @if (_compositionAttempts.Count == 0)
+                        @if (_productionImages.Count == 0)
                         {
-                            <span class="text-muted small">No Composition images have been generated for this POV.</span>
+                            <span class="text-muted small">No images have been generated for this POV.</span>
                         }
                         else
                         {
                             <div class="d-grid gap-3">
-                                @foreach (var attempt in _compositionAttempts)
+                                @foreach (var attempt in _productionImages)
                                 {
-                                    var isApproved = _approvedAttemptIds.Contains(attempt.Id);
-                                    var canApproveComposition = _productionGroup?.IdentityPolicy == SceneImageIdentityPolicy.SkippedByUser;
-                                    <article class="border p-2">
-                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                                            <span class="badge @(isApproved ? "text-bg-success" : "text-bg-secondary")">@(isApproved ? "Approved" : attempt.Status.ToString())</span>
-                                            <span class="small text-muted">@attempt.CreatedUtc.ToLocalTime().ToString("g")</span>
-                                        </div>
-                                        @if (attempt.Status == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(attempt.FileRelativePath))
-                                        {
-                                            <img src="/scene-images/@attempt.FileRelativePath" class="img-fluid" alt="Generated Composition" />
-                                            <div class="d-flex flex-wrap gap-1 mt-2">
-                                                <a class="btn btn-sm btn-outline-secondary" href="/roleplay/image-editor/@sessionId/@interactionId/@attempt.Id" title="Open this Composition in the image editor">
-                                                    <i class="bi bi-pencil-square me-1"></i>Edit
-                                                </a>
-                                                <a class="btn btn-sm btn-outline-dark" href="/roleplay/video-studio/session/@sessionId/@interactionId/@attempt.Id" title="Compose a video from this Composition image">
-                                                    <i class="bi bi-camera-video me-1"></i>Video
-                                                </a>
-                                                @if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                                    @* The SAME card every other image list renders, wired to the commands this page can
+                                       actually honour. Nothing is drawn that the page would then refuse: a command with no
+                                       callback is simply not a button, and a command a row cannot satisfy is offered only
+                                       where the rule that decides it says it can be. *@
+                                    <ImageCard Model="CardModel(attempt)"
+                                               Busy="_busy"
+                                               ShowName="true"
+                                               NameChanged="name => NameCompositionImageAsync(attempt, name)"
+                                               AcceptRequested="@(CanApprove(attempt)
+                                                   ? EventCallback.Factory.Create(this, () => ApproveCompositionAttemptAsync(attempt))
+                                                   : default(EventCallback))"
+                                               AcceptTitle="Approve this Composition as the production frame"
+                                               ShortlistRequested="() => ToggleCompositionShortlistAsync(attempt)"
+                                               RejectRequested="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Rejected)"
+                                               ReviewRequested="OpenCompositionReview"
+                                               EditRequested="() => OpenCompositionInEditor(attempt)"
+                                               DownloadRequested="() => OpenCompositionDownload(attempt)"
+                                               VideoRequested="() => OpenCompositionInVideoStudio(attempt)"
+                                               LoadIntoGeneratorRequested="() => RestoreCompositionInputsAsync(attempt)"
+                                               LoadIntoGeneratorTitle="Reload the prompt, model, references, LoRAs and pose that made this Composition"
+                                               UseAsReferenceRequested="() => UseCompositionImageAsReferenceAsync(attempt)"
+                                               UseAsReferenceTitle="Use as reference: reload what made this Composition, and bind this image itself as the composition's Location reference"
+                                               DeleteRequested="() => RequestDeleteCompositionAsync(attempt)">
+                                        <BodyContent>
+                                            @* What this row IS and what it came from. A flat list mixes a Composition with
+                                               every edit derived from it, and neither the stage nor the operation alone says
+                                               which: an editor edit carries no stage, and a preset edit is an edit of an edit. *@
+                                            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                                                <span class="badge text-bg-secondary">@KindLabel(attempt)</span>
+                                                @if (ParentLabel(attempt) is { } parentLabel)
                                                 {
-                                                    <button class="btn btn-sm btn-outline-warning" disabled="@_busy" @onclick="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Active)" title="Return to active">
-                                                        <i class="bi bi-star-fill me-1"></i>Shortlist
-                                                    </button>
+                                                    <span class="small text-muted">from @parentLabel</span>
                                                 }
-                                                else
-                                                {
-                                                    <button class="btn btn-sm btn-outline-warning" disabled="@_busy" @onclick="() => SetCompositionDispositionAsync(attempt, SceneImageAttemptDisposition.Shortlisted)" title="Shortlist this Composition">
-                                                        <i class="bi bi-star me-1"></i>Shortlist
-                                                    </button>
-                                                }
-                                                <button class="btn btn-sm btn-outline-success"
-                                                        disabled="@(_busy || !canApproveComposition || string.IsNullOrWhiteSpace(attempt.Sha256))"
-                                                        title="@(canApproveComposition ? "Approve this Composition as the production frame" : "Approval requires an identity skip (a Composition cannot be approved while identity is Required)")"
-                                                        @onclick="() => ApproveCompositionAttemptAsync(attempt)">
-                                                    <i class="bi bi-check2-circle me-1"></i>Approve
+                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                                                        @onclick="() => ToggleMetadata(attempt.Id)">
+                                                    @(_metadataImageId == attempt.Id ? "Hide metadata" : "Metadata")
                                                 </button>
-                                                <button class="btn btn-sm btn-outline-secondary" disabled="@_busy" @onclick="() => RegenerateCompositionAsync(attempt)">
-                                                    <i class="bi bi-arrow-repeat me-1"></i>Regenerate Sibling
-                                                </button>
-                                                @if (_deleteConfirmImageId == attempt.Id)
-                                                {
-                                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => ConfirmDeleteCompositionAsync(attempt)">Confirm delete</button>
-                                                    <button class="btn btn-sm btn-outline-secondary" @onclick="CancelDeleteComposition">Cancel</button>
-                                                }
-                                                else
-                                                {
-                                                    <button class="btn btn-sm btn-outline-danger" disabled="@_busy" @onclick="() => RequestDeleteCompositionAsync(attempt)">
-                                                        <i class="bi bi-trash me-1"></i>Delete
-                                                    </button>
-                                                }
                                             </div>
-                                            @if (attempt.Disposition == SceneImageAttemptDisposition.Shortlisted)
+                                            @if (_metadataImageId == attempt.Id)
                                             {
-                                                <div class="small text-warning mt-1"><i class="bi bi-star-fill me-1"></i>Shortlisted</div>
+                                                @* The metadata rail of every review surface, and the same mapping the review
+                                                   deck uses, so a row shows its model, references, LoRAs and tags here in the
+                                                   one field order those surfaces already agree on. *@
+                                                <div class="border rounded p-2 mt-2">
+                                                    <ImageMetadataRail Item="ReviewDeckMapper.MapStudio(attempt, _approvedAttemptIds.Contains(attempt.Id))"
+                                                                       TagTarget="ImageTagTarget.Rendered"
+                                                                       TagsJson="attempt.TagsJson"
+                                                                       Details="ImageGenerationInputDetails.FromSceneImage(attempt)"
+                                                                       TagsChanged="OnCompositionTagsChangedAsync" />
+                                                </div>
                                             }
-                                        }
-                                        else if (attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
-                                        {
-                                            <div class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Composition @attempt.Status.ToString().ToLowerInvariant()...</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="small text-muted">@(attempt.ErrorMessage ?? attempt.Status.ToString())</div>
-                                        }
-                                    </article>
+                                            @if (_deleteConfirmImageId == attempt.Id)
+                                            {
+                                                <div class="d-flex gap-2 mt-1 align-items-center">
+                                                    <small class="text-danger">Delete this Composition image?</small>
+                                                    <button class="btn btn-sm btn-danger py-0 px-2" disabled="@_busy"
+                                                            @onclick="() => ConfirmDeleteCompositionAsync(attempt)">Delete</button>
+                                                    <button class="btn btn-sm btn-outline-secondary py-0 px-2" disabled="@_busy"
+                                                            @onclick="CancelDeleteComposition">Keep</button>
+                                                </div>
+                                            }
+                                            else if (attempt.Status is SceneImageStatus.Pending or SceneImageStatus.Generating)
+                                            {
+                                                <div class="d-flex align-items-center mt-1">
+                                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                                    <span class="small">@KindLabel(attempt) @attempt.Status.ToString().ToLowerInvariant()…</span>
+                                                </div>
+                                            }
+                                        </BodyContent>
+                                        <FooterContent>
+                                            @* The one action that belongs to THIS page's step rather than to an image: a
+                                               sibling Composition from the same inputs. It stays in the card's footer because
+                                               it acts on the image the card is showing, and it stays on Composition rows
+                                               only: regenerating means re-running the Composition, and SceneImageService
+                                               refuses any other source by name. *@
+                                            @if (attempt.ProductionStage == SceneImageProductionStage.Composition)
+                                            {
+                                                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                        title="Regenerate a sibling Composition from this image's inputs" disabled="@_busy"
+                                                        @onclick="() => RegenerateCompositionAsync(attempt)">
+                                                    <i class="bi bi-arrow-repeat"></i>
+                                                </button>
+                                            }
+                                        </FooterContent>
+                                    </ImageCard>
                                 }
                             </div>
                         }
@@ -485,12 +624,150 @@
     private SceneImageProductionGroup? _productionGroup;
     private CompiledMediaBrief? _compiledMediaBrief;
     private List<SceneImageRecord> _compositionAttempts = [];
+
+    /// <summary>
+    /// Every image this production group owns, newest first — the Compositions AND everything derived from them.
+    ///
+    /// <para>
+    /// The page listed only <see cref="SceneImageProductionStage.Composition"/>, which hid every edit made from a
+    /// card. <c>SceneImageService.EnqueueEditAsync</c> records an edit's production GROUP but no stage at all, so a
+    /// stage filter drops it: in group 0f98cb6f that was 16 of 45 rows, and the operator's edits were reachable only
+    /// from a different page ("these should not be separated into separate things").
+    /// </para>
+    /// </summary>
+    private List<SceneImageRecord> _productionImages = [];
+
+    /// <summary>
+    /// The ONE row whose generation metadata is expanded. The details resolve names per row, so rendering every card's
+    /// metadata up front would do that work for images nobody is looking at.
+    /// </summary>
+    private string? _metadataImageId;
     private List<SceneImageModelChoice> _modelChoices = [];
     private string _sdxlPromptText = string.Empty;
     private string _ponyPromptText = string.Empty;
     private readonly Dictionary<SceneImagePromptStyle, SceneImagePromptRecord> _completedByStyle = new();
     private SceneImagePromptStyle _activeStyle = SceneImagePromptStyle.NaturalLanguage;
+
+    /// <summary>
+    /// The ONE prompt this page edits. The record still stores a dialect (PromptStyle), but the operator gets a single
+    /// box: the selected model's family decides which dialect the render reads, so two boxes plus a Pony tab were two
+    /// controls over one value.
+    /// </summary>
+    private string PromptText
+    {
+        get => PromptTextFor(RenderStyle);
+        set
+        {
+            if (RenderStyle == SceneImagePromptStyle.PonyV6Tags)
+            {
+                _ponyPromptText = value;
+            }
+            else
+            {
+                _sdxlPromptText = value;
+            }
+        }
+    }
+
+    /// <summary>How many renders one Generate Image click submits. Request data: the operator's number, default 1.</summary>
+    private int _imageCount = 1;
+
+    /// <summary>Which prompt input the operator is LOOKING at. Independent of what is sent: inspecting the scene brief
+    /// while compiling the intent is legitimate, and the two must not be one control.</summary>
+    private SceneImagePromptSource _promptInputTab = SceneImagePromptSource.Scene;
+
+    /// <summary>What Generate Prompt actually sends to the compiler. Persisted on the record, so the compile is auditable.</summary>
+    private SceneImagePromptSource _promptSource = SceneImagePromptSource.Scene;
+
+    /// <summary>The operator's own instruction. Consulted only when <see cref="_promptSource"/> is UserIntent.</summary>
+    private string _userIntentText = string.Empty;
+
+    /// <summary>
+    /// How the compiled prompt states explicitness for this Composition. Default Explicit (this app is adult-content-first);
+    /// the operator can switch to SFW or back to the compiler's match-the-scene judgement. Persisted on the prompt draft.
+    /// </summary>
+    private SceneImageExplicitness _explicitness = SceneImageExplicitness.Explicit;
+
+    /// <summary>
+    /// Whether this participant-POV Composition shows parts of the camera holder's body in the frame. Default None
+    /// (never depicted); Derived extracts the parts from the moment data, Custom uses the operator's text below.
+    /// </summary>
+    private CameraHolderPartsMode _cameraHolderParts = CameraHolderPartsMode.None;
+
+    /// <summary>The operator's own description of the camera holder's visible parts, used when the mode is Custom.</summary>
+    private string _cameraHolderPartsText = string.Empty;
+
+    /// <summary>
+    /// Whether the source and intent have been restored from the drafts this Composition already has. Restored ONCE,
+    /// because <c>LoadAsync</c> runs on every poll and a later pass must never overwrite what the operator is typing
+    /// or the source they just chose.
+    /// </summary>
+    private bool _promptSourceInitialized;
+
+    /// <summary>How long the intent box waits after the last keystroke before its draft is written.</summary>
+    private static readonly TimeSpan PromptDraftSaveDelay = TimeSpan.FromSeconds(1.5);
+
+    private CancellationTokenSource? _draftSaveCts;
+
+    /// <summary>
+    /// The COMPLETE text the render submits: the compiled brief plus the reference block and camera clause the render
+    /// appends, composed through the SAME owners and rules the render applies, so the preview cannot disagree with what
+    /// is actually sent. Shown rather than edited: editing it would round-trip into the render, which composes the block
+    /// again and would duplicate it.
+    /// </summary>
+    /// <remarks>
+    /// The camera holder's visible body is NOT part of this composition any more: it is stated to the caption writer and
+    /// required inside the compiled caption itself, so the render appends nothing for it (operator report 2026-10-23 —
+    /// as a trailing block it was ignored and the subject was drawn alone).
+    /// </remarks>
+    private string PromptAsSent
+    {
+        get
+        {
+            return FinalImagePromptPlanBuilder.Build(
+                PromptTextFor(RenderStyle),
+                ReferenceRoleClauses.RolesFor(_referenceBindings),
+                ReferenceRoleClauses.LeadingImageCount.Generate,
+                EffectiveCompositionBlocking).Prompt;
+        }
+    }
+
+    /// <summary>
+    /// The compiled frame with the OPERATOR's corrections applied — the same frame the render reads.
+    /// </summary>
+    /// <remarks>
+    /// A malformed override returns the compiled frame rather than throwing: the frame preview already reports it in
+    /// place, and this property is read while the page renders.
+    /// </remarks>
+    private SceneBlocking? EffectiveCompositionBlocking
+    {
+        get
+        {
+            if (CompositionBlocking is null) return null;
+            try
+            {
+                return SceneBlockingResolver.ApplyForPrompt(CompositionBlocking, _blockingOverride);
+            }
+            catch (InvalidOperationException)
+            {
+                return CompositionBlocking;
+            }
+        }
+    }
     private SceneImagePromptRecord? _pendingPrompt;
+
+    /// <summary>
+    /// The last draft this page started that TERMINATED without a prompt, kept so the failure is visible.
+    ///
+    /// <para>
+    /// The pending record cannot carry it: it is cleared the moment it leaves Pending, so a banner that read it could
+    /// never render. Measured 2026-10-14 — a pre-processor call that hit the 360-second provider timeout left the
+    /// panel showing the "Generation queued" line and then nothing at all, with no end and no reason. It is cleared
+    /// when the same style is generated again, and set on load from the newest FAILED record so a reopened page
+    /// explains itself.
+    /// </para>
+    /// </summary>
+    private SceneImagePromptRecord? _failedPrompt;
     private bool _promptsInitialized;
     private string _errorMessage = string.Empty;
     private string _statusMessage = string.Empty;
@@ -540,24 +817,224 @@
     private string? _locationSeedNotice;
 
     /// <summary>
-    /// The characters this Composition addresses, from the identity packs the page already resolves. The actor key is
-    /// the character TEMPLATE id - the identity owner packs belong to - because that is the profile key the prompt plan
-    /// writes a scope for; the page's own scenario-id key would address nobody.
+    /// The image a card asked to have bound as this composition's location reference ("use as reference"). Held as the
+    /// request the composer applies ONCE per image id, so it binds through the step's own plan rather than the page
+    /// authoring a binding the planner would then have to accept.
+    /// </summary>
+    private SceneImageLocationReferenceRequest? _requestedLocationReference;
+
+    /// <summary>
+    /// The <c>useAsReferenceId</c> this page has already applied, so the 2-second poll does not re-apply it and stack a
+    /// second reference for the same image.
+    /// </summary>
+    private string? _appliedUseAsReferenceId;
+
+    /// <summary>
+    /// The <c>reloadImageId</c> this page has already applied, so the 2-second poll does not reload the same image over
+    /// edits the operator has since made.
+    /// </summary>
+    private string? _appliedReloadImageId;
+
+    /// <summary>
+    /// Where the step's image search looks, and how far it opens: this production moment, with the beat and the whole
+    /// session available as the operator widens it. The moment comes from the production GROUP rather than from the
+    /// selected enrichment, because the group is the immutable record of which enrichment this composition belongs to.
+    /// </summary>
+    private SceneImageSearchScope CompositionSearchScope()
+        => new(
+            sessionId,
+            SceneImageSearchScopeLevel.Moment,
+            _productionGroup?.MomentId,
+            _productionGroup?.BeatId);
+
+    /// <summary>
+    /// An image another surface asked this page to bind as the composition's location reference — the "use as
+    /// reference" command on a production card, which hands off to the surface that owns the Composition step rather
+    /// than re-implementing it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "useAsReferenceId")] public string? UseAsReferenceId { get; set; }
+
+    /// <summary>
+    /// An image whose recorded inputs another surface asked this page to reload — the "load the prompt and model"
+    /// command on a production card. It travels in the URL for the same reason the location request does: the page that
+    /// can re-apply the inputs is the page the operator lands on, so the request cannot sit pending on a surface that
+    /// never renders it.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "reloadImageId")] public string? ReloadImageId { get; set; }
+
+    /// <summary>
+    /// Whether this page instance has already auto-seeded the group's backdrop. The seed is an INITIALISATION, so it
+    /// runs once: with the latch, a location the operator removed stays removed, and the 2-second poll can never
+    /// re-run the seed over the step.
+    /// </summary>
+    private bool _locationSeedDone;
+
+    /// <summary>
+    /// The characters this Composition addresses. The actor key is the PARTICIPANT profile key (`p0`, `p1`, ...) - the
+    /// key the compiled Still brief addresses a depicted character by, and therefore the only key a reference slot's
+    /// role clause or prompt-element removal can join on.
+    ///
+    /// <para>
+    /// This used to be the character's identity-owner (template) id, on the assumption that the two were the same key.
+    /// They are not: the brief freezes its cast as <c>profileKey: "p0"/"p1"</c> plus the scenario <c>characterId</c>,
+    /// and it has never contained an identity-owner id. Every join written against the template id therefore matched
+    /// nothing and did it silently - measured live 2026-10-12, the prompt told the model to forget an appearance it was
+    /// still being handed, because the removal addressed a character the brief does not contain.
+    /// </para>
+    ///
+    /// <para>
+    /// A character the frozen cast does not contain is not in the shot, so it is not in the cast: the brief cannot
+    /// address it, and offering it a reference slot would create a binding that addresses nobody.
+    /// </para>
     /// </summary>
     private IReadOnlyList<ImageStepActor> CompositionCast =>
         _identityPackOptions
-            .Where(option => !string.IsNullOrWhiteSpace(option.TemplateId)
-                && !RemovedCharacterKeys.Contains(option.CharacterKey))
-            .Select(option => new ImageStepActor(option.TemplateId, option.CharacterName))
+            .Where(option => !RemovedCharacterKeys.Contains(option.CharacterKey))
+            .Select(option => ParticipantProfileKeyFor(option.CharacterKey) is { Length: > 0 } profileKey
+                ? new ImageStepActor(profileKey, option.CharacterName, ViewHintFor(profileKey))
+                : null)
+            .Where(actor => actor is not null)
+            .Select(actor => actor!)
             .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
             .ToList();
 
     /// <summary>
+    /// Which reference view this moment's recorded stance suggests for one participant (B-166 D8), or null when the
+    /// brief records no angle. GUIDANCE for the view picker: it never pre-selects a view, and an unrecorded angle
+    /// says nothing rather than guessing.
+    /// </summary>
+    private string? ViewHintFor(string profileKey)
+    {
+        var character = _frozenState?.Characters.FirstOrDefault(candidate =>
+            string.Equals(candidate.ProfileKey, profileKey, StringComparison.OrdinalIgnoreCase));
+        if (character is null)
+        {
+            return null;
+        }
+
+        var recommendation = SceneViewRecommender.Resolve(character.Sightline, character.Position);
+        if (recommendation.IsEmpty)
+        {
+            return null;
+        }
+
+        var view = recommendation.FaceView is { } face
+            ? face switch
+            {
+                SceneImageReferenceFaceView.Front => "Front",
+                SceneImageReferenceFaceView.ThreeQuarterLeft => "Three-quarter left",
+                SceneImageReferenceFaceView.ThreeQuarterRight => "Three-quarter right",
+                SceneImageReferenceFaceView.ProfileLeft => "Profile left",
+                SceneImageReferenceFaceView.ProfileRight => "Profile right",
+                _ => face.ToString()
+            }
+            : "Back (no face visible)";
+
+        return $"{view} — {recommendation.Basis}";
+    }
+
+    /// <summary>
+    /// The participant profile key the compiled Still brief addresses a scenario character by, or null when this
+    /// Composition has no frozen cast yet or the character is not in it.
+    ///
+    /// <para>
+    /// The join is exact and needs no name matching: an identity-pack option carries the SCENARIO character id as its
+    /// <c>CharacterKey</c>, and the frozen cast carries that same id beside the profile key. Nothing is guessed - a
+    /// character that cannot be resolved yields null and is left out, rather than being handed a key of the wrong
+    /// kind that would silently address somebody else.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Which identity owner each participant's approved packs and character-owned assets are filed under.
+    ///
+    /// <para>
+    /// This step's actor key is the PARTICIPANT profile key the compiled brief addresses (<c>p0</c>, <c>p1</c>), but a
+    /// pack belongs to the character's IDENTITY OWNER — a different key. The composer reads this map for its pack and
+    /// character-asset pickers only; the prompt joins keep using the participant key. See
+    /// <c>ImageStepComposer.IdentityOwnerKeys</c>.
+    /// </para>
+    /// </summary>
+    private IReadOnlyDictionary<string, string> IdentityOwnerKeys =>
+        _identityPackOptions
+            .Select(option => (Participant: ParticipantProfileKeyFor(option.CharacterKey), option.TemplateId))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Participant)
+                && !string.IsNullOrWhiteSpace(entry.TemplateId))
+            .GroupBy(entry => entry.Participant!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().TemplateId, StringComparer.Ordinal);
+
+    private string? ParticipantProfileKeyFor(string scenarioCharacterId)
+    {
+        if (_frozenState is null || string.IsNullOrWhiteSpace(scenarioCharacterId))
+        {
+            return null;
+        }
+
+        return _frozenState.Characters
+            .FirstOrDefault(character => string.Equals(
+                character.CharacterId, scenarioCharacterId, StringComparison.OrdinalIgnoreCase))
+            ?.ProfileKey;
+    }
+
+    /// <summary>
     /// The step this page presents. Identity travels as PACKS here (the page's own channel, resolved into face
-    /// references by the render), so the step declares the elements a pack cannot carry - bodies and wardrobe per
-    /// character, plus the frame-wide location and pose - and no face slot (B-130).
+    /// references by the render) and as a per-character Face slot, which binds one image out of the character's
+    /// approved pack; the step also declares the elements a pack cannot carry - bodies and wardrobe per character,
+    /// plus the frame-wide location and pose.
     /// </summary>
     private ImageStepBlueprint CompositionBlueprint => ImageStepBlueprintFactory.ForPackIdentityComposition(CompositionCast);
+
+    /// <summary>
+    /// The model this Composition will RENDER on. Identity-on-create runs the render on the identity-capable model, not
+    /// on the composition model, so it is the one the render's own reference questions must be asked about — the same
+    /// expression the render request uses, so the composer's answer cannot differ from the render's.
+    /// </summary>
+    private string? CompositionRenderModelId => _applyIdentityOnCreate ? _selectedIdentityModelId : _selectedModelId;
+
+    /// <summary>
+    /// The same binding with its direction statement seeded from the location image's analysis (B-160), when there is
+    /// one and the operator has not already spoken for this reference.
+    /// </summary>
+    /// <remarks>
+    /// The decision of WHO may write the statement lives in <see cref="ReferenceDirectionsPrefill.Apply"/>, not here: an
+    /// analysis replaces only nothing-yet or an earlier analysis's own proposal, so the operator's words are never
+    /// talked over — including after a re-read.
+    ///
+    /// <para>
+    /// A missing or unreadable analysis leaves the binding exactly as it was. Binding an unanalysed location therefore
+    /// changes nothing about what the prompt says, which is what keeps this safe to switch on for every binding.
+    /// </para>
+    /// </remarks>
+    private async Task<ReferenceApplicationSelection> WithLocationAnalysisAsync(ReferenceApplicationSelection binding)
+    {
+        if (string.IsNullOrWhiteSpace(binding.SceneAssetImageId)
+            || !string.Equals(binding.Kind, ImageStepSlotKind.Location.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            return binding;
+        }
+
+        try
+        {
+            var image = await AssetService.GetImageAsync(binding.SceneAssetImageId);
+            var analysis = LocationImageAnalysisJson.TryRead(image?.LocationAnalysisJson);
+
+            // A reading of a SUPERSEDED picture is not used: the analysis records which checksum it read, so binding a
+            // re-edited image cannot inherit the old picture's features.
+            if (image is null || analysis is null || !analysis.IsAbout(image.Sha256))
+            {
+                return binding;
+            }
+
+            // The binding is the one this page just built, so it is this page's to set. A class rather than a record:
+            // there is no `with`, and copying it wholesale would be a second, drifting definition of the binding.
+            binding.Directions = ReferenceDirectionsPrefill.Apply(binding.Directions, analysis);
+            return binding;
+        }
+        catch (InvalidOperationException)
+        {
+            // An analysis that cannot be read is treated as absent: the reference still binds, only the proposal is lost.
+            return binding;
+        }
+    }
 
     private async Task OnReferenceBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
     {
@@ -601,9 +1078,21 @@
         // either refuse the render or apply a LoRA trained against a different family. Cleared here, where the change
         // happens, rather than filtered later.
         _sceneLoras = [];
+        // Qwen-Image-2.1 carries identity as reference images and pose as a reference skeleton, so the IP-Adapter /
+        // ControlNet machinery on this page is hidden for that family. It is CLEARED as well: a hidden control that
+        // still reaches the render is invisible behaviour the operator can neither see nor switch off.
+        if (SelectedCompositionModelFamily == SceneImageModelFamily.QwenImage21
+            && (_applyIdentityOnCreate || !string.IsNullOrWhiteSpace(_poseStoragePath)))
+        {
+            _applyIdentityOnCreate = false;
+            _poseStoragePath = null;
+            _statusMessage = "Qwen-Image-2.1 carries identity and pose through reference images, so 'Identity on create' "
+                + "and the pose upload were cleared for this model.";
+        }
         // The location binding re-seeds only after re-validation against the new model's slot plan; a blueprint that
-        // declares no location slot shows a notice instead of a silent drop.
-        SeedLocationBackdropIfBound();
+        // declares no location slot shows a notice instead of a silent drop. Forced, because the step was just cleared
+        // above and the once-per-page latch would otherwise swallow this deliberate re-seed.
+        await SeedLocationBackdropIfBoundAsync(force: true);
         await OnModelChangedAsync();
     }
     private CancellationTokenSource? _pollingCts;
@@ -619,6 +1108,7 @@
     private readonly List<PromptFieldRow> _promptRows = [];
     private List<PromptGroup> _promptGroups = [];
     private bool _promptRowsInitialized;
+    private bool _restoringPromptInspector;
 
     /// <summary>
     /// Whether the prompt-input inspector is open. Closed by default: it is a debugging and override surface, and left
@@ -641,6 +1131,12 @@
     private string? _selectedIdentityPackId;
     private ReferenceStrategyResolution? _identityResolution;
     private bool _applyIdentityOnCreate;
+
+    /// <summary>
+    /// The image the backdrop seed put in the Location slot, so a forced re-seed can withdraw its OWN binding when the
+    /// render model changes and no longer carries it — without ever touching what the operator bound.
+    /// </summary>
+    private string? _locationSeededImageId;
 
     // Pose reference (OpenPose ControlNet conditioning, B-117).
     private bool _poseBusy;
@@ -668,6 +1164,64 @@
     /// </para>
     /// </summary>
     private IReadOnlyList<SceneImageLoraSelection> _sceneLoras = [];
+
+    /// <summary>
+    /// B-157 T7.1: the operator's placement correction, persisted beside the render like every other render setting.
+    /// Null means the brief's own frame is used exactly as compiled.
+    /// </summary>
+    private SceneBlockingOverride? _blockingOverride;
+
+    /// <summary>
+    /// The framings this surface may be rendered at (B-161), read from the Composition staging profile's own camera
+    /// vocabulary. Empty until the profile resolves, and legitimately empty if that profile declares none — the
+    /// control then does not render, rather than offering a list invented here.
+    /// </summary>
+    private IReadOnlyList<string> _framingChoices = [];
+
+    /// <summary>
+    /// Told to the operator when they change the framing after a draft exists, because the draft's prose names the
+    /// previous camera. Null while there is nothing to warn about.
+    /// </summary>
+    private string? _framingNotice;
+
+    private bool _framingChoicesLoaded;
+
+    /// <summary>
+    /// The framing the COMPILED brief carries, named in the "no override" option so the operator can see what the
+    /// default actually is. Null when the brief carries no frame, and the option then says so.
+    /// </summary>
+    private string CompiledFramingLabel => CompositionBlocking?.Camera.ShotSize is { Length: > 0 } shotSize
+        ? $"Use the brief's own framing ({shotSize})"
+        : "Use the brief's own framing";
+
+    /// <summary>
+    /// Stores the operator's frame correction (B-157, extended by B-161).
+    /// </summary>
+    /// <remarks>
+    /// Changing the FRAMING is different in kind from changing a placement: the frame is written into the prompt's
+    /// PROSE by the pre-processor, so a framing chosen after a draft exists leaves that draft describing the previous
+    /// camera. The operator is told to regenerate rather than being left with one prompt asserting two cameras — and
+    /// the draft itself is kept, because throwing their text away is worse than a notice.
+    /// </remarks>
+    private Task OnBlockingOverrideChanged(SceneBlockingOverride? updated)
+    {
+        var framingChanged = !string.Equals(
+            _blockingOverride?.Camera?.ShotSize,
+            updated?.Camera?.ShotSize,
+            StringComparison.OrdinalIgnoreCase);
+
+        _blockingOverride = updated;
+        _framingNotice = framingChanged && HasAnyPromptDraft()
+            ? "Framing changed. Press Generate Prompt again so the prose describes this framing — the render will use "
+                + "it either way, but the existing draft still names the previous camera."
+            : null;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Whether a draft exists that a framing change has left describing the previous camera.</summary>
+    private bool HasAnyPromptDraft() =>
+        !string.IsNullOrWhiteSpace(_sdxlPromptText) || !string.IsNullOrWhiteSpace(_ponyPromptText);
 
     /// <summary>
     /// The library preset the attached skeleton came from, or null when the operator uploaded one. It is what tells
@@ -702,13 +1256,27 @@
 
     private sealed class PromptFieldRow
     {
+        /// <summary>The primary leaf this row displays (first of <see cref="Scopes"/>).</summary>
         public string ElementKey { get; set; } = string.Empty;
         public string Label { get; set; } = string.Empty;
         public string Group { get; set; } = string.Empty;
         public string? CharacterKey { get; set; }
+
+        /// <summary>How this element reaches the image (restated deterministically vs read by the compile LLM).</summary>
+        public PromptElementConsumer Consumer { get; set; }
+
+        /// <summary>The payload leaves an EDIT writes (one concept may live in several leaves).</summary>
+        public IReadOnlyList<string> Scopes { get; set; } = [];
+
+        /// <summary>The payload leaves a REMOVE tick removes (may be wider than the edit set, e.g. the room).</summary>
+        public IReadOnlyList<string> RemoveScopes { get; set; } = [];
+
         public string OriginalValue { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
         public bool Removed { get; set; }
+
+        /// <summary>True once the operator's value differs from the compiled one, or the row is ticked for removal.</summary>
+        public bool IsChanged => Removed || !string.Equals(Value, OriginalValue, StringComparison.Ordinal);
     }
 
     private sealed class PromptGroup
@@ -719,12 +1287,279 @@
         public List<PromptFieldRow> Rows { get; set; } = [];
     }
 
+    /// <summary>One reference as the operator must see it: the tag the prompt will carry, and the binding itself.</summary>
+    private sealed record ReferenceLine(ReferenceApplicationSelection Binding, string? Tag);
+
+    /// <summary>
+    /// The references in the order the render SENDS them, each with the <c>&lt;imageN&gt;</c> tag the prompt will
+    /// carry — so the numbers the operator writes into their intent are the numbers the model receives.
+    /// </summary>
+    /// <remarks>
+    /// The tag comes from <see cref="ReferenceRoleClauses.TagsFor"/>, the same owner the prompt uses. It used to be
+    /// printed from <see cref="ReferenceApplicationSelection.Ordinal"/>, which is stored request data and can carry a
+    /// GAP where a slot was bound and then cleared — so the panel numbered the wardrobe one image later than the tag
+    /// the render actually sent, and an intent that named "the wardrobe image" pointed the compiler at the unclothed
+    /// body plate instead (SceneImage 39af0b11 rendered topless from a prompt that named the wardrobe). A null tag is
+    /// not a missing number: the render sends the image untagged because a single-image request forbids tags.
+    /// </remarks>
+    private IReadOnlyList<ReferenceLine> ReferencesInSendOrder()
+    {
+        var tags = ReferenceRoleClauses.TagsFor(_referenceBindings);
+        return ReferenceBindingShape.InSendOrder(_referenceBindings)
+            .Select(binding => new ReferenceLine(binding, tags.TryGetValue(binding, out var tag) ? tag : null))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Puts the source and the intent text a persisted draft was made with back on the panel. Both ride on the prompt
+    /// record already — that is what makes a compile auditable — so nothing extra is stored to restore them.
+    /// </summary>
+    private void AdoptPromptSource(SceneImagePromptRecord record)
+    {
+        if (!string.IsNullOrWhiteSpace(record.UserIntent))
+        {
+            _userIntentText = record.UserIntent!;
+        }
+
+        _promptSource = record.PromptSource;
+        _promptInputTab = record.PromptSource;
+    }
+
+    /// <summary>
+    /// Restores the source and the intent text from this Composition's own drafts, once, so reopening the page shows
+    /// what the operator wrote instead of resetting the source to Scene and the intent box to empty.
+    /// </summary>
+    /// <remarks>
+    /// The newest draft decides the SOURCE, because it is the last thing they actually compiled with. The TEXT comes
+    /// from the newest draft that carried one, so a draft since switched to Scene does not throw the intent away.
+    ///
+    /// <para>
+    /// This is the FALLBACK for work done before the group carried an uncommitted draft; a saved
+    /// <see cref="SceneImageProductionGroup.PromptDraftJson"/> wins and suppresses this entirely.
+    /// </para>
+    /// </remarks>
+    private void RestorePromptSourceFromDrafts()
+    {
+        if (_promptSourceInitialized || _completedByStyle.Count == 0)
+        {
+            return;
+        }
+
+        var drafts = _completedByStyle.Values
+            .OrderByDescending(record => record.UpdatedUtc)
+            .ToList();
+
+        _promptSource = drafts[0].PromptSource;
+
+        // The TEXT comes from the newest draft that carried one, so a draft since switched to Scene does not throw the
+        // intent away — and the panel OPENS on it, because a restored draft the operator cannot see is the same as a
+        // lost one (the reported "I typed a user intent and now I can't find it"). The source select still shows what
+        // the last compile actually used, so flipping it back is one click and the text is already there.
+        var withIntent = drafts.FirstOrDefault(record => !string.IsNullOrWhiteSpace(record.UserIntent));
+        if (withIntent is not null)
+        {
+            _userIntentText = withIntent.UserIntent!;
+        }
+
+        _promptInputTab = string.IsNullOrWhiteSpace(_userIntentText)
+            ? _promptSource
+            : SceneImagePromptSource.UserIntent;
+
+        _promptSourceInitialized = true;
+    }
+
+    /// <summary>
+    /// Restores the panel from the draft saved on this group — the source and the intent the operator had typed, sent
+    /// to the compiler or not. Suppresses the compiled-draft fallback, because the saved panel is what they last saw.
+    /// </summary>
+    private void RestorePromptDraft()
+    {
+        // Once only: LoadAsync runs on every poll, and a poll that re-applied the stored draft would roll back the
+        // characters typed since the last debounced save — the same hazard the prompt-text hydration guards against.
+        if (_promptSourceInitialized)
+        {
+            return;
+        }
+
+        var draft = SceneImagePromptDraftJson.Read(_productionGroup?.PromptDraftJson, productionGroupId);
+        if (draft is null)
+        {
+            return;
+        }
+
+        _promptSource = draft.Source;
+        _userIntentText = draft.UserIntent;
+        _explicitness = draft.Explicitness;
+        _cameraHolderParts = draft.CameraHolderParts;
+        _cameraHolderPartsText = draft.CameraHolderPartsText ?? string.Empty;
+        _promptInputTab = string.IsNullOrWhiteSpace(draft.UserIntent)
+            ? draft.Source
+            : SceneImagePromptSource.UserIntent;
+        _promptSourceInitialized = true;
+    }
+
+    /// <summary>
+    /// Saves what the panel currently says, so the intent survives a reload without waiting for Generate Prompt.
+    /// </summary>
+    private async Task SavePromptDraftAsync()
+    {
+        if (_productionGroup is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _productionGroup = await ProductionService.SavePromptDraftAsync(
+                _productionGroup.Id, _promptSource, _userIntentText, BuildPromptOverrides(), _explicitness,
+                _cameraHolderParts, _cameraHolderPartsText);
+        }
+        catch (InvalidOperationException exception)
+        {
+            // The panel keeps the operator's text either way; a failed save is reported rather than swallowed.
+            _errorMessage = $"The prompt draft could not be saved: {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Schedules the draft save for after the operator stops typing.
+    /// </summary>
+    /// <remarks>
+    /// Wired to <c>oninput</c> and DEBOUNCED, rather than to the change event, because a change event only fires on blur
+    /// — an operator who types an intent and reloads without clicking away would lose exactly the text this exists to
+    /// keep. Debouncing is what makes a per-keystroke trigger affordable: the store is SQLite, and one write per
+    /// character is churn nobody asked for, while the trailing save guarantees the LAST keystroke is the one that lands.
+    /// </remarks>
+    private void QueuePromptDraftSave()
+    {
+        // Restoring the saved edits must not immediately write them back: the first load would queue a save for state
+        // it just read.
+        if (_productionGroup is null || _restoringPromptInspector)
+        {
+            return;
+        }
+
+        // Only CANCEL the previous timer; it disposes itself in its own finally. Disposing a source here could pull the
+        // token out from under the delay still observing it.
+        _draftSaveCts?.Cancel();
+
+        var source = new CancellationTokenSource();
+        _draftSaveCts = source;
+        _ = DebouncedPromptDraftSaveAsync(source);
+    }
+
+    private async Task DebouncedPromptDraftSaveAsync(CancellationTokenSource source)
+    {
+        try
+        {
+            await Task.Delay(PromptDraftSaveDelay, source.Token);
+            await InvokeAsync(SavePromptDraftAsync);
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by the next keystroke — the newer timer carries the text.
+        }
+        catch (Exception)
+        {
+            // SavePromptDraftAsync reports its own failures through _errorMessage. Anything that reaches here is the
+            // renderer going away mid-save, which there is nobody left to tell.
+        }
+        finally
+        {
+            if (ReferenceEquals(_draftSaveCts, source))
+            {
+                _draftSaveCts = null;
+            }
+
+            source.Dispose();
+        }
+    }
+
     private string StudioUrl => $"/roleplay/studio/{sessionId}/{interactionId}/production/{productionGroupId}";
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+        await ApplyRequestedLocationReferenceAsync();
+        await ApplyRequestedReloadAsync();
         EnsurePollingWhenNeeded();
+    }
+
+    /// <summary>
+    /// Applies a <c>reloadImageId</c> request once: the named image's recorded inputs are re-applied to this
+    /// Composition, exactly as the card's own reload command applies them.
+    ///
+    /// <para>
+    /// The row is read BY ID rather than looked up in this page's list, because the request comes from a card that may
+    /// be showing any image of the production group — an edit or a finish attempt included. What the page refuses is an
+    /// id that names no image at all, or one belonging to another session.
+    /// </para>
+    /// </summary>
+    private async Task ApplyRequestedReloadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ReloadImageId)
+            || string.Equals(_appliedReloadImageId, ReloadImageId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _appliedReloadImageId = ReloadImageId;
+
+        var image = await ResolveRequestedImageAsync(ReloadImageId);
+        if (image is null)
+        {
+            _statusMessage = $"Image '{ReloadImageId}' was not found in this session, so nothing was reloaded.";
+            return;
+        }
+
+        await RestoreCompositionInputsAsync(image);
+    }
+
+    /// <summary>
+    /// Applies a <c>useAsReferenceId</c> request once: the named image is bound as this Composition's location
+    /// reference.
+    ///
+    /// <para>
+    /// The row is read BY ID rather than looked up in this page's own attempt list. That list holds the
+    /// Composition-stage attempts, but the card's command is offered on every attempt of the production group, so
+    /// resolving through the list alone meant an edit — or any later stage — was refused with a reason the operator had
+    /// no way to act on. What the page refuses is an id that names no image at all, or one belonging to another session;
+    /// whether the image is exact enough to condition a render on (complete, bytes, checksum) is checked by the same
+    /// path the page's own cards use.
+    /// </para>
+    /// </summary>
+    private async Task ApplyRequestedLocationReferenceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(UseAsReferenceId)
+            || string.Equals(_appliedUseAsReferenceId, UseAsReferenceId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _appliedUseAsReferenceId = UseAsReferenceId;
+
+        var image = await ResolveRequestedImageAsync(UseAsReferenceId);
+        if (image is null)
+        {
+            _statusMessage = $"Image '{UseAsReferenceId}' was not found in this session, so nothing was bound as a "
+                + "location reference.";
+            return;
+        }
+
+        await UseCompositionImageAsReferenceAsync(image);
+    }
+
+    /// <summary>
+    /// The image a card's command named, read from its OWN row. Null when the id names no image, or names one belonging
+    /// to another session: a request travels in a URL, and a URL can be edited or replayed against another session's
+    /// page.
+    /// </summary>
+    private async Task<SceneImageRecord?> ResolveRequestedImageAsync(string imageId)
+    {
+        var image = await ImageService.GetImageAsync(imageId);
+        return image is not null && string.Equals(image.SessionId, sessionId, StringComparison.Ordinal)
+            ? image
+            : null;
     }
 
     private async Task LoadAsync()
@@ -744,10 +1579,20 @@
 
         if (_pendingPrompt is not null && _pendingPrompt.Status != SceneImagePromptStatus.Pending)
         {
-            // A generation this page started finished: adopt its result into the matching style tab.
+            // A generation this page started finished: adopt its result into the matching style tab. A FAILED one is
+            // KEPT rather than discarded — the failure is the only thing that explains a draft that never appeared,
+            // and the status line this page set when it queued the draft is stale the moment the draft is over.
             if (_pendingPrompt.Status == SceneImagePromptStatus.Complete)
+            {
                 AdoptCompletedPrompt(_pendingPrompt);
+            }
+            else
+            {
+                _failedPrompt = _pendingPrompt;
+            }
+
             _pendingPrompt = null;
+            _statusMessage = string.Empty;
         }
 
         if (!_promptsInitialized && _pendingPrompt is null)
@@ -756,11 +1601,26 @@
             // tabs show their last drafted prompt. Polls later never overwrite in-progress edits.
             await RefreshCompletedPromptAsync(SceneImagePromptStyle.NaturalLanguage);
             await RefreshCompletedPromptAsync(SceneImagePromptStyle.PonyV6Tags);
+            await RefreshFailedPromptAsync();
             _promptsInitialized = true;
         }
 
-        _compositionAttempts = (await ProductionService.ListAttemptsAsync(_productionGroup.Id))
+        // Outside the block above so a load whose prompt was still Pending restores on the poll that completes it —
+        // and self-guarding, so no later poll overwrites the source or the intent the operator is working on. The
+        // saved panel wins over the compiled drafts: it is what they last saw, including text never compiled.
+        RestorePromptDraft();
+        RestorePromptSourceFromDrafts();
+
+        // ONE read of the group, projected twice. The stage filter below is what the step itself reasons about — which
+        // Composition attempts exist, and what made them. The list beside it is the same rows WITHOUT that filter, so
+        // the page can show the group's whole work (see _productionImages).
+        var groupImages = await ProductionService.ListAttemptsAsync(_productionGroup.Id);
+        _compositionAttempts = groupImages
             .Where(attempt => attempt.ProductionStage == SceneImageProductionStage.Composition)
+            .OrderByDescending(attempt => attempt.CreatedUtc)
+            .Take(100)
+            .ToList();
+        _productionImages = groupImages
             .OrderByDescending(attempt => attempt.CreatedUtc)
             .Take(100)
             .ToList();
@@ -781,23 +1641,98 @@
         {
             _castReferenceError = null;
             BuildPromptRows();
+            RestorePromptInspectorOverrides();
         }
         _approvedAttemptIds = (await ProductionService.ListApprovalDecisionsAsync(_productionGroup.Id))
             .Where(decision => decision.Decision == ApprovedSceneFrameDecisionState.Approved)
             .Select(decision => decision.SceneImageId)
             .ToHashSet(StringComparer.Ordinal);
 
-        SeedLocationBackdropIfBound();
+        await SeedLocationBackdropIfBoundAsync();
+        await LoadFramingChoicesAsync();
+    }
+
+    /// <summary>
+    /// Reads the framings this surface may be rendered at from the Composition staging profile (B-161).
+    /// </summary>
+    /// <remarks>
+    /// Once per page: the profile is the configured vocabulary, and re-reading it on every poll tick would be a second
+    /// source of truth for a list that only changes when an operator edits /profiles. A profile that declares no shot
+    /// sizes legitimately yields none, and the framing control then does not render.
+    /// </remarks>
+    private async Task LoadFramingChoicesAsync()
+    {
+        if (_framingChoicesLoaded)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = await StagingProfiles.ResolveAsync(ImageStagingSurface.Composition);
+            _framingChoices = ImageStagingProfileValidation.ReadFramingChoices(profile);
+            _framingChoicesLoaded = true;
+        }
+        catch (Exception exception)
+        {
+            // A profile that cannot be read is reported, not guessed: the framing control stays hidden and the render
+            // keeps using the framing the brief was compiled with.
+            Logger.LogWarning(
+                exception, "Reading the Composition staging profile for framing choices failed.");
+        }
     }
 
     /// <summary>
     /// The Composition auto-seed: on composer open, a bound per-POV backdrop re-seeds the declared <c>Location</c> slot
     /// from the group (the durable record). A blueprint that declares no location slot is refused by name — the
     /// operator sees a notice, never a silently dropped reference.
+    ///
+    /// <para>
+    /// It is an INITIALISATION: it fills an EMPTY step, once, and never touches a step that holds anything. This
+    /// method used to run on every load — and <c>LoadAsync</c> runs on the 2-second poll — while REPLACING the whole
+    /// binding list with the location alone, so a face and a body the operator had just added disappeared a moment
+    /// later (reported 2026-10-12). Both guards are needed: the emptiness check stops the poll overwriting the
+    /// operator's bindings, and the once-per-page latch stops the seed re-adding a location the operator removed. A
+    /// model change still re-seeds — it clears the step and passes <paramref name="force"/>, because the backdrop has
+    /// to be re-validated against the new model's declared slots.
+    /// </para>
     /// </summary>
-    private void SeedLocationBackdropIfBound()
+    /// <param name="force">
+    /// Bypasses the once-per-page latch for a caller that has just cleared the step on purpose. It never bypasses the
+    /// emptiness check: nothing may overwrite what the operator bound.
+    /// </param>
+    private async Task SeedLocationBackdropIfBoundAsync(bool force = false)
     {
         _locationSeedNotice = null;
+
+        // A forced re-seed withdraws ONLY the binding this method seeded, because the model that will run the render
+        // can change under it (a new composition model, a new identity model, identity-on-create) and a reference the
+        // previous model could carry has to be re-proved against the new one. Withdrawing it is what lets the check
+        // below be reached at all: without it the step looks populated and the stale binding is left to fail at render
+        // time. Anything the OPERATOR bound is never touched — the emptiness check is about their bindings, not ours.
+        if (force && _locationSeededImageId is not null)
+        {
+            _referenceBindings = _referenceBindings
+                .Where(binding => !string.Equals(binding.SceneAssetImageId, _locationSeededImageId, StringComparison.Ordinal))
+                .ToList();
+            _locationSeededImageId = null;
+        }
+
+        // A populated step is never touched, whatever else is configured. Checked before the latch so that no caller,
+        // forced or not, can overwrite the operator's bindings.
+        if (_referenceBindings.Count > 0)
+        {
+            return;
+        }
+
+        // LoadAsync runs on the 2-second poll; the seed belongs to the page's first load.
+        if (_locationSeedDone && !force)
+        {
+            return;
+        }
+
+        _locationSeedDone = true;
+
         if (_productionGroup is null || string.IsNullOrWhiteSpace(_productionGroup.LocationBackdropJson))
         {
             return;
@@ -818,14 +1753,42 @@
             return;
         }
 
-        if (!LocationBackdropSlotPrefill.HasLocationSlot(CompositionBlueprint))
+        // The model that will RUN this render decides whether a backdrop can be carried at all: a location reference is
+        // an image, and a model that declares no reference strategy (Krea 2: ["TextOnly","Lora"]) has nowhere to put it.
+        // Seeding it anyway is what made such a Composition die in the render with "does not declare support for
+        // 'NativeMultiReference' in Model Manager" (2026-10-13). A declared slot is not a capability.
+        var seed = await LocationBackdropSlotPrefill.ResolveAsync(
+            ReferenceStrategies, CompositionRenderModelId, CompositionBlueprint, backdrop);
+        var binding = seed.Binding;
+        if (binding is null)
         {
-            _locationSeedNotice = "This model cannot carry the location reference; the bound backdrop was not applied.";
+            _locationSeedNotice = seed.Outcome == LocationBackdropSeedOutcome.ModelCannotCarry
+                ? $"This model cannot carry the location reference; the bound backdrop was not applied. {seed.Reason}"
+                : seed.Reason;
             return;
         }
 
-        _referenceBindings = [LocationBackdropSlotPrefill.For(CompositionBlueprint, backdrop)];
+        _referenceBindings = [await WithLocationAnalysisAsync(binding)];
+        _locationSeededImageId = binding.SceneAssetImageId;
     }
+
+    /// <summary>
+    /// The identity model is a RENDER model, not a side setting: with identity-on-create ticked it is the model the
+    /// Composition runs on, so the location binding has to be re-proved against it rather than left to fail at render
+    /// time.
+    /// </summary>
+    private async Task OnIdentityModelSelectedAsync()
+    {
+        await RefreshIdentityResolutionAsync();
+        await SeedLocationBackdropIfBoundAsync(force: true);
+    }
+
+    /// <summary>
+    /// Ticking identity-on-create MOVES the render onto the identity-capable model, so the same re-proof runs here —
+    /// and unticking moves it back.
+    /// </summary>
+    private Task OnIdentityOnCreateChangedAsync()
+        => SeedLocationBackdropIfBoundAsync(force: true);
 
     private async Task RefreshCompletedPromptAsync(SceneImagePromptStyle style)
     {
@@ -834,6 +1797,30 @@
         if (record is null) return;
         _completedByStyle[style] = record;
         SetPromptText(style, record.OutputPrompt);
+    }
+
+    /// <summary>
+    /// Keeps the newest FAILED draft for this Composition so a page reopened after a failure says why there is no
+    /// prompt instead of showing an empty box. Only this group's and this brief's newest record counts, and only when
+    /// it FAILED: a later success replaces it, which is what makes the notice self-clearing.
+    /// </summary>
+    private async Task RefreshFailedPromptAsync()
+    {
+        if (_productionGroup is null || _compiledMediaBrief is null)
+        {
+            return;
+        }
+
+        var latest = await ImageService.GetLatestPromptAsync(sessionId, interactionId);
+        if (latest is null
+            || latest.Status != SceneImagePromptStatus.Failed
+            || !string.Equals(latest.ProductionGroupId, _productionGroup.Id, StringComparison.Ordinal)
+            || !string.Equals(latest.CompiledMediaBriefId, _compiledMediaBrief.Id, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _failedPrompt = latest;
     }
 
     private void AdoptCompletedPrompt(SceneImagePromptRecord record)
@@ -848,11 +1835,32 @@
         await RunAsync(async () =>
         {
             var style = _activeStyle;
+
+            // A new draft for this style retires the previous failure for it: the banner explains a missing prompt,
+            // and a prompt is now on its way. A failure recorded for the OTHER style is left alone.
+            if (_failedPrompt is not null
+                && SceneImagePromptStyleResolver.Effective(_failedPrompt.PromptStyle) == style)
+            {
+                _failedPrompt = null;
+            }
+
             var record = await ImageService.EnqueuePromptAsync(new ScenePromptRequest
             {
                 SessionId = sessionId,
                 InteractionId = interactionId,
-                Settings = new SceneImageStudioSettings { PromptOverrides = BuildPromptOverrides() },
+                // B-161: the operator's frame correction travels with the DRAFT as well as the render, because the
+                // prose is written here — a framing chosen on the panel but absent from this request would leave the
+                // pre-processor writing the profile's framing into a prompt the render then frames differently.
+                Settings = new SceneImageStudioSettings
+                {
+                    PromptOverrides = BuildPromptOverrides(),
+                    SceneBlockingOverride = _blockingOverride,
+                    Explicitness = _explicitness,
+                    CameraHolderParts = _cameraHolderParts,
+                    CameraHolderPartsText = _cameraHolderParts == CameraHolderPartsMode.Custom
+                        ? string.IsNullOrWhiteSpace(_cameraHolderPartsText) ? null : _cameraHolderPartsText.Trim()
+                        : null
+                },
                 ProductionGroupId = _productionGroup!.Id,
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
                 Pov = _productionGroup.Pov,
@@ -865,17 +1873,30 @@
                 // 2026-10-03: a prompt drafted with no bindings produced a render at mean brightness 43.5 against its
                 // reference's 72.0, and as far from its own bound room (outer-ring L1 2.094) as two different views
                 // of that shed are from each other (2.141).
-                ReferenceApplications = _referenceBindings
+                ReferenceApplications = _referenceBindings,
+                PromptSource = _promptSource,
+                UserIntent = _promptSource == SceneImagePromptSource.UserIntent ? _userIntentText : null
             });
             _pendingPrompt = record;
             SetPromptText(style, string.Empty);
             _activeStyle = style;
+            _framingNotice = null;
             _statusMessage = $"Prompt generation queued ({SceneImagePromptStyleResolver.DisplayLabel(style)}).";
             EnsurePollingWhenNeeded();
         });
     }
 
-    private Task GenerateCompositionAsync() => EnqueueCompositionAsync(null);
+    private async Task GenerateCompositionAsync()
+    {
+        // The count is the operator's number of JOBS, not a display mode: each iteration enqueues its own render with
+        // the same prompt, model and reference snapshot, so every result is an ordinary row the page can approve,
+        // discard or edit on its own.
+        var count = Math.Max(1, _imageCount);
+        for (var index = 0; index < count; index++)
+        {
+            await EnqueueCompositionAsync(null);
+        }
+    }
 
     private Task RegenerateCompositionAsync(SceneImageRecord source) => EnqueueCompositionAsync(source.Id);
 
@@ -907,7 +1928,11 @@
                     {
                         PackId = option.PackId,
                         CharacterLabel = option.Label,
-                        Strength = option.Strength
+                        Strength = option.Strength,
+                        // B-157: the actor key is the PARTICIPANT profile key the compiled Still brief addresses this
+                        // character by (`p0`, `p1`, ...), which is the key the role clause and the prompt-element
+                        // removals join on. See ParticipantProfileKeyFor.
+                        ActorKey = ParticipantProfileKeyFor(option.CharacterKey)
                     })
                     .ToList()
                 : null;
@@ -952,6 +1977,10 @@
                     // a fallback for a binding that somehow names no actor.
                     CharacterLabel = group.Select(binding => binding.ActorKey)
                         .FirstOrDefault(actor => !string.IsNullOrWhiteSpace(actor)) ?? group.Key,
+                    // B-157: the binding's actor key IS the profile key, so the role clause can name this person's
+                    // position instead of only their pack view.
+                    ActorKey = group.Select(binding => binding.ActorKey)
+                        .FirstOrDefault(actor => !string.IsNullOrWhiteSpace(actor)),
                     Strength = 1.0
                 })
                 .ToList();
@@ -972,6 +2001,12 @@
 
             var firstPackId = identityPacks?.FirstOrDefault()?.PackId ?? nativePacks.FirstOrDefault()?.PackId;
             var renderSettings = new SceneImageStudioSettings();
+            // B-157 T7.1: the operator's placement correction travels with the render, which is where the frame is
+            // read and the only place the rule is applied — the same rule the preview above shows.
+            if (_blockingOverride is { IsEmpty: false })
+            {
+                renderSettings.SceneBlockingOverride = _blockingOverride;
+            }
             // The LoRA chain travels with the render, so the attempt records which artifact, strength and checksum
             // produced the image. Empty stays null: no LoRA means the graph is left untouched.
             if (_characterLoras.Count > 0)
@@ -991,6 +2026,15 @@
                     StoragePath = _poseStoragePath,
                     Strength = _poseStrength
                 };
+            }
+            // Camera-holder body parts travel with the render so the handler can append them VERBATIM after the compiled
+            // caption (the caption writer would scramble "behind" into "in front" if it wrote them itself).
+            if (_cameraHolderParts != CameraHolderPartsMode.None)
+            {
+                renderSettings.CameraHolderParts = _cameraHolderParts;
+                renderSettings.CameraHolderPartsText = _cameraHolderParts == CameraHolderPartsMode.Custom
+                    ? _cameraHolderPartsText.Trim()
+                    : null;
             }
             await ImageService.EnqueueRenderAsync(new SceneRenderRequest
             {
@@ -1058,10 +2102,25 @@
         }
     }
 
+    /// <summary>
+    /// B-157: the frame this Composition's brief was compiled with, read from the brief's own snapshot — never
+    /// re-derived from the staging profile, so the preview and the render agree and an edit to the profile cannot
+    /// re-frame a brief that already exists.
+    /// </summary>
+    private SceneBlocking? CompositionBlocking => _compiledMediaBrief is null
+        ? null
+        : SceneBlockingJson.TryRead(_compiledMediaBrief.SemanticInputSnapshotJson);
+
     private SceneImagePromptStyle PendingPromptStyle
         => _pendingPrompt is null
             ? SceneImagePromptStyle.NaturalLanguage
             : SceneImagePromptStyleResolver.Effective(_pendingPrompt.PromptStyle);
+
+    /// <summary>The tab a recorded failure belongs to, so the notice appears only where the missing draft belongs.</summary>
+    private SceneImagePromptStyle FailedPromptStyle
+        => _failedPrompt is null
+            ? SceneImagePromptStyle.NaturalLanguage
+            : SceneImagePromptStyleResolver.Effective(_failedPrompt.PromptStyle);
 
     /// <summary>
     /// The FAMILY of the composition's selected render model, or Unknown when nothing is chosen. This is the one thing
@@ -1071,6 +2130,13 @@
     private SceneImageModelFamily SelectedCompositionModelFamily => _modelChoices
         .FirstOrDefault(model => model.ModelId == _selectedModelId)
         ?.Family ?? SceneImageModelFamily.Unknown;
+
+    /// <summary>
+    /// True when the selected Composition model is Qwen-Image-2.1. That family carries identity as reference images
+    /// and pose as a reference skeleton, so the IP-Adapter 'Identity on create' block and the pose upload are hidden
+    /// for it — they describe mechanisms it does not have.
+    /// </summary>
+    private bool IsQwenImage21Selected => SelectedCompositionModelFamily == SceneImageModelFamily.QwenImage21;
 
     private bool IsPromptPending => _pendingPrompt?.Status == SceneImagePromptStatus.Pending;
 
@@ -1267,17 +2333,15 @@
             return;
         }
         var frozen = root["frozenState"] as JsonObject;
-        var moment = root["moment"] as JsonObject;
 
-        AddPromptRow("scene.location", "Location", "scene", null, StringValue(frozen, "location"));
-        AddPromptRow("scene.environment", "Environment", "scene", null, StringValue(frozen, "environment"));
-        AddPromptRow("scene.timeOfDay", "Time of day", "scene", null, StringValue(frozen, "timeOfDay"));
-        AddPromptRow("scene.lighting", "Lighting", "scene", null, StringValue(frozen, "lighting"));
-        AddPromptRow("scene.mood", "Mood", "scene", null, StringValue(frozen, "mood"));
-        AddPromptRow("scene.objects", "Objects / props (one per line)", "scene", null, StringValue(frozen, "objects"));
-        AddPromptRow("moment.visualDescription", "Visual description", "moment", null, StringValue(moment, "visualDescription"));
-        AddPromptRow("moment.visibleAction", "Visible action", "moment", null, StringValue(moment, "visibleAction"));
-        AddPromptRow("frozenState.continuityState", "Continuity (global)", "moment", null, StringValue(frozen, "continuityState"));
+        // The rows are CONCEPT clusters, not raw payload leaves: one concept ("lighting", "the room") lives in several
+        // leaves, and editing the row writes them all. The leaf set each row covers is shown beside it, so the coverage
+        // is visible rather than discovered leaf by leaf (the "shaded is in many spots" defect).
+        foreach (var cluster in PromptElementClusters.Scene)
+        {
+            var primary = cluster.EditScopes[0];
+            AddClusterRow(cluster, ClusterGroupFor(cluster.Key), null, primary, StringValuePath(root, cluster.ReadPath ?? primary));
+        }
 
         if (frozen?["characters"] is JsonArray characters)
         {
@@ -1290,14 +2354,17 @@
                 var key = FirstNonEmpty(id, name, profileKey);
                 if (string.IsNullOrWhiteSpace(key)) continue;
                 var label = string.IsNullOrWhiteSpace(name) ? key : name;
-                AddPromptRow($"character:{key}.physicalLocation", $"{label} — physical location", key, key, StringValue(character, "physicalLocation"));
-                AddPromptRow($"character:{key}.position", $"{label} — position", key, key, StringValue(character, "position"));
-                AddPromptRow($"character:{key}.actionOrObservation", $"{label} — action / observation", key, key, StringValue(character, "actionOrObservation"));
-                AddPromptRow($"character:{key}.sightline", $"{label} — sightline", key, key, StringValue(character, "sightline"));
-                AddPromptRow($"character:{key}.clothing", $"{label} — wardrobe", key, key, StringValue(character, "clothing"));
-                AddPromptRow($"character:{key}.appearance", $"{label} — appearance (auto)", key, key, AppearanceTextFor(id, name, profileKey));
+                foreach (var cluster in PromptElementClusters.Character)
+                {
+                    var primary = PromptElementClusters.ScopesFor(cluster, key)[0];
+                    var value = cluster.Key == "appearance"
+                        ? AppearanceTextFor(id, name, profileKey)
+                        : StringValue(character, LeafName(cluster.Key));
+                    AddClusterRow(cluster, key, key, primary, value, label);
+                }
             }
         }
+
         _promptGroups = _promptRows
             .GroupBy(row => row.CharacterKey ?? row.Group)
             .Select(group => new PromptGroup
@@ -1310,26 +2377,75 @@
         _promptRowsInitialized = true;
     }
 
+    /// <summary>The inspector group a scene concept belongs to (Scene vs Moment).</summary>
+    private static string ClusterGroupFor(string clusterKey)
+        => clusterKey is "momentProse" or "visibleAction" or "continuityState" ? "moment" : "scene";
+
+    /// <summary>The snapshot property a per-character concept names, without the <c>character:</c> prefix.</summary>
+    private static string LeafName(string clusterKey) => clusterKey switch
+    {
+        "physicalLocation" => "physicalLocation",
+        "position" => "position",
+        "actionOrObservation" => "actionOrObservation",
+        "sightline" => "sightline",
+        "clothing" => "clothing",
+        _ => throw new InvalidOperationException(
+            $"Character prompt concept '{clusterKey}' has no snapshot property. Add one deliberately: a concept " +
+            "that reads nothing would show an empty row that writes a property nothing addresses.")
+    };
+
+    private void AddClusterRow(
+        PromptElementCluster cluster,
+        string group,
+        string? characterKey,
+        string primaryElementKey,
+        string value,
+        string? characterLabel = null)
+    {
+        _promptRows.Add(new PromptFieldRow
+        {
+            ElementKey = primaryElementKey,
+            Label = characterKey is null ? cluster.Label : $"{characterLabel} — {cluster.Label}",
+            Group = group,
+            CharacterKey = characterKey,
+            Consumer = cluster.Consumer,
+            Scopes = Expand(cluster.EditScopes, characterKey),
+            RemoveScopes = Expand(cluster.EffectiveRemoveScopes, characterKey),
+            OriginalValue = value ?? string.Empty,
+            Value = value ?? string.Empty
+        });
+    }
+
+    private static IReadOnlyList<string> Expand(IReadOnlyList<string> scopes, string? characterKey)
+        => characterKey is null
+            ? scopes
+            : scopes.Select(scope => scope.Replace("{key}", characterKey, StringComparison.Ordinal)).ToList();
+
     private static string PromptGroupHeader(PromptGroup group)
         => group.CharacterKey is null
             ? (string.Equals(group.Key, "scene", StringComparison.Ordinal) ? "Scene" : "Moment")
             : $"Character — {group.CharacterKey}";
 
-    private void AddPromptRow(string elementKey, string label, string group, string? characterKey, string value)
-        => _promptRows.Add(new PromptFieldRow
-        {
-            ElementKey = elementKey,
-            Label = label,
-            Group = group,
-            CharacterKey = characterKey,
-            OriginalValue = value ?? string.Empty,
-            Value = value ?? string.Empty
-        });
-
     private static string StringValue(JsonObject? obj, string property)
     {
         if (obj?[property] is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
         if (obj?[property] is JsonArray array)
+            return string.Join(Environment.NewLine, array.Select(item => item?.GetValue<string>() ?? string.Empty).Where(item => item.Length > 0));
+        return string.Empty;
+    }
+
+    /// <summary>Reads a dotted path (<c>frozenState.location</c>, <c>moment.frozenState</c>) to a scalar or joined array.</summary>
+    private static string StringValuePath(JsonObject root, string path)
+    {
+        var segments = path.Split('.');
+        JsonNode? current = root;
+        foreach (var segment in segments)
+        {
+            if (current is not JsonObject obj || obj[segment] is not { } next) return string.Empty;
+            current = next;
+        }
+        if (current is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
+        if (current is JsonArray array)
             return string.Join(Environment.NewLine, array.Select(item => item?.GetValue<string>() ?? string.Empty).Where(item => item.Length > 0));
         return string.Empty;
     }
@@ -1346,7 +2462,213 @@
         return string.IsNullOrWhiteSpace(character.Description) ? string.Empty : character.Description.Trim();
     }
 
-    private void SetPromptRowValue(PromptFieldRow row, string value) => row.Value = value ?? string.Empty;
+    private void SetPromptRowValue(PromptFieldRow row, string value)
+    {
+        row.Value = value ?? string.Empty;
+        QueuePromptDraftSave();
+    }
+
+    private static string ConsumerLabel(PromptElementConsumer consumer) => consumer switch
+    {
+        PromptElementConsumer.DeterministicFrame => "stated verbatim in the SHOT block",
+        PromptElementConsumer.DeterministicAppearance => "written into the appearance block",
+        _ => "read by the prompt compiler"
+    };
+
+    /// <summary>
+    /// Says, in one line, how many payload spots this row writes and (when wider) that its remove tick drops more.
+    /// </summary>
+    private static string CoverageHint(PromptFieldRow row)
+    {
+        var parts = new List<string>();
+        if (row.Scopes.Count > 1)
+        {
+            parts.Add($"edits {row.Scopes.Count} spots at once");
+        }
+        if (row.RemoveScopes.Count != row.Scopes.Count)
+        {
+            parts.Add($"removing it drops {row.RemoveScopes.Count} spots");
+        }
+        return parts.Count == 0 ? string.Empty : " · " + string.Join(" · ", parts);
+    }
+
+    /// <summary>
+    /// The row's own hint line: the consumer label normally, but for the CAMERA HOLDER's rows the role that row plays in
+    /// the first-person frame — position sets the camera height, sightline sets the aim, and the body facts are never
+    /// sent because the holder is never depicted. This is what makes "what does not apply to this POV" visible.
+    /// </summary>
+    private string RowHint(PromptFieldRow row, PromptGroup group)
+    {
+        if (group.CharacterKey is null || !IsCameraHolder(group))
+        {
+            return ConsumerLabel(row.Consumer);
+        }
+
+        var leaf = row.ElementKey[(row.ElementKey.LastIndexOf('.') + 1)..];
+        return leaf switch
+        {
+            "position" => "camera holder — sets the camera height",
+            "sightline" => "camera holder — sets the camera aim",
+            "physicalLocation" => "camera holder — the camera is at this spot",
+            "clothing" or "actionOrObservation" or "appearance" => "camera holder — NOT sent (never depicted)",
+            _ => ConsumerLabel(row.Consumer)
+        };
+    }
+
+    private IReadOnlyList<ReferenceApplicationSelection>? _suppliedScopesSource;
+    private HashSet<string> _referenceSuppliedScopes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The payload leaves the bound reference images already take over, cached per binding set so the inspector does not
+    /// re-derive the omission set for every row. The SAME omission owner the render uses, so the panel cannot claim an
+    /// element is reference-supplied that the render does not actually remove.
+    /// </summary>
+    private HashSet<string> ReferenceSuppliedScopes()
+    {
+        if (!ReferenceEquals(_suppliedScopesSource, _referenceBindings))
+        {
+            var omitted = ImageStepPromptOmission.ElementKeysFor(CompositionBlueprint, _referenceBindings);
+            var set = new HashSet<string>(omitted, StringComparer.OrdinalIgnoreCase);
+            // A BODY reference removes face AND build, which together cover the whole appearance row the inspector shows.
+            foreach (var key in omitted)
+            {
+                if (!key.EndsWith(".appearance.face", StringComparison.OrdinalIgnoreCase)) continue;
+                var prefix = key[..^".appearance.face".Length];
+                if (set.Contains(prefix + ".appearance.build"))
+                {
+                    set.Add(prefix + ".appearance");
+                }
+            }
+            _referenceSuppliedScopes = set;
+            _suppliedScopesSource = _referenceBindings;
+        }
+        return _referenceSuppliedScopes;
+    }
+
+    /// <summary>Whether a bound reference image supplies this row's whole concept, so its remove tick is locked.</summary>
+    private bool IsReferenceSupplied(PromptFieldRow row)
+        => row.RemoveScopes.Count > 0 && row.RemoveScopes.All(ReferenceSuppliedScopes().Contains);
+
+    /// <summary>
+    /// Re-applies the inspector edits saved on this group: the value the operator typed, and the sections/characters
+    /// they ticked for removal.
+    /// </summary>
+    /// <remarks>
+    /// The rows are rebuilt from the compiled brief on every load, so without this a reload silently discarded every
+    /// edit and the next Generate sent no overrides at all (reported 2026-10-22, "I think I lost the changes"). A key
+    /// that no longer exists — the brief was recompiled and the element is gone — is reported rather than dropped in
+    /// silence, because a stored edit that stops applying is exactly the kind of thing an operator must hear about.
+    /// </remarks>
+    private void RestorePromptInspectorOverrides()
+    {
+        var overrides = SceneImagePromptDraftJson.Read(_productionGroup?.PromptDraftJson, productionGroupId)?.Overrides;
+        if (overrides is null || overrides.IsEmpty)
+        {
+            return;
+        }
+
+        // A stored override is a LEAF key, while a row now covers a whole concept (several leaves). Map the leaf back
+        // to its row so an edit saved before the cluster change — or written against one leaf — still lands on the
+        // right row instead of being reported as stale.
+        PromptFieldRow? FindRow(string leafKey) => _promptRows.FirstOrDefault(row =>
+            row.Scopes.Any(scope => string.Equals(scope, leafKey, StringComparison.OrdinalIgnoreCase))
+            || row.RemoveScopes.Any(scope => string.Equals(scope, leafKey, StringComparison.OrdinalIgnoreCase)));
+
+        var stale = new List<string>();
+        _restoringPromptInspector = true;
+        try
+        {
+            foreach (var field in overrides.Fields)
+            {
+                var row = FindRow(field.ElementKey);
+                if (row is null)
+                {
+                    stale.Add(field.ElementKey);
+                    continue;
+                }
+
+                if (field.Removed)
+                {
+                    row.Removed = true;
+                }
+                else
+                {
+                    row.Value = field.Value ?? string.Empty;
+                }
+            }
+
+            foreach (var characterKey in overrides.RemovedCharacters)
+            {
+                var group = _promptGroups.FirstOrDefault(candidate =>
+                    string.Equals(candidate.CharacterKey, characterKey, StringComparison.OrdinalIgnoreCase));
+                if (group is null)
+                {
+                    stale.Add($"character:{characterKey}");
+                    continue;
+                }
+
+                SetGroupRemoved(group, true);
+            }
+        }
+        finally
+        {
+            _restoringPromptInspector = false;
+        }
+
+        if (stale.Count > 0)
+        {
+            _castReferenceError =
+                "Saved prompt edits that no longer match the compiled brief were not applied: " + string.Join(", ", stale);
+        }
+    }
+
+    /// <summary>
+    /// Whether a group is the character HOLDING the camera for this POV.
+    /// </summary>
+    /// <remarks>
+    /// Ticking "remove character" for the camera holder is a contradiction, not an instruction: the camera needs a
+    /// holder, and the prompt then failed with "POV character 'Becky' was removed from this prompt by an override, so
+    /// its camera has no holder" (reported 2026-10-22). The control is not offered, so the state cannot be built; the
+    /// guard stays in the job handler for a draft that was saved before this. Their rows still matter — their recorded
+    /// position sets the camera HEIGHT — so they stay editable.
+    /// </remarks>
+    private bool IsCameraHolder(PromptGroup group)
+        => group.CharacterKey is not null
+           && _productionGroup is not null
+           && !string.Equals(_productionGroup.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
+           && (string.Equals(group.CharacterKey, _productionGroup.Pov.Trim(), StringComparison.OrdinalIgnoreCase)
+               || group.Rows.Any(row => row.Label.StartsWith(_productionGroup.Pov.Trim() + " —", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Ticking "remove character" ticks every section belonging to that character, so the two controls can never
+    /// disagree about whether the character is in the render.
+    /// </summary>
+    private void SetGroupRemoved(PromptGroup group, bool removed)
+    {
+        group.Removed = removed;
+        foreach (var row in group.Rows)
+        {
+            row.Removed = removed;
+        }
+
+        QueuePromptDraftSave();
+    }
+
+    /// <summary>
+    /// A per-section tick. Releasing one section of a character also releases the character-level removal: with the
+    /// group still ticked, <see cref="BuildPromptOverrides"/> skips every row of that character, so the untick would
+    /// silently do nothing.
+    /// </summary>
+    private void SetRowRemoved(PromptGroup group, PromptFieldRow row, bool removed)
+    {
+        row.Removed = removed;
+        if (!removed)
+        {
+            group.Removed = false;
+        }
+
+        QueuePromptDraftSave();
+    }
 
     /// <summary>Character keys ticked for removal (derived from the inspector groups).</summary>
     private IReadOnlySet<string> RemovedCharacterKeys => _promptGroups
@@ -1363,11 +2685,18 @@
             if (row.CharacterKey is not null && removed.Contains(row.CharacterKey)) continue;
             if (row.Removed)
             {
-                overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = row.ElementKey, Removed = true });
+                // A remove tick removes the WHOLE concept — every leaf the concept covers, not just the one shown.
+                foreach (var scope in row.RemoveScopes)
+                    overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = scope, Removed = true });
                 continue;
             }
             if (!string.Equals(row.Value, row.OriginalValue, StringComparison.Ordinal))
-                overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = row.ElementKey, Value = row.Value });
+            {
+                // An edit writes the new value to every leaf the concept covers, so the fix lands in each spot the
+                // fact was stated — the "shaded in many places" fix.
+                foreach (var scope in row.Scopes)
+                    overrides.Fields.Add(new ScenePromptFieldOverride { ElementKey = scope, Value = row.Value });
+            }
         }
         overrides.RemovedCharacters.AddRange(removed);
         return overrides.IsEmpty ? null : overrides;
@@ -1497,6 +2826,409 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// One Composition attempt as the shared card. The page owns the facts and the card owns the presentation, and the
+    /// decisions it shows are the page's own: the group's approval (which attempt is the current production frame), the
+    /// attempt's disposition, and its execution status. "Accepted" is deliberately not among them — a disposition says
+    /// an attempt was shortlisted or rejected, and it is never read as "approved".
+    /// </summary>
+    private SceneImageCardModel CardModel(SceneImageRecord attempt)
+    {
+        var isApproved = _approvedAttemptIds.Contains(attempt.Id);
+        return new SceneImageCardModel
+        {
+            Id = attempt.Id,
+            FileRelativePath = attempt.FileRelativePath,
+            StatusText = isApproved ? "Approved" : attempt.Status.ToString(),
+            StatusBadgeClass = isApproved
+                ? "text-bg-success"
+                : attempt.Status switch
+                {
+                    SceneImageStatus.Complete => "text-bg-light",
+                    SceneImageStatus.Failed => "text-bg-danger",
+                    _ => "text-bg-secondary"
+                },
+            IsComplete = attempt.Status == SceneImageStatus.Complete,
+            ErrorMessage = attempt.ErrorMessage,
+            Subtitle = attempt.CreatedUtc.ToLocalTime().ToString("g"),
+            DisplayName = attempt.DisplayName,
+            ApprovalBadgeText = isApproved ? "Production frame" : null,
+            IsProductionApproved = isApproved,
+            DecisionBadgeText = attempt.Disposition is SceneImageAttemptDisposition.Shortlisted
+                or SceneImageAttemptDisposition.Rejected
+                    ? attempt.Disposition.ToString()
+                    : null,
+            DecisionKey = attempt.Status switch
+            {
+                SceneImageStatus.Pending or SceneImageStatus.Generating => ImageCardStatus.Pending,
+                SceneImageStatus.Failed => ImageCardStatus.Failed,
+                _ => attempt.Disposition switch
+                {
+                    SceneImageAttemptDisposition.Shortlisted => ImageCardStatus.Shortlisted,
+                    SceneImageAttemptDisposition.Rejected => ImageCardStatus.Rejected,
+                    SceneImageAttemptDisposition.Archived => ImageCardStatus.Archived,
+                    _ => isApproved ? ImageCardStatus.Approved : ImageCardStatus.Undecided
+                }
+            }
+        };
+    }
+
+    /// <summary>
+    /// Names one Composition image. The row is updated in place rather than by reloading the page: a name is not a
+    /// reason to re-read the group, the brief and the moment, and a reload would also discard whatever the operator has
+    /// typed into the step.
+    /// </summary>
+    private async Task NameCompositionImageAsync(SceneImageRecord attempt, string? name)
+    {
+        try
+        {
+            var named = await ImageService.SetDisplayNameAsync(sessionId, attempt.Id, name);
+            var index = _productionImages.FindIndex(item => string.Equals(item.Id, attempt.Id, StringComparison.Ordinal));
+            if (index >= 0)
+            {
+                _productionImages[index] = named;
+            }
+
+            index = _compositionAttempts.FindIndex(item => string.Equals(item.Id, attempt.Id, StringComparison.Ordinal));
+            if (index >= 0)
+            {
+                _compositionAttempts[index] = named;
+            }
+
+            _statusMessage = string.IsNullOrWhiteSpace(named.DisplayName)
+                ? "Cleared this Composition image's name."
+                : $"This Composition image is named '{named.DisplayName}'.";
+        }
+        catch (Exception exception)
+        {
+            _statusMessage = exception.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// What this row is, in the operator's words. A flat production list mixes a Composition with everything derived
+    /// from it, and "stage" cannot say which of them a row is: an editor edit records NO stage at all, so the operation
+    /// is what identifies it and the stage only refines an edit's name.
+    /// </summary>
+    private static string KindLabel(SceneImageRecord attempt) => attempt.Operation switch
+    {
+        SceneImageOperation.Crop => "Crop",
+        SceneImageOperation.Enhance => "Enhance",
+        SceneImageOperation.Edit => attempt.ProductionStage switch
+        {
+            SceneImageProductionStage.Preset => "Preset edit",
+            SceneImageProductionStage.MultiAngle => "Camera edit",
+            SceneImageProductionStage.Finish => "Finish",
+            SceneImageProductionStage.Identity => "Identity edit",
+            _ => "Edit"
+        },
+        _ => attempt.ProductionStage switch
+        {
+            SceneImageProductionStage.Composition => "Composition",
+            SceneImageProductionStage.Identity => "Identity",
+            SceneImageProductionStage.Finish => "Finish",
+            _ => "Generated"
+        }
+    };
+
+    /// <summary>
+    /// The image this one was derived from, named as the operator named it. A flat list is only readable if a derived
+    /// row says what it came from, and an unnamed parent falls back to a short id rather than being shown as
+    /// parentless — the row HAS a parent, and hiding it would misstate the lineage.
+    /// </summary>
+    private string? ParentLabel(SceneImageRecord attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.SourceImageId))
+        {
+            return null;
+        }
+
+        var parent = _productionImages.FirstOrDefault(
+            item => string.Equals(item.Id, attempt.SourceImageId, StringComparison.Ordinal));
+        if (parent is null)
+        {
+            return null;
+        }
+
+        var label = string.IsNullOrWhiteSpace(parent.DisplayName) ? parent.Id[..8] : parent.DisplayName;
+        return $"{KindLabel(parent)} “{label}”";
+    }
+
+    /// <summary>
+    /// Whether this row can be approved as the production frame. The DOMAIN's gate decides — the same call the approval
+    /// itself makes — so the button appears exactly when the write would be accepted, instead of on this page's own idea
+    /// of a valid row.
+    /// </summary>
+    private bool CanApprove(SceneImageRecord attempt)
+        => _productionGroup is not null
+            && attempt.Status == SceneImageStatus.Complete
+            && SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is null;
+
+    private void ToggleMetadata(string imageId)
+    {
+        _metadataImageId = string.Equals(_metadataImageId, imageId, StringComparison.Ordinal) ? null : imageId;
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Records the tags the rail just wrote on the row this page is showing, in place. Only the tag list changed, so
+    /// re-reading the group, the brief and the moment to learn one string would be work for nothing.
+    /// </summary>
+    private Task OnCompositionTagsChangedAsync(IReadOnlyList<string> tags)
+    {
+        if (string.IsNullOrWhiteSpace(_metadataImageId))
+        {
+            return Task.CompletedTask;
+        }
+
+        var json = JsonSerializer.Serialize(tags, JsonOptions);
+        foreach (var list in new[] { _productionImages, _compositionAttempts })
+        {
+            var index = list.FindIndex(item => string.Equals(item.Id, _metadataImageId, StringComparison.Ordinal));
+            if (index >= 0)
+            {
+                list[index].TagsJson = json;
+            }
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// The card's one shortlist control, which both shortlists and returns an attempt to active: a star that only ever
+    /// turned on would leave "I did not mean that" with no way back.
+    /// </summary>
+    private Task ToggleCompositionShortlistAsync(SceneImageRecord attempt)
+        => SetCompositionDispositionAsync(
+            attempt,
+            attempt.Disposition == SceneImageAttemptDisposition.Shortlisted
+                ? SceneImageAttemptDisposition.Active
+                : SceneImageAttemptDisposition.Shortlisted);
+
+    private void OpenCompositionReview() => Nav.NavigateTo($"/review-deck/studio/{productionGroupId}");
+
+    private void OpenCompositionInEditor(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/image-editor/{sessionId}/{interactionId}/{attempt.Id}");
+
+    private void OpenCompositionDownload(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/scene-images/{attempt.Id}/download");
+
+    private void OpenCompositionInVideoStudio(SceneImageRecord attempt)
+        => Nav.NavigateTo($"/roleplay/video-studio/session/{sessionId}/{interactionId}/{attempt.Id}");
+
+    /// <summary>
+    /// Re-applies what made this image to this page: the prompt that reached the sampler, the model, the reference set,
+    /// and the LoRAs and pose the render carried.
+    ///
+    /// <para>
+    /// The bindings are RESTORED rather than re-derived: they are the record of what the model actually received, and
+    /// re-planning them from the moment produces a similar frame instead of this one's inputs. The card's command
+    /// promises "the prompt, model, size, seed and references that made this image"; restoring only the model and the
+    /// bindings — which is what this used to do — left the prompt box untouched, so the one input the operator asked
+    /// for by name appeared not to happen at all.
+    /// </para>
+    ///
+    /// <para>
+    /// The model is adopted only when it is still one of the ENABLED Composition models this page offers. An image
+    /// produced by an edit records an editor model, and so does an image whose row was later reconfigured as one, and
+    /// Model Manager keeps editor models out of the Composition picker — adopting such an id left the selection naming
+    /// a model the page cannot render with, which took the whole page down instead of saying so.
+    /// </para>
+    /// </summary>
+    private async Task RestoreCompositionInputsAsync(SceneImageRecord attempt)
+    {
+        if (attempt.Status != SceneImageStatus.Complete)
+        {
+            _statusMessage = "Only a completed Composition image has recorded inputs that can be restored.";
+            return;
+        }
+
+        var recordedModelId = attempt.RequestedModelId;
+        var modelRestored = !string.IsNullOrWhiteSpace(recordedModelId)
+            && _modelChoices.Any(choice => choice.ModelId == recordedModelId);
+        if (modelRestored)
+        {
+            _selectedModelId = recordedModelId;
+        }
+
+        _referenceBindings = ReadRecordedBindings(attempt);
+        var promptStyle = await RestoreRecordedPromptAsync(attempt);
+        var notRecorded = RestoreRecordedSettings(attempt);
+
+        var parts = new List<string>();
+        parts.Add(promptStyle is { } style
+            ? $"the {SceneImagePromptStyleResolver.DisplayLabel(style)} prompt"
+            : "no prompt (this image's prompt record is gone)");
+        parts.Add(string.IsNullOrWhiteSpace(recordedModelId)
+            ? "no model"
+            : modelRestored
+                ? "the model"
+                : $"no model (the recorded model '{recordedModelId}' is not an enabled Composition model, so the "
+                    + "current selection was kept)");
+        parts.Add(_referenceBindings.Count == 0
+            ? "no reference set"
+            : $"{_referenceBindings.Count} reference(s)");
+        if (notRecorded.Count > 0)
+        {
+            parts.Add($"nothing for {string.Join(", ", notRecorded)} (not recorded on this image)");
+        }
+
+        _statusMessage = $"Reloaded {string.Join(", ", parts)}.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// Puts the prompt that made this image back into the style box it was drawn in, and adopts that image's own prompt
+    /// record so the next render uses the record the image was rendered from rather than whichever draft happened to be
+    /// loaded.
+    ///
+    /// <para>
+    /// The TEXT comes from the image's own <c>PromptSnapshot</c> — what the sampler actually received — and the STYLE
+    /// from the prompt record, which is the only thing that records it. When the record is gone there is no way to know
+    /// which style the prompt was drawn in, so nothing is written and the caller says so: writing it into a guessed tab
+    /// would put a Pony tag prompt into the natural-language box.
+    /// </para>
+    /// </summary>
+    /// <returns>The style the prompt was restored into, or null when nothing could be restored.</returns>
+    private async Task<SceneImagePromptStyle?> RestoreRecordedPromptAsync(SceneImageRecord attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.PromptRecordId))
+        {
+            return null;
+        }
+
+        var record = await ImageService.GetPromptAsync(sessionId, attempt.PromptRecordId);
+        if (record is null)
+        {
+            return null;
+        }
+
+        var style = SceneImagePromptStyleResolver.Effective(record.PromptStyle);
+        AdoptCompletedPrompt(record);
+        // Reloading an image is an explicit "make the panel look like it did" request, so the source and the intent
+        // come back with the prompt — the once-per-page guard exists only to stop POLLS from stomping edits. The
+        // restored panel is then SAVED, so a later page load shows this image's drafting state rather than the one
+        // that happened to be stored before the reload.
+        AdoptPromptSource(record);
+        await SavePromptDraftAsync();
+        if (!string.IsNullOrWhiteSpace(attempt.PromptSnapshot))
+        {
+            SetPromptText(style, attempt.PromptSnapshot);
+        }
+
+        _activeStyle = style;
+        return style;
+    }
+
+    /// <summary>
+    /// Re-applies the LoRAs and the pose the render carried, out of the settings snapshot the image recorded, and
+    /// reports which of them the image did not record at all.
+    /// </summary>
+    /// <returns>The names of the inputs this image recorded nothing for.</returns>
+    private List<string> RestoreRecordedSettings(SceneImageRecord attempt)
+    {
+        var recorded = SceneImageRecordedInputs.Read(attempt.SettingsJson);
+        var notRecorded = new List<string>();
+
+        if (recorded.CharacterLoras.Count > 0)
+        {
+            _characterLoras = recorded.CharacterLoras;
+        }
+        else
+        {
+            notRecorded.Add("character LoRAs");
+        }
+
+        if (recorded.SceneLoras.Count > 0)
+        {
+            _sceneLoras = recorded.SceneLoras;
+        }
+        else
+        {
+            notRecorded.Add("scene LoRAs");
+        }
+
+        if (string.IsNullOrWhiteSpace(recorded.PoseSkeletonRelativePath))
+        {
+            notRecorded.Add("the pose");
+        }
+        else
+        {
+            _poseStoragePath = recorded.PoseSkeletonRelativePath;
+            if (recorded.PoseStrength is { } strength)
+            {
+                _poseStrength = strength;
+            }
+            else
+            {
+                notRecorded.Add("the pose's strength");
+            }
+        }
+
+        return notRecorded;
+    }
+
+    /// <summary>
+    /// The card's "use as reference": restore what made this Composition AND bind the image ITSELF as the step's
+    /// location reference, so the next render is anchored to this place.
+    ///
+    /// <para>
+    /// The image goes in as a LOCATION reference through the composer's own plan — the only thing that may author a
+    /// binding — because that is what an operator means by "use this picture as the place". Nothing is invented about
+    /// its approval: it is a rendered image, and the channel that carries it asks only for the bytes it was bound with.
+    /// </para>
+    /// </summary>
+    private async Task UseCompositionImageAsReferenceAsync(SceneImageRecord attempt)
+    {
+        if (attempt.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(attempt.FileRelativePath))
+        {
+            _statusMessage = "Only a completed Composition image can be used as a location reference.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(attempt.Sha256))
+        {
+            _statusMessage = $"Composition image '{attempt.Id}' records no checksum, so a reference to it could not be proven exact.";
+            return;
+        }
+
+        await RestoreCompositionInputsAsync(attempt);
+        _requestedLocationReference = SceneImageLocationReferenceRequest.ForRenderedImage(
+            attempt.Id, attempt.Sha256, attempt.DisplayName);
+        // The restore's own report is kept rather than replaced: which inputs came back (and which the image never
+        // recorded) is what tells the operator whether this really is the render they meant to continue from.
+        _statusMessage = $"{_statusMessage} Bound this image itself as the Location reference — render to continue from it.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>
+    /// The reference set a finished render recorded, or none when it recorded nothing readable. Unreadable provenance is
+    /// treated as ABSENT rather than thrown over: the row's own record is what is being restored, and refusing to open
+    /// the image because its provenance cannot be parsed would hide the image over a detail of its metadata.
+    /// </summary>
+    private IReadOnlyList<ReferenceApplicationSelection> ReadRecordedBindings(SceneImageRecord attempt)
+    {
+        if (string.IsNullOrWhiteSpace(attempt.AppliedReferenceBindingsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ReferenceApplicationSelection>>(
+                attempt.AppliedReferenceBindingsJson, JsonOptions) ?? [];
+        }
+        catch (JsonException exception)
+        {
+            Logger.LogWarning(
+                exception, "Recorded reference bindings for Composition image {ImageId} are unreadable.", attempt.Id);
+            _statusMessage = "This image's recorded reference set is unreadable, so it was left as it was.";
+            return [];
+        }
+    }
+
     private async Task OnModelChangedAsync()
     {
         // Re-derive the identity-capable model options and re-check the ReferenceConditioning
@@ -1532,11 +3264,14 @@
     {
         await RunAsync(async () =>
         {
-            if (_productionGroup?.IdentityPolicy != SceneImageIdentityPolicy.SkippedByUser)
-                throw new InvalidOperationException("A Composition can only be approved after identity is skipped for this production group (Production Studio > Identity > Record identity skip).");
-            if (string.IsNullOrWhiteSpace(attempt.Sha256))
-                throw new InvalidOperationException("Approval requires the Composition checksum; the image may still be processing.");
-            await ProductionService.ApproveAsync(_productionGroup!.Id, attempt.Id, attempt.Sha256, "Composition Composer", null);
+            if (_productionGroup is null)
+                throw new InvalidOperationException("Choose a production group before approving a frame.");
+            // The gate is the DOMAIN's, so this page and the approval itself reach the same verdict. It used to demand a
+            // skipped identity policy here as well as in the studio, which is why an attempt was approvable on one
+            // surface and not the other.
+            if (SceneImageFrameApprovalGate.BlockerFor(_productionGroup, attempt) is { } blocker)
+                throw new InvalidOperationException(blocker.Message);
+            await ProductionService.ApproveAsync(_productionGroup.Id, attempt.Id, attempt.Sha256!, "Composition Composer", null);
             _statusMessage = "Composition approved.";
             await LoadAsync();
         });
@@ -1636,6 +3371,15 @@
         {
             await _pollingCts.CancelAsync();
             _pollingCts.Dispose();
+        }
+
+        // A debounced save that has not fired yet holds the operator's last few seconds of typing: write the panel once
+        // more before the circuit goes away rather than dropping them. An extra identical write costs one UPDATE and is
+        // cheaper than reasoning about whether the timer beat us to it.
+        if (_draftSaveCts is not null)
+        {
+            await _draftSaveCts.CancelAsync();
+            await SavePromptDraftAsync();
         }
     }
 }

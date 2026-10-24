@@ -85,7 +85,7 @@ public sealed class QwenSceneImageEditPromptCompilerTests
     [Fact]
     public void BuildMessages_WithAnOutpaint_AddsTheOutpaintClause()
     {
-        var outpaint = new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 3);
+        var outpaint = new MediaEditOutpaintOperation(MediaEditOutpaintDirection.Right, 50, GrowMaskBy: 2, FeatherPixels: 16);
 
         var messages = _compiler.BuildMessages(new SceneImageEditCompilerContext(
             "Seamlessly extend the scene.", [], null, outpaint));
@@ -335,6 +335,54 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         Assert.Throws<InvalidOperationException>(() => _compiler.Parse(json));
     }
 
+    /// <summary>
+    /// Measured 2026-10-13 on a scene-image edit: the model returned a field-valid envelope whose compiledPrompt
+    /// value was that same envelope serialized as a string. Every field check passed and the JSON was persisted as
+    /// the instruction the image editor then executed. The compiled prompt is the only text the editor receives, so
+    /// a serialized envelope is refused by name rather than persisted.
+    /// </summary>
+    [Fact]
+    public void Parse_ReadyWhoseCompiledPromptIsTheSerializedEnvelope_Fails()
+    {
+        var serializedEnvelope = ReadyJson();
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => _compiler.Parse(ReadyWithPromptJson(serializedEnvelope)));
+
+        Assert.Contains("prose instruction", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Any JSON object in the field is refused, not just a copy of the envelope.</summary>
+    [Fact]
+    public void Parse_ReadyWhoseCompiledPromptIsAJsonObject_Fails()
+    {
+        var error = Assert.Throws<InvalidOperationException>(
+            () => _compiler.Parse(ReadyWithPromptJson("{\"instruction\":\"turn the woman to the right\"}")));
+
+        Assert.Contains("prose instruction", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A prose instruction is unaffected by the gate, including one that quotes a phrase.</summary>
+    [Fact]
+    public void Parse_ReadyWithAProseCompiledPrompt_StillSucceeds()
+    {
+        var result = _compiler.Parse(ReadyWithPromptJson(
+            "Rotate the woman on the image left a full 90 degrees toward the right edge of the image, turning her head, face, shoulders, torso, hips, knees and feet into a clear right-facing side profile; keep her identity, clothing, the basket she carries, and the yard unchanged."));
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+        Assert.Contains("side profile", result.CompiledPrompt!, StringComparison.Ordinal);
+    }
+
+    /// <summary>Prose that merely opens with a bracket is still an instruction, so it is not refused as JSON.</summary>
+    [Fact]
+    public void Parse_ReadyWithBracketedProse_StillSucceeds()
+    {
+        var result = _compiler.Parse(ReadyWithPromptJson(
+            "[the woman on the image left] turn her to face the right edge of the image; keep her identity and the room unchanged."));
+
+        Assert.Equal(SceneImageEditCompilationResultStatus.Ready, result.Status);
+    }
+
     [Fact]
     public void Parse_PixelScaleRegion_NormalizesUsingSourceDimensions()
     {
@@ -409,5 +457,22 @@ public sealed class QwenSceneImageEditPromptCompilerTests
         clarificationQuestion = clarification,
         invalidReason = invalid,
         compiledPrompt = prompt
+    });
+
+    /// <summary>
+    /// A field-valid ready envelope carrying an arbitrary compiled prompt, so a test can drive the
+    /// compiled-prompt contract without the changes/preservation checks firing first.
+    /// </summary>
+    private static string ReadyWithPromptJson(string compiledPrompt) => JsonSerializer.Serialize(new
+    {
+        schemaVersion = QwenSceneImageEditPromptCompiler.SchemaVersion,
+        status = "ready",
+        sourceSummary = "A woman walks on a lawn carrying a laundry basket.",
+        targets = Array.Empty<object>(),
+        requestedChanges = new[] { "Turn her fully to the right." },
+        preserve = new[] { "identity", "clothing", "setting" },
+        clarificationQuestion = (string?)null,
+        invalidReason = (string?)null,
+        compiledPrompt
     });
 }

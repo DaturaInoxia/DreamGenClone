@@ -14,6 +14,17 @@ public enum SceneImagePromptStatus
 }
 
 /// <summary>
+/// Where a prompt record's text came from. <see cref="Scene"/> drafts from the compiled Still brief (the canonical
+/// path); <see cref="UserIntent"/> passes the operator's own instruction to the compiler instead. Stored per record so
+/// a render can be audited and replayed, rather than inferred from whatever the scene happened to contain.
+/// </summary>
+public enum SceneImagePromptSource
+{
+    Scene = 0,
+    UserIntent = 1
+}
+
+/// <summary>
 /// The editable image prompt draft for an interaction. One record per prompt generation/refine
 /// attempt. The studio shows <see cref="OutputPrompt"/> in an editable textarea; renders reference
 /// this record by id but snapshot the exact prompt text sent to the image model.
@@ -44,6 +55,16 @@ public sealed class SceneImagePromptRecord
     /// carry <see cref="SceneImagePromptStyle.Unknown"/> and are treated as natural-language.
     /// </summary>
     public SceneImagePromptStyle PromptStyle { get; set; } = SceneImagePromptStyle.Unknown;
+
+    /// <summary>
+    /// Where this record's text came from. <see cref="SceneImagePromptSource.Scene"/> is the canonical brief draft;
+    /// <see cref="SceneImagePromptSource.UserIntent"/> compiles <see cref="UserIntent"/> instead. Persisted so the
+    /// prompt source is data the render can be audited against — never inferred from the scene.
+    /// </summary>
+    public SceneImagePromptSource PromptSource { get; set; } = SceneImagePromptSource.Scene;
+
+    /// <summary>The operator's own instruction, used only when <see cref="PromptSource"/> is UserIntent.</summary>
+    public string? UserIntent { get; set; }
 
     /// <summary>Optional user instruction threaded into the pre-processor on a refine pass.
     /// Persisted so the job handler can apply it — not editable after enqueue.</summary>

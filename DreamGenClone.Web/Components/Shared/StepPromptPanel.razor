@@ -1,3 +1,4 @@
+@using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
 
@@ -77,6 +78,11 @@
             No reference supplies an element yet, so the prompt describes everything.
         </div>
     }
+
+    @* B-157: the final prompt and the reference map, from the one shared component — so the composition page and this
+       panel cannot show two different answers about which image is which person. *@
+    <StepPromptFramePreview Prompt="@Prompt" Bindings="@Bindings" Blocking="@Blocking"
+                            LeadingImagesForThisSurface="@LeadingImagesForThisSurface" />
 </section>
 
 @code {
@@ -88,8 +94,7 @@
     public EventCallback<string?> PromptChanged { get; set; }
 
     /// <summary>Optional iteration instruction for the Refine path.</summary>
-    [Parameter]
-    public string? RefineInstruction { get; set; }
+    [Parameter]    public string? RefineInstruction { get; set; }
 
     [Parameter]
     public EventCallback<string?> RefineInstructionChanged { get; set; }
@@ -141,6 +146,25 @@
     /// <summary>Why it cannot run yet, shown as the disabled button's tooltip.</summary>
     [Parameter]
     public string? CreateBlockedReason { get; set; }
+
+    /// <summary>
+    /// How this step's subjects sit in the frame, when the host has it (B-157).
+    ///
+    /// <para>
+    /// Optional, and null means "the host does not know": the preview then shows the same scene-level wording such a
+    /// step would render with today, and says so. A host that DOES have the brief's blocking gets the positional
+    /// preview without this component changing again — the reading of the frame stays in one place, the brief.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public SceneBlocking? Blocking { get; set; }
+
+    /// <summary>
+    /// How many images this surface puts BEFORE the references (B-159), which decides the first tag. Forwarded to the
+    /// preview so its tag check does not report a correct edit prompt as naming a reference that does not exist.
+    /// </summary>
+    [Parameter]
+    public int LeadingImagesForThisSurface { get; set; } = ReferenceRoleClauses.LeadingImageCount.Generate;
 
     private bool IsStale => StepPromptStaleness.IsStale(GeneratedForSignature, Bindings);
 

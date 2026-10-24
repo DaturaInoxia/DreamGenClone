@@ -133,8 +133,7 @@ else
                         {
                             <div class="small text-warning mt-1">
                                 The <strong>@prerequisite</strong> is not accepted yet, so <strong>@GenerateLabelFor(slot)</strong>
-                                would refuse: a view is that same body, turned. Accept the @prerequisite first (record its
-                                findings, or use "All four pass · record &amp; accept" on that row).
+                                would refuse: a view is that same body, turned. Accept the @prerequisite first.
                             </div>
                         }
 
@@ -364,7 +363,8 @@ else
                                                             @if (candidate.Status == SceneAssetStatus.Complete)
                                                             {
                                                                 <div class="mt-2">
-                                                                    <ImageTags Image="candidate" Editable="true" TagsChanged="() => RefreshAsync()" />
+                                                                    <ImageTags ImageId="candidate.Id" Target="ImageTagTarget.AssetLibrary"
+                                                                               TagsJson="candidate.TagsJson" Editable="true" TagsChanged="() => RefreshAsync()" />
                                                                 </div>
                                                             }
                                                             @if (!string.IsNullOrWhiteSpace(candidate.CandidateNotes))
@@ -382,8 +382,7 @@ else
                                                             {
                                                                 <div class="small text-warning w-100 mt-1">
                                                                     This image is decided Accepted, but the VIEW is not accepted yet
-                                                                    (@(view?.Status.ToString() ?? "NotStarted")). Record this view's findings (or an
-                                                                    attributed override) and then accept it.
+                                                                    (@(view?.Status.ToString() ?? "NotStarted")). Accept the view to finish.
                                                                 </div>
                                                             }
                                                         </FooterContent>
@@ -405,70 +404,10 @@ else
                                 </div>
 
                                 <div class="border-top mt-2 pt-2">
-                                    <div class="small fw-semibold mb-1">Findings — a judgement about this image, recorded with who made it</div>
-                                    <div class="row g-2">
-                                        @foreach (var check in CharacterIdentityBodyChecks.All)
-                                        {
-                                            <div class="col-md-6">
-                                                <label class="form-label small mb-1">@CharacterIdentityBodyChecks.Label(check)</label>
-                                                <select class="form-select form-select-sm"
-                                                        value="@VerdictFor(keyText, check)"
-                                                        @onchange="e => SetVerdict(keyText, check, e.Value?.ToString())">
-                                                    @foreach (var verdict in Enum.GetValues<CharacterIdentityBodyCheckVerdict>())
-                                                    {
-                                                        <option value="@verdict">@verdict</option>
-                                                    }
-                                                </select>
-                                            </div>
-                                        }
-                                        <div class="col-md-6">
-                                            <label class="form-label small mb-1">Reviewer</label>
-                                            <CommittedTextInput class="form-control form-control-sm" Live="@ReviewerFor(keyText)"
-                                                   LiveChanged="e => _reviewers[keyText] = e ?? string.Empty" />
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label small mb-1">Note</label>
-                                            <CommittedTextInput class="form-control form-control-sm" Live="@NoteFor(keyText)"
-                                                   LiveChanged="e => _notes[keyText] = e ?? string.Empty" />
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn btn-sm btn-outline-success mt-2"
-                                            @onclick="() => RecordFindingsAsync(key)" disabled="@IsSubmitting(keyText)">
-                                        Record findings
-                                    </button>
-                                    @* One action for the common judgement. The gate read as "the workflow is stuck": an image was
-                                       approved and nothing said that acceptance ALSO needs the four checks recorded. The record is
-                                       identical either way — an attributed verdict per check, against the named reviewer. *@
-                                    <button type="button" class="btn btn-sm btn-success mt-2 ms-1"
-                                            @onclick="() => RecordChecksPassedAndAcceptAsync(key)" disabled="@IsSubmitting(keyText)"
-                                            title="Record the named reviewer's judgement that all four checks pass, then accept the view">
-                                        All four pass · record &amp; accept
-                                    </button>
-                                    @if (view is not null && view.Findings.NotPassed.Count > 0)
-                                    {
-                                        <div class="small text-muted mt-1">
-                                            Not a recorded pass: @string.Join(", ", view.Findings.NotPassed.Select(item => $"{CharacterIdentityBodyChecks.Label(item.Check)} = {item.Verdict}"))
-                                        </div>
-                                    }
-                                </div>
-
-                                <div class="border-top mt-2 pt-2">
-                                    <div class="small fw-semibold mb-1">Attributed override — only for a view the checks refuse</div>
-                                    <div class="row g-2">
-                                        <div class="col-md-6">
-                                            <CommittedTextInput class="form-control form-control-sm" placeholder="Reason"
-                                                   Live="@OverrideReasonFor(keyText)"
-                                                   LiveChanged="e => _overrideReasons[keyText] = e ?? string.Empty" />
-                                        </div>
-                                        <div class="col-md-6">
-                                            <CommittedTextInput class="form-control form-control-sm" placeholder="Author"
-                                                   Live="@OverrideAuthorFor(keyText)"
-                                                   LiveChanged="e => _overrideAuthors[keyText] = e ?? string.Empty" />
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn btn-sm btn-outline-warning mt-2"
-                                            @onclick="() => RecordOverrideAsync(key)" disabled="@IsSubmitting(keyText)">
-                                        Record override
+                                    <button type="button" class="btn btn-sm btn-success"
+                                            @onclick="() => AcceptAsync(key)" disabled="@IsSubmitting(keyText)"
+                                            title="Accept this view as it stands — the next step waits on it">
+                                        Accept
                                     </button>
                                 </div>
                             </div>
@@ -674,11 +613,6 @@ else
     private readonly Dictionary<string, IReadOnlyList<SceneImageCharacterLoraSelection>> _viewLoras = new(StringComparer.Ordinal);
     private readonly Dictionary<string, IReadOnlyList<SceneImageLoraSelection>> _viewSceneLoras = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _messages = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _reviewers = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, CharacterIdentityBodyCheckVerdict> _draftVerdicts = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _overrideReasons = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, string> _overrideAuthors = new(StringComparer.Ordinal);
 
     private string? _openKey;
     private string _panelMessage = string.Empty;
@@ -792,6 +726,56 @@ else
         await ViewsChanged.InvokeAsync(_views);
     }
 
+    /// <summary>
+    /// Reads everything this panel renders from — the view rows, the container's images, and the candidate history —
+    /// in ONE pass.
+    ///
+    /// <para>
+    /// They must be read together, and an action that changes one changes the others. The rows say a view is Pending
+    /// and name the image it is waiting on; the images map says whether that image is actually there. Load the rows
+    /// alone after queueing a render — which is what the action path used to do — and the freshly queued artifact is
+    /// not yet in the map, so the panel concludes the artifact is <em>missing</em> and tells the operator the render
+    /// they just started will never arrive (reported 2026-10-11).
+    /// </para>
+    /// </summary>
+    private async Task LoadPanelStateAsync()
+    {
+        await LoadViewsAsync();
+
+        // The views' images live on the build's container asset; the map is rebuilt rather than cached so a
+        // deleted artifact cannot leave a stale preview behind.
+        var container = await BodyService.EnsureContainerAsync(BuildId);
+        var images = await AssetService.ListImagesAsync(container.Id);
+        _previews = images
+            .Where(image => !string.IsNullOrWhiteSpace(image.FileRelativePath))
+            .GroupBy(image => image.Id, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => $"/scene-images/{group.First().FileRelativePath}",
+                StringComparer.Ordinal);
+        _imageStatuses.Clear();
+        foreach (var group in images.GroupBy(image => image.Id, StringComparer.Ordinal))
+        {
+            _imageStatuses[group.Key] = group.First().Status;
+        }
+
+        // The same list already holds every candidate this view ever produced, because each generation joins the
+        // view's batch. Grouping by batch is what makes the history reachable: the view row only pointed at the
+        // newest image, so without this a re-run looked like the previous result had been thrown away.
+        //
+        // NEWEST FIRST (operator decision, 2026-09-22): the deck opens on the attempt just made, which is the one
+        // being judged, instead of burying it below every earlier attempt.
+        _candidatesByBatch = images
+            .Where(image => !string.IsNullOrWhiteSpace(image.CandidateBatchId))
+            .GroupBy(image => image.CandidateBatchId!, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<SceneAssetImage>)group
+                    .OrderByDescending(image => image.CreatedUtc)
+                    .ToList(),
+                StringComparer.Ordinal);
+    }
+
     private async Task RefreshAsync()
     {
         if (string.IsNullOrWhiteSpace(BuildId) || _refreshing)
@@ -802,40 +786,7 @@ else
         _refreshing = true;
         try
         {
-            await LoadViewsAsync();
-
-            // The views' images live on the build's container asset; the map is rebuilt rather than cached so a
-            // deleted artifact cannot leave a stale preview behind.
-            var container = await BodyService.EnsureContainerAsync(BuildId);
-            var images = await AssetService.ListImagesAsync(container.Id);
-            _previews = images
-                .Where(image => !string.IsNullOrWhiteSpace(image.FileRelativePath))
-                .GroupBy(image => image.Id, StringComparer.Ordinal)
-                .ToDictionary(
-                    group => group.Key,
-                    group => $"/scene-images/{group.First().FileRelativePath}",
-                    StringComparer.Ordinal);
-            _imageStatuses.Clear();
-            foreach (var group in images.GroupBy(image => image.Id, StringComparer.Ordinal))
-            {
-                _imageStatuses[group.Key] = group.First().Status;
-            }
-
-            // The same list already holds every candidate this view ever produced, because each generation joins the
-            // view's batch. Grouping by batch is what makes the history reachable: the view row only pointed at the
-            // newest image, so without this a re-run looked like the previous result had been thrown away.
-            //
-            // NEWEST FIRST (operator decision, 2026-09-22): the deck opens on the attempt just made, which is the one
-            // being judged, instead of burying it below every earlier attempt.
-            _candidatesByBatch = images
-                .Where(image => !string.IsNullOrWhiteSpace(image.CandidateBatchId))
-                .GroupBy(image => image.CandidateBatchId!, StringComparer.Ordinal)
-                .ToDictionary(
-                    group => group.Key,
-                    group => (IReadOnlyList<SceneAssetImage>)group
-                        .OrderByDescending(image => image.CreatedUtc)
-                        .ToList(),
-                    StringComparer.Ordinal);
+            await LoadPanelStateAsync();
 
             // A queued render completes the CONTAINER's image row; nothing else advances the view from Pending, so
             // the panel records the finished image through the service's completion path and re-reads the views.
@@ -1265,45 +1216,6 @@ else
         });
 
     /// <summary>
-    /// The operator's judgement in ONE action: all four body checks reviewed and passing, recorded against the named
-    /// reviewer, and the view then accepted — which is what the next step waits on.
-    ///
-    /// The per-check dropdowns remain for a review that finds a problem, and the record is identical either way: an
-    /// attributed verdict per check. This exists because the gate was being read as "the workflow is stuck" — an image
-    /// had been approved in the deck, and nothing said acceptance ALSO needs the four checks recorded.
-    /// </summary>
-    private Task RecordChecksPassedAndAcceptAsync(CharacterIdentityBodyViewKey key)
-    {
-        var keyText = key.Describe();
-        if (string.IsNullOrWhiteSpace(ReviewerFor(keyText)))
-        {
-            SetMessage(
-                keyText,
-                "Recording a review needs the reviewer's name — an unattributed judgement is not a record.");
-            return Task.CompletedTask;
-        }
-
-        foreach (var check in CharacterIdentityBodyChecks.All)
-        {
-            _draftVerdicts[$"{keyText}|{check}"] = CharacterIdentityBodyCheckVerdict.Pass;
-        }
-
-        var reviewer = ReviewerFor(keyText);
-        return RunAsync(key, async () =>
-        {
-            await BodyService.RecordFindingsAsync(
-                BuildId,
-                key,
-                CharacterIdentityBodyChecks.All.ToDictionary(check => check, _ => CharacterIdentityBodyCheckVerdict.Pass),
-                reviewer,
-                NoteFor(keyText));
-            var view = await BodyService.AcceptAsync(BuildId, key);
-            await RefreshAsync();
-            return $"Recorded all four checks as reviewed and passing for {reviewer}, and accepted {keyText} "
-                + $"(status {view.Status}).";
-        });
-    }
-
     private Task AnalyzeQualityAsync(CharacterIdentityBodyViewKey key)
         => RunAsync(key, async () =>
         {
@@ -1354,44 +1266,6 @@ else
         });
     }
 
-    private Task RecordFindingsAsync(CharacterIdentityBodyViewKey key)
-    {
-        var keyText = key.Describe();
-        if (string.IsNullOrWhiteSpace(ReviewerFor(keyText)))
-        {
-            SetMessage(keyText, "A findings record needs the reviewer's name — an unattributed judgement is not a record.");
-            return Task.CompletedTask;
-        }
-        var verdicts = new Dictionary<CharacterIdentityBodyCheck, CharacterIdentityBodyCheckVerdict>();
-        foreach (var check in CharacterIdentityBodyChecks.All)
-        {
-            verdicts[check] = Enum.Parse<CharacterIdentityBodyCheckVerdict>(VerdictFor(keyText, check));
-        }
-
-        return RunAsync(key, async () =>
-        {
-            await BodyService.RecordFindingsAsync(
-                BuildId, key, verdicts, ReviewerFor(keyText), NoteFor(keyText));
-            return "Findings recorded for this view.";
-        });
-    }
-
-    private Task RecordOverrideAsync(CharacterIdentityBodyViewKey key)    {
-        var keyText = key.Describe();
-        if (string.IsNullOrWhiteSpace(OverrideReasonFor(keyText)) || string.IsNullOrWhiteSpace(OverrideAuthorFor(keyText)))
-        {
-            SetMessage(keyText, "An override needs both a reason and an author — it is a human decision on the record.");
-            return Task.CompletedTask;
-        }
-
-        return RunAsync(key, async () =>
-        {
-            await BodyService.RecordOverrideAsync(
-                BuildId, key, OverrideReasonFor(keyText), OverrideAuthorFor(keyText));
-            return "Override recorded.";
-        });
-    }
-
     /// <summary>
     /// One view, one service call: the message is written to that view's row, never to the panel, so a refusal can
     /// never be mistaken for another view's outcome.
@@ -1418,7 +1292,7 @@ else
                 SetMessage(keyText, message);
             }
 
-            await LoadViewsAsync();
+            await LoadPanelStateAsync();
             _panelMessage = string.Empty;
             _panelMessageIsError = false;
         }
@@ -1795,34 +1669,6 @@ else
     }
 
     private string MessageFor(string keyText) => _messages.TryGetValue(keyText, out var message) ? message : string.Empty;
-
-    private string ReviewerFor(string keyText) => _reviewers.TryGetValue(keyText, out var value) ? value : string.Empty;
-
-    private string NoteFor(string keyText) => _notes.TryGetValue(keyText, out var value) ? value : string.Empty;
-
-    private string OverrideReasonFor(string keyText) => _overrideReasons.TryGetValue(keyText, out var value) ? value : string.Empty;
-
-    private string OverrideAuthorFor(string keyText) => _overrideAuthors.TryGetValue(keyText, out var value) ? value : string.Empty;
-
-    private string VerdictFor(string keyText, CharacterIdentityBodyCheck check)
-    {
-        var draftKey = $"{keyText}|{check}";
-        if (_draftVerdicts.TryGetValue(draftKey, out var draft))
-        {
-            return draft.ToString();
-        }
-
-        // Nothing drafted yet: the row shows what the view already recorded, so a reviewer edits a real state
-        // rather than a silent default.
-        var view = _views.FirstOrDefault(candidate => string.Equals(candidate.Key().Describe(), keyText, StringComparison.Ordinal));
-        return (view?.Findings.VerdictFor(check) ?? CharacterIdentityBodyCheckVerdict.NotReviewed).ToString();
-    }
-
-    private void SetVerdict(string keyText, CharacterIdentityBodyCheck check, string? value)
-        => _draftVerdicts[$"{keyText}|{check}"] =
-            Enum.TryParse<CharacterIdentityBodyCheckVerdict>(value, out var verdict)
-                ? verdict
-                : CharacterIdentityBodyCheckVerdict.NotReviewed;
 
     private CharacterIdentityBodyViewKey ExtendedKey()
         => CharacterIdentityBodyViewKey.Extended(_extendedState, _extendedRotation, _extendedPosition);

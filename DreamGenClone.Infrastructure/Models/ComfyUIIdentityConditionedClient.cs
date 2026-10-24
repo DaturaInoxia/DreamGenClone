@@ -101,7 +101,9 @@ public sealed class ComfyUIIdentityConditionedClient : IIdentityConditionedImage
             if (status != "success")
             {
                 throw new ImageGenerationException(
-                    $"ComfyUI identity workflow '{status}' for prompt {promptId}.", model.ProviderName, reasonCode: "comfyui_identity_error");
+                    $"ComfyUI identity workflow '{status}' for prompt {promptId}{ComfyUiWorkflowTransport.DescribeExecutionError(historyEntry)}.",
+                    model.ProviderName,
+                    reasonCode: "comfyui_identity_error");
             }
 
             string? filename = null;

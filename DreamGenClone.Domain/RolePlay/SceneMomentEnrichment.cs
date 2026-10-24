@@ -41,7 +41,18 @@ public sealed record SceneMomentFrozenCharacter(
     string ActionOrObservation,
     string Sightline,
     IReadOnlyList<string> VisibleCharacterNames,
-    string Clothing);
+    string Clothing,
+    /// <summary>
+    /// The camera holder's recorded pitch when this character is the POV (<c>Up</c>, <c>Level</c>, <c>Down</c>), or
+    /// null when the enrichment did not record one. B-166 D11: a participant POV is not always eye-level, and the
+    /// projection states a pitch only when the brief records it — it never invents one.
+    /// </summary>
+    string? ViewpointPitch = null,
+    /// <summary>
+    /// How far the in-frame subject is from the camera holder when this character is the POV
+    /// (<c>Near</c>, <c>Mid</c>, <c>Far</c>), or null when not recorded. Same rule as <see cref="ViewpointPitch"/>.
+    /// </summary>
+    string? ViewpointSubjectDistance = null);
 
 public sealed record SceneMomentFrozenStateContract(
     string VisualDescription,

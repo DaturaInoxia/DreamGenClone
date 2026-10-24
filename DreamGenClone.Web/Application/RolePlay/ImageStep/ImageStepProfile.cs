@@ -24,7 +24,14 @@ public enum ImageStepFeature
     Presets = 4,
 
     /// <summary>The step offers the character LoRA picker.</summary>
-    CharacterLoras = 8
+    CharacterLoras = 8,
+
+    /// <summary>
+    /// The step offers the NON-identity scene-LoRA picker (unlock / act / anatomy / style, B-137 §4). Separate from
+    /// <see cref="CharacterLoras"/> because they answer different questions: a character LoRA carries identity, a scene
+    /// LoRA carries content, and the graph chains scene LoRAs first so identity stays closest to the subject.
+    /// </summary>
+    SceneLoras = 16
 }
 
 /// <summary>
@@ -67,8 +74,13 @@ public sealed record ImageStepProfile(ImageStepKind StepKind, ImageStepFeature F
         {
             [ImageStepKind.AssetCreate] =
                 Always | ImageStepFeature.CompilePrompt | ImageStepFeature.Presets | ImageStepFeature.CharacterLoras,
+            // Scene LoRAs are declared ONLY for Edit. The compose, asset-create, playground and body-view hosts
+            // already render their own SceneLoraPicker beside the composer, so granting the feature here as well
+            // would put two pickers over one value on those surfaces. The edit workspace has no picker of its own,
+            // which is exactly what this row fixes.
             [ImageStepKind.Edit] =
-                Always | ImageStepFeature.CompilePrompt | ImageStepFeature.Presets | ImageStepFeature.CharacterLoras,
+                Always | ImageStepFeature.CompilePrompt | ImageStepFeature.Presets
+                | ImageStepFeature.CharacterLoras | ImageStepFeature.SceneLoras,
             [ImageStepKind.LoraCell] =
                 Always | ImageStepFeature.CompilePrompt | ImageStepFeature.Presets,
             [ImageStepKind.Compose] =

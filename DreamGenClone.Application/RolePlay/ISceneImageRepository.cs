@@ -90,6 +90,26 @@ public interface ISceneImageRepository
         SceneImageAttemptDisposition nextDisposition,
         DateTime updatedUtc,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the operator's name for a rendered image and returns the row as it now stands. A targeted update, so a name
+    /// written while a render is in flight cannot revert the render's own writes.
+    /// </summary>
+    Task<SceneImageRecord> SetDisplayNameAsync(
+        string imageId,
+        string? displayName,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces a rendered image's tags and returns the row as it now stands. The caller supplies the tag WORDS — the
+    /// stored shape and the "is this a tag at all" rule are this layer's, shared with the asset store.
+    /// </summary>
+    Task<SceneImageRecord> SetTagsAsync(
+        string imageId,
+        IReadOnlyList<string> tags,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default);
     Task<SceneImageBytePurgeReservation> ReserveRejectedBytesPurgeAsync(
         string imageId,
         DateTime reservedUtc,

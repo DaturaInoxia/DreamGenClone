@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using DreamGenClone.Domain.ModelManager;
+using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -153,6 +154,7 @@ public sealed class NaturalLanguageWardrobeItemPromptCompiler : IWardrobeItemPro
         }
 
         text = text.Trim().Trim('"').Trim();
+        text = SceneImagePromptRefusal.EnsureIsPrompt(text);
         if (text.Length < MinimumOutputChars)
         {
             throw new InvalidOperationException(

@@ -31,4 +31,11 @@ public static class BackgroundJobTypes
     public const string ProducedImageGeneration = "produced-image-generation";
     public const string SceneAssetEditing = "scene-asset-editing";
     public const string SceneAssetProfilePackGeneration = "scene-asset-profile-pack-generation";
+
+    /// <summary>
+    /// Reads a LOCATION image with a vision model, so the frame plan can place characters against features that are
+    /// actually in the picture (B-160). Its own job type rather than a stage of the render: the analysis is per IMAGE
+    /// and reusable by every production group that binds it, and it must not block a render.
+    /// </summary>
+    public const string LocationImageAnalysis = "location-image-analysis";
 }

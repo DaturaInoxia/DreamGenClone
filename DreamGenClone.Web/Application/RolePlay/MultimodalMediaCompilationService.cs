@@ -10,6 +10,7 @@ public sealed class MultimodalMediaCompilationService : IMultimodalMediaCompilat
     private readonly ISceneBeatProductionPlanRepository _plans;
     private readonly ISceneMomentSetRepository _momentSets;
     private readonly ISceneMomentEnrichmentRepository _enrichments;
+    private readonly ISceneBlockingBuilder _blocking;
     private readonly TimeProvider _timeProvider;
 
     public MultimodalMediaCompilationService(
@@ -18,6 +19,7 @@ public sealed class MultimodalMediaCompilationService : IMultimodalMediaCompilat
         ISceneBeatProductionPlanRepository plans,
         ISceneMomentSetRepository momentSets,
         ISceneMomentEnrichmentRepository enrichments,
+        ISceneBlockingBuilder blocking,
         TimeProvider timeProvider)
     {
         _registry = registry;
@@ -25,6 +27,7 @@ public sealed class MultimodalMediaCompilationService : IMultimodalMediaCompilat
         _plans = plans;
         _momentSets = momentSets;
         _enrichments = enrichments;
+        _blocking = blocking;
         _timeProvider = timeProvider;
     }
 
@@ -80,7 +83,20 @@ public sealed class MultimodalMediaCompilationService : IMultimodalMediaCompilat
             Moment = currentMomentMatches[0],
             MomentEnrichment = currentEnrichment!
         };
-        var brief = compiler.Compile(canonicalRequest, _timeProvider.GetUtcNow().UtcDateTime);
+
+        // B-157: a still's framing is derived BEFORE compilation and recorded in the brief, so the snapshot is the
+        // single source for what the scene is AND how it is framed. Non-still kinds carry none.
+        var compileRequest = canonicalRequest;
+        if (canonicalRequest.TargetProfile.MediaKind == MediaProductionKind.StillImage)
+        {
+            var blocking = await _blocking.BuildAsync(
+                canonicalRequest.Moment.CompositionRationale,
+                canonicalRequest.MomentEnrichment.FrozenStateContractJson,
+                cancellationToken);
+            compileRequest = canonicalRequest with { SceneBlocking = blocking };
+        }
+
+        var brief = compiler.Compile(compileRequest, _timeProvider.GetUtcNow().UtcDateTime);
         await _briefs.CreateAsync(brief, cancellationToken);
         return brief;
     }

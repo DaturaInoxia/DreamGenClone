@@ -111,12 +111,64 @@ internal static class ComfyUiWorkflowTransport
                 return entry;
             if (status == "error")
                 throw new ImageGenerationException(
-                    $"ComfyUI workflow error for prompt {promptId}.", providerName, reasonCode: $"{reasonPrefix}_error");
+                    $"ComfyUI workflow error for prompt {promptId}{DescribeExecutionError(entry)}.",
+                    providerName,
+                    reasonCode: $"{reasonPrefix}_error");
         }
 
         throw new ImageGenerationException(
             $"ComfyUI timed out waiting for prompt {promptId}.", providerName, reasonCode: $"{reasonPrefix}_timeout");
     }
+
+    /// <summary>
+    /// ComfyUI carries WHY a prompt failed in the history entry's status messages
+    /// (<c>["execution_error", { node_id, node_type, exception_type, exception_message }]</c>). Returning it
+    /// is the difference between an opaque "workflow error for prompt &lt;id&gt;" and the actionable cause
+    /// ("ckpt_name 'x' not in [...]", "CUDA error: unknown error"), which otherwise stays buried in the
+    /// host's console log. Returns <c>": node LoadImage (node 1) — torch.AcceleratorError — ..."</c>, or an
+    /// empty string when ComfyUI reported no execution error at all.
+    /// </summary>
+    public static string DescribeExecutionError(JsonObject historyEntry)
+    {
+        if (historyEntry["status"]?["messages"] is not JsonArray messages)
+            return string.Empty;
+
+        foreach (var message in messages)
+        {
+            if (message is not JsonArray pair ||
+                pair.Count < 2 ||
+                ReadText(pair[0]) != "execution_error" ||
+                pair[1] is not JsonObject error)
+                continue;
+
+            var nodeId = ReadText(error["node_id"]);
+            var nodeType = ReadText(error["node_type"]);
+            var node = string.IsNullOrWhiteSpace(nodeId) ? nodeType : $"{nodeType} (node {nodeId})";
+            var detail = string.Join(
+                " — ",
+                new[] { node, ReadText(error["exception_type"]), CollapseWhitespace(ReadText(error["exception_message"])) }
+                    .Where(part => !string.IsNullOrWhiteSpace(part)));
+
+            if (string.IsNullOrWhiteSpace(detail))
+                return string.Empty;
+
+            return detail.Length > MaxExecutionErrorLength
+                ? $" — {detail[..MaxExecutionErrorLength]}…"
+                : $" — {detail}";
+        }
+
+        return string.Empty;
+    }
+
+    private const int MaxExecutionErrorLength = 600;
+
+    private static string? ReadText(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : node?.ToJsonString();
+
+    private static string? CollapseWhitespace(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? text
+            : string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public static async Task<byte[]> DownloadOutputAsync(
         HttpClient client,

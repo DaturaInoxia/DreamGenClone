@@ -38,10 +38,39 @@ public sealed class BodyNavStatusContractTests
         Assert.Contains("await LoadViewsAsync();", PanelSource, StringComparison.Ordinal);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(PanelSource, @"_views = \(await BodyService\.ListViewsAsync"));
 
-        // ...and the navigation consumes it rather than querying the service itself.
+        // ...and what the panel publishes WINS, so a cell the operator just accepted cannot still read "Not started"
+        // on the left.
         Assert.Contains("ViewsChanged=\"OnBodyViewsChangedAsync\"", StudioSource, StringComparison.Ordinal);
         Assert.Contains("_bodyNavViews = views;", StudioSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("ListViewsAsync", StudioSource, StringComparison.Ordinal);
+
+        // The navigation ALSO reads the rows itself when the Body tab is resolved. It has to: the panel is mounted by
+        // ONE section (body-angle), so a navigation that waited for it showed every cell as "Not started" until the
+        // operator clicked one (reported 2026-10-11). The two sources agree because they are the same call, and the
+        // panel's publish is the later word.
+        Assert.Contains("private async Task RefreshBodyNavViewsAsync()", StudioSource, StringComparison.Ordinal);
+        Assert.Contains("await RefreshBodyNavViewsAsync();", StudioSource, StringComparison.Ordinal);
+        Assert.Contains("_bodyNavViews = (await BodyService.ListViewsAsync(_bodyBuild.Id)).ToList();", StudioSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The view rows and the container's images must be read TOGETHER, because a queued render is Pending in one and
+    /// present in the other. Reading the rows alone after queueing made the panel conclude the artifact it had just
+    /// queued was missing, and it told the operator the render would never arrive (reported 2026-10-11).
+    /// </summary>
+    [Fact]
+    public void TheActionPath_ReadsTheImagesWithTheRows_NotTheRowsAlone()
+    {
+        Assert.Contains("private async Task LoadPanelStateAsync()", PanelSource, StringComparison.Ordinal);
+
+        // The one loader builds the image map...
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(PanelSource, @"_imageStatuses\.Clear\(\);"));
+        // ...and it is used by BOTH the refresh and the post-action path, which is the whole point: a second caller
+        // that loaded only the rows is exactly the bug.
+        var callers = System.Text.RegularExpressions.Regex.Matches(PanelSource, @"await LoadPanelStateAsync\(\);").Count;
+        Assert.True(callers >= 2, $"LoadPanelStateAsync is called {callers} time(s); the action path and the refresh both need it.");
+
+        // The missing-artifact check reads that map, so it is only ever as fresh as the last full load.
+        Assert.Contains("!_imageStatuses.ContainsKey(view.OutputArtifactId!)", PanelSource, StringComparison.Ordinal);
     }
 
     [Fact]

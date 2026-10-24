@@ -224,7 +224,14 @@
 
 .scene-edit-lineage-item.is-current {
     border-color: #4a8592;
+    background: #16232b;
     box-shadow: inset 3px 0 0 #78bdca;
+}
+
+/* The shared inspector opens on a click, so every picture that can open it says so before it is clicked. */
+.scene-edit-zoomable,
+.scene-edit-lineage-item img.scene-edit-lineage-thumb {
+    cursor: zoom-in;
 }
 
 .scene-edit-lineage-thumb {

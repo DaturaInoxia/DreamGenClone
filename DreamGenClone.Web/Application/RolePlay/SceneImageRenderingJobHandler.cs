@@ -82,6 +82,20 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
     /// </summary>
     private readonly ISceneLoraResolver? _sceneLoraResolver;
 
+    /// <summary>
+    /// Optional: the compiled brief this render's record points at, read for its frame-space blocking so the role
+    /// clause can name each character by POSITION instead of by pack view (B-157).
+    ///
+    /// <para>
+    /// Absent, or a record with no brief, or a brief compiled before framing existed all mean "no frame was derived":
+    /// the clause then uses the established scene-level form, which is what every render did before this feature.
+    /// That is an optional input being absent, not a configured value being substituted — a still that HAS a brief
+    /// always has its blocking read from it, and the frame is never re-derived at render time (a later staging-profile
+    /// edit must not rewrite how a past render was framed).
+    /// </para>
+    /// </summary>
+    private readonly ICompiledMediaBriefRepository? _briefs;
+
     public SceneImageRenderingJobHandler(
         ISceneImageRepository repository,
         ISceneImageStorageService storage,
@@ -103,7 +117,8 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         IdentityFaceReferenceResolver? identityFaceResolver = null,
         IdentityBodyReferenceResolver? identityBodyResolver = null,
         ISceneImageCharacterLoraResolver? characterLoraResolver = null,
-        ISceneLoraResolver? sceneLoraResolver = null)
+        ISceneLoraResolver? sceneLoraResolver = null,
+        ICompiledMediaBriefRepository? briefs = null)
     {
         _repository = repository;
         _storage = storage;
@@ -126,6 +141,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         _identityBodyResolver = identityBodyResolver;
         _characterLoraResolver = characterLoraResolver;
         _sceneLoraResolver = sceneLoraResolver;
+        _briefs = briefs;
     }
 
     public string JobType => BackgroundJobTypes.SceneImageRendering;
@@ -409,6 +425,48 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         }
     }
 
+    /// <summary>
+    /// The frame-space blocking the brief this record was compiled from carries, or null when there is none (B-157).
+    /// </summary>
+    private async Task<SceneBlocking?> ReadBlockingAsync(SceneImageRecord image, CancellationToken cancellationToken)
+    {
+        if (_briefs is null || string.IsNullOrWhiteSpace(image.CompiledMediaBriefId))
+        {
+            return null;
+        }
+
+        var brief = await _briefs.GetAsync(image.CompiledMediaBriefId, cancellationToken);
+        var blocking = SceneBlockingJson.TryRead(brief?.SemanticInputSnapshotJson);
+        if (blocking is null)
+        {
+            return null;
+        }
+
+        // A participant POV is an egocentric camera: the brief's blocking places every subject in an EXTERNAL frame,
+        // so naming a reference "the person on the LEFT" would assert a placement that POV does not have (and, worse,
+        // names the camera holder as a subject of their own shot). The scene-level clause still names the reference.
+        if (!string.IsNullOrWhiteSpace(image.Pov)
+            && !string.Equals(image.Pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // B-157 T7.1 / B-161: the operator's own placement AND framing corrections are applied HERE, the one place the
+        // frame is read, so the preview and the render apply the same rule to the same snapshotted frame — and neither
+        // re-derives one from the staging profile. The same entry point the draft is written through, so the prose and
+        // the block cannot describe one frame two ways.
+        // B-166 D7: this branch is Omniscient-only (a participant POV returned above), so the lean snapshotted into the
+        // brief applies unless the operator named a framing.
+        var applied = SceneBlockingResolver.ApplyForPrompt(
+            blocking,
+            ReadStudioSettings(image.SettingsJson)?.SceneBlockingOverride,
+            blocking.Camera.OmniscientShotSize);
+
+        // Seats belong to the people the frame shows: a remote observer named as out of frame must not hold one, or the
+        // one visible person is described standing at the LEFT edge of a frame they are alone in.
+        return SceneImagePovProjection.BlockingForFrame(brief, image.Pov, applied);
+    }
+
     private static SceneImageRefusalMode ResolveRefusalMode(ImageGenerationException exception)
     {
         if (string.Equals(exception.ReasonCode, "empty_response", StringComparison.Ordinal))
@@ -461,7 +519,21 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         // prompt through untouched, so this is the only thing that binds a reference image to a description of it.
         // Composed HERE, from the images about to be sent, so every route into a render gets it — including a prompt
         // generated before the references were bound, which is how the reported case reached the model unnamed.
-        var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(prompt, roles);
+        //
+        // B-157: assembled through the ONE plan owner, with the brief's own frame-space blocking, so each character's
+        // references are named by POSITION and grouped under that person rather than by the pack view they came from.
+        // The blocking is READ from the brief, never re-derived: a later staging-profile edit must not rewrite how a
+        // past render was framed.
+        var blocking = await ReadBlockingAsync(image, cancellationToken);
+        var promptWithRoles = FinalImagePromptPlanBuilder.Build(
+            prompt, roles, ReferenceRoleClauses.LeadingImageCount.Generate, blocking).Prompt;
+
+        // The camera holder's visible body is NOT appended here any more. It is stated to the caption writer verbatim
+        // (SceneImagePovProjection's shot block) and required inside the compiled caption by the contract validator, so
+        // appending it again would repeat the same body twice in the image model's input. The append was a real safety
+        // net for the WORDING ("behind" cannot be scrambled by a writer that never writes it) but it cost the BODY: the
+        // image model treated a trailing block as an addendum and drew the subject alone (operator report, 2026-10-23).
+        // The wording is protected by the rule text instead, which forbids the impossible inversion explicitly.
 
         var request = new ReferenceConditionedImageRequest
         {
@@ -482,7 +554,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             registeredModelId = resolved.RegisteredModelId,
             referenceCount = references.Count,
             references = references.Select(reference => reference.SemanticRole).ToList(),
-            taggedReferenceCount = roles.Count > 1 ? roles.Count : 0,
+            taggedReferenceCount = ReferenceRoleClauses.TaggedReferenceCount(roles.Count),
             seed = seed.HasValue ? seed.Value.ToString() : "random",
             positive = promptWithRoles,
             negative
@@ -615,7 +687,17 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                     });
                     roles.Add(new ReferenceRoleClauses.ReferenceRole(
                         ReferenceBindingShape.SlotKindOf(assetBacked[index]),
-                        assetBacked[index].ReferenceLabel ?? reference.Description));
+                        assetBacked[index].ReferenceLabel ?? reference.Description,
+                        // A location binding carries no actor key and stays scene-level; a character's approved asset
+                        // carries the profile key and joins the frame like any other per-character reference.
+                        ReferenceRoleClauses.SubjectKeyOf(assetBacked[index]),
+                        // ...and the CONTAINER, so two location bindings from different places are described as separate
+                        // places in one frame. Without it each claimed to be the whole room AND forbade the other, which is
+                        // a frame the model cannot render — it satisfies the text by inventing a scene instead (found
+                        // 2026-10-13 by the guard that now pins every one of these sites).
+                        assetBacked[index].SceneAssetId,
+                        // The operator's own statement about this reference, if they made one (B-159).
+                        assetBacked[index].Directions));
                 }
             }
         }
@@ -688,8 +770,19 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             });
             // The role cell is the pack's own view label ("Front", "Front · Unclothed"), which is exactly what tells
             // two identity images of the same person apart in the prompt.
+            //
+            // B-157: the binding's actor key is the participant profile key, and carrying it here is what lets the
+            // clause name this person by FRAME POSITION ("the person on the LEFT") and group their body and wardrobe
+            // under them — instead of labelling both characters' faces "Front · Clothed", which is the collision the
+            // model resolved by keeping whichever face it noticed first.
             roles.Add(new ReferenceRoleClauses.ReferenceRole(
-                ReferenceBindingShape.SlotKindOf(binding), binding.ReferenceLabel));
+                ReferenceBindingShape.SlotKindOf(binding),
+                binding.ReferenceLabel,
+                ReferenceRoleClauses.SubjectKeyOf(binding),
+                // The container, on the same terms as every other role site — see the guard that pins them.
+                binding.SceneAssetId,
+                // ...and the operator's own statement, if they made one (B-159).
+                binding.Directions));
         }
     }
 
@@ -846,7 +939,12 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
                 FileName = $"{face.FaceAssetId}.png",
                 Content = referenceBytes
             });
-            roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Face, label));
+            roles.Add(new ReferenceRoleClauses.ReferenceRole(
+                ImageStepSlotKind.Face,
+                label,
+                // B-157: the profile key, when the selection carries one, so this route names the person by frame
+                // position too. Null keeps the established scene-level wording.
+                selection.ActorKey));
         }
 
         // Pose travels as the last reference: a native-reference model carries a pose as an image, so identity
@@ -857,7 +955,12 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
         }
 
-        var promptWithRoles = ReferenceRoleClauses.AppendToImagePrompt(prompt, roles);
+        // B-157: assembled through the ONE plan owner with the brief's own blocking. The selections on this route
+        // carry no profile key (IdentityPackSelection exposes a pack id and a display label only), so these
+        // references keep their scene-level sentence: the route is ported for the single assembly owner and its
+        // validation, not yet for positional naming. Giving them a key is a data-model change, not a port.
+        var promptWithRoles = FinalImagePromptPlanBuilder.Build(
+            prompt, roles, blocking: await ReadBlockingAsync(image, cancellationToken)).Prompt;
 
         await WriteDebugEventAsync("IdentityNativeReferenceRenderSubmitted", payload.SessionId, payload.InteractionId, new
         {
@@ -867,7 +970,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
             registeredModelId = resolved.RegisteredModelId,
             strategy = strategy.Strategy,
             referenceCount = references.Count,
-            taggedReferenceCount = roles.Count > 1 ? roles.Count : 0,
+            taggedReferenceCount = ReferenceRoleClauses.TaggedReferenceCount(roles.Count),
             poseReference = poseReference?.FileName,
             packs = packSelections
                 .Select(selection => new { selection.PackId, selection.CharacterLabel })

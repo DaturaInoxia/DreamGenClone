@@ -1,7 +1,10 @@
+@using DreamGenClone.Application.Abstractions
 @using DreamGenClone.Web.Application.RolePlay
 
 @inject ICharacterImageIdentityService IdentityService
 @inject ISceneAssetService AssetService
+@inject ISceneImageService ImageService
+@inject ISceneImageStorageService SceneImageStorage
 @inject ILogger<InAppImagePicker> Logger
 
 @* The ONE way to say "use an image the app already has".
@@ -52,12 +55,58 @@
                                                    SelectedChanged="SelectStatusAsync" Total="SourceOptions.Count" />
                         }
 
+                        @if (ShowSearch && (_sourceId == LibrarySourceId || _sourceId == ProductionSourceId))
+                        {
+                            <CommittedTextInput type="search" class="form-control form-control-sm" style="max-width:16rem;"
+                                                placeholder="Search groups and image names" aria-label="Search images"
+                                                Live="@_search" LiveChanged="args => _search = args ?? string.Empty" />
+                        }
+
                         <span class="small text-muted ms-auto">@StatusLine</span>
                     </div>
 
-                    @if (_loadError is not null)
+                    @* How far the production search reaches. It opens on THIS moment, because that is what an operator
+                       composing one moment means by "an image I already have"; every step outwards is theirs to take,
+                       and the count beside each level is what tells them whether it is worth taking. *@
+                    @if (_sourceId == ProductionSourceId)
                     {
-                        <div class="alert alert-warning py-2 small">@_loadError</div>
+                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3" aria-label="Search scope">
+                            <span class="small text-muted me-1">Search</span>
+                            <div class="btn-group btn-group-sm" role="group" aria-label="How far the search reaches">
+                                @foreach (var level in ScopeLevels)
+                                {
+                                    var isLevelSelected = _scopeLevel == level.Level;
+                                    <button type="button" class="btn @(isLevelSelected ? "btn-primary" : "btn-outline-secondary")"
+                                            aria-pressed="@isLevelSelected.ToString().ToLowerInvariant()"
+                                            title="@level.Title"
+                                            @onclick="() => SelectScopeLevelAsync(level.Level)">
+                                        @level.Label
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @* The asset GROUPS on offer, before the images: an operator looking for one place's images should
+                       not have to page through every other place's to find them. *@
+                    @if (_sourceId == LibrarySourceId && Groups.Count > 0)
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-1 mb-3" aria-label="Asset groups">
+                            <span class="small text-muted me-1">Asset groups</span>
+                            <button type="button" class="btn btn-sm @(_groupIds.Count == 0 ? "btn-primary" : "btn-outline-secondary")"
+                                    aria-pressed="@(_groupIds.Count == 0).ToString().ToLowerInvariant()" @onclick="ClearGroups">
+                                All (@Groups.Count)
+                            </button>
+                            @foreach (var group in Groups)
+                            {
+                                var isGroupSelected = _groupIds.Contains(group.Id);
+                                <button type="button" class="btn btn-sm @(isGroupSelected ? "btn-primary" : "btn-outline-secondary")"
+                                        aria-pressed="@isGroupSelected.ToString().ToLowerInvariant()"
+                                        title="@group.Name" @onclick="() => ToggleGroup(group.Id)">
+                                    @group.Name (@group.Count)
+                                </button>
+                            }
+                        </div>
                     }
 
                     @if (_loading)
@@ -78,22 +127,42 @@
                                 <div class="col-6 col-md-4 col-lg-3">
                                     @* Choosing is what the picture does here, so the card is wired to SELECT: the picture
                                        picks it, the card shows the pick, and the full-size button still opens the shared
-                                       inspector so the operator can inspect what they are about to use. *@
+                                       inspector so the operator can inspect what they are about to use. An image the host
+                                       cannot accept is not wired to select at all — its picture opens the inspector, and
+                                       the reason sits under it in the host's own gate's words. *@
                                     <ImageCard Model="option.Card" ShowVerdicts="false" Busy="_busy"
-                                               SelectRequested="() => Select(option)" />
+                                               Selected="@(string.Equals(option.Key, _selectedKey, StringComparison.Ordinal))"
+                                               SelectTitle="Select this image"
+                                               ShowBatchLink="false"
+                                               SelectRequested="@(option.UnavailableReason is null
+                                                   ? EventCallback.Factory.Create(this, () => Select(option))
+                                                   : default(EventCallback))" />
+                                    @if (option.UnavailableReason is not null)
+                                    {
+                                        <div class="form-text text-warning">@option.UnavailableReason</div>
+                                    }
                                 </div>
                             }
                         </div>
                     }
                 </div>
 
+                @* The reason a pick or a listing failed is drawn HERE, beside the button that was pressed: a body alert
+                   would sit at the top of a long grid, off screen, and the button would look inert. *@
                 <div class="modal-footer justify-content-between">
-                    <span class="small text-muted">@SelectionLine</span>
+                    @if (_loadError is not null)
+                    {
+                        <span class="small text-danger" role="alert">@_loadError</span>
+                    }
+                    else
+                    {
+                        <span class="small text-muted">@SelectionLine</span>
+                    }
                     <span class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-secondary" @onclick="CancelAsync">Cancel</button>
                         <button type="button" class="btn btn-primary" disabled="@(!CanPick)"
                                 @onclick="PickAsync">
-                            Use this image
+                            @PickLabel
                         </button>
                     </span>
                 </div>
@@ -105,6 +174,7 @@
 @code {
     private const string IdentitySourceId = "identity";
     private const string LibrarySourceId = "library";
+    private const string ProductionSourceId = "production";
 
     /// <summary>Whether the picker is showing. The host owns this; the component never closes itself silently.</summary>
     [Parameter] public bool Visible { get; set; }
@@ -120,6 +190,54 @@
 
     [Parameter] public string Title { get; set; } = "Pick an image from the app";
 
+    /// <summary>The footer verb for the pick — what the host does with the image ("Use this image", "Bind this image").</summary>
+    [Parameter] public string PickLabel { get; set; } = "Use this image";
+
+    /// <summary>
+    /// Narrows the library source to ONE asset type and turns the asset-group picker on. Unset (the default) leaves the
+    /// library flat and ungrouped, exactly as the hosts that choose from a handful of images expect.
+    /// </summary>
+    [Parameter] public SceneAssetType? AssetTypeFilter { get; set; }
+
+    /// <summary>
+    /// Shows the search box over the group name and the image name. Off by default: a host offering a short list gains
+    /// a box that filters nothing.
+    /// </summary>
+    [Parameter] public bool ShowSearch { get; set; }
+
+    /// <summary>
+    /// When true, an image is selectable only when it could actually be BOUND — the domain's own rule
+    /// (<see cref="SceneImageLocationBindGate"/>), so the picker cannot offer an image the bind would then refuse. A
+    /// blocked card says why, in the same words the bind would have used.
+    /// </summary>
+    [Parameter] public bool RequireBindableImage { get; set; }
+
+    /// <summary>
+    /// When true, a library image is selectable only when it could stand as a composition's REFERENCE — complete, with
+    /// its bytes, approved for production, and carrying the version and checksum the binding has to record.
+    ///
+    /// <para>
+    /// A different question from <see cref="RequireBindableImage"/>, not a stronger version of it: that one is the
+    /// location-backdrop gate, which additionally requires a NAME because a backdrop's several views must be told
+    /// apart. This one is the approved-scene-asset channel's own contract, stated here so a list cannot offer an image
+    /// the reference resolver would then refuse. Asking for both at once is refused rather than resolved by
+    /// precedence, because the two gates accept different images.
+    /// </para>
+    /// </summary>
+    [Parameter] public bool RequireCompositionReference { get; set; }
+
+    /// <summary>
+    /// Turns on the STUDIO PRODUCTION source: the app's own rendered images — every Studio attempt, gallery render and
+    /// edit — which the operator can bind as a reference like any approved asset image.
+    ///
+    /// <para>
+    /// It carries the ids a search needs and the level it opens on; the picker owns the chosen level, because how far
+    /// out the operator wants to look is a decision they make while looking, not one the host can predict. Null means
+    /// there is no such source, which is a real answer for a host that does not know which moment it is on.
+    /// </para>
+    /// </summary>
+    [Parameter] public SceneImageSearchScope? ProductionScope { get; set; }
+
     [Parameter] public EventCallback<InAppPickedImage> Picked { get; set; }
 
     /// <summary>
@@ -134,22 +252,63 @@
         string FileName,
         string MediaType,
         int Order,
-        Func<Task<byte[]>> ReadBytes);
+        Func<Task<byte[]>> ReadBytes)
+    {
+        /// <summary>The asset that groups this image, when the source is the library with an asset-type filter set.</summary>
+        public string? GroupId { get; init; }
+
+        public string? GroupName { get; init; }
+
+        /// <summary>Why this image cannot be picked, or null when it can.</summary>
+        public string? UnavailableReason { get; init; }
+
+        /// <summary>Which stored image this is, for a host that binds the image rather than uploading its bytes.</summary>
+        public InAppPickedImageIdentity? Identity { get; init; }
+
+        /// <summary>The app's own rendered image this is, when the source is the production list.</summary>
+        public InAppPickedRenderedImage? RenderedImage { get; init; }
+    }
 
     private readonly Dictionary<string, List<PickOption>> _cache = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _groupIds = new(StringComparer.Ordinal);
     private string? _openedFor;
     private string _sourceId = LibrarySourceId;
+    private string _search = string.Empty;
     private string? _statusKey;
     private string? _selectedKey;
     private string? _loadError;
     private bool _loading;
     private bool _busy;
 
+    /// <summary>
+    /// How far the production search currently reaches. Seeded from the host's scope when the picker opens, then owned
+    /// by the operator: widening from the current moment outwards is a decision made while looking at the results.
+    /// </summary>
+    private SceneImageSearchScopeLevel _scopeLevel = SceneImageSearchScopeLevel.Moment;
+
     private bool HasIdentitySource => !string.IsNullOrWhiteSpace(CharacterTemplateId);
 
-    private IReadOnlyList<(string Id, string Label)> Sources => HasIdentitySource
-        ? [(IdentitySourceId, "Identity packs"), (LibrarySourceId, "Asset library")]
-        : [(LibrarySourceId, "Asset library")];
+    private bool HasProductionSource => ProductionScope is not null;
+
+    private IReadOnlyList<(string Id, string Label)> Sources
+    {
+        get
+        {
+            var sources = new List<(string Id, string Label)>();
+            if (HasIdentitySource)
+            {
+                sources.Add((IdentitySourceId, "Identity packs"));
+            }
+
+            sources.Add((LibrarySourceId, "Asset library"));
+            if (HasProductionSource)
+            {
+                sources.Add((ProductionSourceId, "Studio production"));
+            }
+
+            return sources;
+        }
+    }
 
     private IReadOnlyList<PickOption> SourceOptions =>
         _cache.TryGetValue(_sourceId, out var options) ? options : [];
@@ -157,15 +316,68 @@
     private IReadOnlyList<ImageCardFilterOption> FilterOptions =>
         ImageCardStatus.Build(SourceOptions.Select(option => option.Card));
 
-    private IReadOnlyList<PickOption> VisibleOptions =>
-        SourceOptions.Where(option => ImageCardStatus.Matches(option.Card, _statusKey)).ToList();
+    /// <summary>
+    /// The asset groups the filtered type offers, with the number of images each holds. Derived from the options in
+    /// hand rather than asked for separately, so a group can never be listed without the images that back it.
+    /// </summary>
+    private IReadOnlyList<(string Id, string Name, int Count)> Groups =>
+        SourceOptions
+            .Where(option => option.GroupId is not null && option.GroupName is not null)
+            .GroupBy(option => option.GroupId!, StringComparer.Ordinal)
+            .Select(group => (Id: group.Key, Name: group.First().GroupName!, Count: group.Count()))
+            .OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IReadOnlyList<PickOption> VisibleOptions => SourceOptions
+        .Where(option => ImageCardStatus.Matches(option.Card, _statusKey))
+        .Where(option => _groupIds.Count == 0
+            || (option.GroupId is not null && _groupIds.Contains(option.GroupId)))
+        .Where(MatchesSearch)
+        .ToList();
+
+    /// <summary>
+    /// The search matches the operator's own name for the image or the group it belongs to, because those are the two
+    /// things they can see on screen. It is deliberately not a prompt or provenance search: a substring hit in a prompt
+    /// is not something the operator can check against the picture in front of them.
+    /// </summary>
+    private bool MatchesSearch(PickOption option)
+    {
+        var query = _search.Trim();
+        if (query.Length == 0)
+        {
+            return true;
+        }
+
+        return (option.Card.DisplayName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (option.GroupName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void ToggleGroup(string groupId)
+    {
+        if (!_groupIds.Remove(groupId))
+        {
+            _groupIds.Add(groupId);
+        }
+
+        // The status options are derived from the images in front of the operator, so a key chosen over one group of
+        // images means nothing over another group.
+        _statusKey = null;
+        _selectedKey = null;
+    }
+
+    private void ClearGroups()
+    {
+        _groupIds.Clear();
+        _statusKey = null;
+        _selectedKey = null;
+    }
 
     private PickOption? SelectedOption =>
         string.IsNullOrWhiteSpace(_selectedKey)
             ? null
             : SourceOptions.FirstOrDefault(option => string.Equals(option.Key, _selectedKey, StringComparison.Ordinal));
 
-    private bool CanPick => !_busy && !_loading && SelectedOption is not null;
+    private bool CanPick => !_busy && !_loading && SelectedOption is { UnavailableReason: null };
 
     private string StatusLine
     {
@@ -181,13 +393,69 @@
         }
     }
 
-    private string SelectionLine => SelectedOption is { } option
+    private string SelectionLine => SelectedOption is { UnavailableReason: null } option
         ? $"Using {option.SourceLabel}"
         : "Pick an image, then use it.";
 
-    private string EmptyReason => HasIdentitySource
-        ? "Use the source buttons to look in the other place."
-        : "The library holds no completed image yet.";
+    /// <summary>
+    /// The scopes on offer, narrowest first — restricted to the levels this scope can actually answer, so a control
+    /// is never offered for a question the store would refuse. Stated as data rather than hand-written buttons so the
+    /// labels, the order and the levels cannot drift apart.
+    /// </summary>
+    private IReadOnlyList<(SceneImageSearchScopeLevel Level, string Label, string Title)> ScopeLevels
+    {
+        get
+        {
+            if (ProductionScope is not { } scope)
+            {
+                return [];
+            }
+
+            var levels = new List<(SceneImageSearchScopeLevel, string, string)>();
+            if (!string.IsNullOrWhiteSpace(scope.MomentId))
+            {
+                levels.Add((SceneImageSearchScopeLevel.Moment, "This moment",
+                    "Images rendered for the moment being composed"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(scope.BeatId))
+            {
+                levels.Add((SceneImageSearchScopeLevel.Beat, "This beat",
+                    "Images rendered for every moment of this beat"));
+            }
+
+            levels.Add((SceneImageSearchScopeLevel.Session, "Whole session",
+                "Every image this session has rendered, whatever moment or beat produced it"));
+            return levels;
+        }
+    }
+
+    /// <summary>
+    /// Why the visible list is empty, in terms of the control that would change it. A production search that found
+    /// nothing points at the scope selector rather than at the other source, because widening IS the answer to that
+    /// question — advice that sent the operator to a different list would be advice for a different problem.
+    /// </summary>
+    private string EmptyReason
+    {
+        get
+        {
+            if (string.Equals(_sourceId, ProductionSourceId, StringComparison.Ordinal))
+            {
+                return _scopeLevel == SceneImageSearchScopeLevel.Session
+                    ? "This session has rendered no image that can stand as a reference yet."
+                    : "No image in this scope can stand as a reference. Widen the search to look further out.";
+            }
+
+            if (HasIdentitySource || HasProductionSource)
+            {
+                return "Use the source buttons to look in the other place.";
+            }
+
+            return _groupIds.Count > 0 || _search.Trim().Length > 0
+                ? "Clear the asset groups or the search to see the rest of the library."
+                : "The library holds no completed image yet.";
+        }
+    }
 
     // Loading is keyed to the OPEN, not to the render: a host that re-renders while the picker is up would otherwise
     // re-read every pack on every keystroke elsewhere on the page. Only the list being looked at is loaded, so opening
@@ -200,7 +468,8 @@
             return;
         }
 
-        var openKey = $"{CharacterTemplateId}|{IdentityKind}";
+        var openKey = $"{CharacterTemplateId}|{IdentityKind}|{AssetTypeFilter}|{RequireBindableImage}"
+            + $"|{RequireCompositionReference}|{ProductionScope}";
         if (!string.Equals(_openedFor, openKey, StringComparison.Ordinal))
         {
             _openedFor = openKey;
@@ -208,12 +477,49 @@
             _selectedKey = null;
             _statusKey = null;
             _loadError = null;
+            _search = string.Empty;
+            _groupIds.Clear();
             _sourceId = HasIdentitySource ? IdentitySourceId : LibrarySourceId;
+            // The scope opens where the host said it should - the current moment, in practice - and the operator
+            // widens it from there.
+            _scopeLevel = ProductionScope?.Level ?? SceneImageSearchScopeLevel.Moment;
+        }
+
+        // Two gates accept different images, so there is no answer that satisfies both. Refused when the picker opens
+        // rather than resolved by precedence: a silent precedence would make the list's contents depend on which
+        // boolean a host happened to set second.
+        if (RequireBindableImage && RequireCompositionReference)
+        {
+            throw new InvalidOperationException(
+                "This picker was asked for two different bind gates at once (a location backdrop and a composition "
+                + "reference). They accept different images, so ask for one.");
         }
 
         if (!_cache.ContainsKey(_sourceId))
         {
             await LoadSourceAsync(_sourceId);
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the production list at a new scope. The chosen scope is the operator's, so it is applied here rather
+    /// than filtered in memory: a wider scope is a different question for the store, and asking it once is what keeps
+    /// "this moment" genuinely narrow.
+    /// </summary>
+    private async Task SelectScopeLevelAsync(SceneImageSearchScopeLevel level)
+    {
+        if (_scopeLevel == level)
+        {
+            return;
+        }
+
+        _scopeLevel = level;
+        _statusKey = null;
+        _selectedKey = null;
+        _cache.Remove(ProductionSourceId);
+        if (string.Equals(_sourceId, ProductionSourceId, StringComparison.Ordinal))
+        {
+            await LoadSourceAsync(ProductionSourceId);
         }
     }
 
@@ -248,16 +554,34 @@
         return Task.CompletedTask;
     }
 
-    private void Select(PickOption option) => _selectedKey = option.Key;
+    private void Select(PickOption option)
+    {
+        if (option.UnavailableReason is { } reason)
+        {
+            // The card is not wired to select when it is unavailable, so reaching here means a host changed the gate
+            // under the operator's feet. Say the reason rather than quietly selecting something they cannot use.
+            _loadError = reason;
+            _selectedKey = null;
+            return;
+        }
+
+        _selectedKey = option.Key;
+        // A previous pick's reason must not outlive the pick it described: the footer would keep accusing an image
+        // that is no longer the chosen one.
+        _loadError = null;
+    }
 
     private async Task LoadSourceAsync(string sourceId)
     {
         _loading = true;
         try
         {
-            var options = string.Equals(sourceId, IdentitySourceId, StringComparison.Ordinal)
-                ? await LoadIdentityOptionsAsync()
-                : await LoadLibraryOptionsAsync();
+            var options = sourceId switch
+            {
+                IdentitySourceId => await LoadIdentityOptionsAsync(),
+                ProductionSourceId => await LoadProductionOptionsAsync(),
+                _ => await LoadLibraryOptionsAsync()
+            };
             _cache[sourceId] = options;
         }
         catch (Exception exception)
@@ -326,7 +650,9 @@
 
     private async Task<List<PickOption>> LoadLibraryOptionsAsync()
     {
-        var assets = await AssetService.ListAssetsAsync();
+        var assets = (await AssetService.ListAssetsAsync())
+            .Where(asset => AssetTypeFilter is null || asset.Type == AssetTypeFilter)
+            .ToList();
         var options = new List<PickOption>();
         foreach (var asset in assets)
         {
@@ -373,7 +699,16 @@
                     // Read through the service that owns the asset store: the picker must not reach for the filesystem
                     // itself, and the caller must not have to know which store the picture lives in. This is the
                     // interface's existing "give me an image's bytes" call, so there is not a second way to read one.
-                    ReadBytes: () => ReadLibraryImageBytesAsync(imageId)));
+                    ReadBytes: () => ReadLibraryImageBytesAsync(imageId))
+                {
+                    GroupId = asset.Id,
+                    GroupName = asset.Name,
+                    // The eligibility rule is the DOMAIN's, so the images offered here and the images the bind accepts
+                    // cannot disagree; the reason shown is the diagnostic the bind itself would have raised.
+                    UnavailableReason = BlockerFor(image),
+                    Identity = new InAppPickedImageIdentity(
+                        asset.Id, image.Id, name, image.Sha256, image.ProductionVersion, image.FileRelativePath)
+                });
             }
         }
 
@@ -389,16 +724,172 @@
         var (_, _, stream) = await AssetService.OpenImageForDownloadAsync(imageId);
         await using (stream)
         {
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer);
-            var bytes = buffer.ToArray();
-            if (bytes.Length == 0)
+            return await ReadAllBytesAsync(stream, $"Image '{imageId}'");
+        }
+    }
+
+    /// <summary>
+    /// The app's OWN rendered images in the chosen scope — every Studio attempt, gallery render and edit.
+    ///
+    /// <para>
+    /// The list is asked of the scene image service, which owns the eligibility rule (complete, bytes still present,
+    /// checksum recorded) — the same three facts the reference resolver re-reads before it conditions on one — so this
+    /// list can never offer an image the resolver would refuse. Nothing is filtered out here; the scope is the filter,
+    /// and it is the operator's.
+    /// </para>
+    /// </summary>
+    private async Task<List<PickOption>> LoadProductionOptionsAsync()
+    {
+        var scope = ProductionScope
+            ?? throw new InvalidOperationException(
+                "The studio-production source needs the scope it searches, so no list can be shown without one.");
+
+        var images = await ImageService.ListSearchableImagesAsync(scope with { Level = _scopeLevel });
+        var options = new List<PickOption>(images.Count);
+        foreach (var image in images)
+        {
+            if (string.IsNullOrWhiteSpace(image.Sha256))
             {
-                throw new InvalidOperationException($"Image '{imageId}' has no bytes stored.");
+                // The service's eligibility rule already excludes these; refusing here rather than constructing a
+                // pick without a checksum keeps the binding exact by construction instead of by assumption.
+                throw new InvalidOperationException(
+                    $"Rendered image '{image.Id}' came back from the search with no checksum, so it cannot be bound as "
+                    + "a reference.");
             }
 
-            return bytes;
+            var name = string.IsNullOrWhiteSpace(image.DisplayName)
+                ? $"unnamed image {ShortId(image.Id)}"
+                : image.DisplayName!;
+            var relativePath = image.FileRelativePath!;
+            options.Add(new PickOption(
+                Key: $"rendered:{image.Id}",
+                SourceId: ProductionSourceId,
+                SourceLabel: $"studio production · {name}",
+                Card: new SceneImageCardModel
+                {
+                    Id = image.Id,
+                    FileRelativePath = relativePath,
+                    StatusText = image.Status.ToString(),
+                    StatusBadgeClass = "text-bg-success",
+                    IsComplete = true,
+                    Subtitle = ProductionSubtitle(image),
+                    DisplayName = name,
+                    // A rendered image carries no decision of its own — its approval is a fact about its production
+                    // group, not about the row — so it is deliberately left out of the decision filter rather than
+                    // labelled with something it does not have. Null means it matches "All" and nothing else.
+                    DecisionKey = null
+                },
+                FileName: $"{SafeLabel(name)}.png",
+                MediaType: "image/png",
+                Order: 0,
+                ReadBytes: () => ReadRenderedImageBytesAsync(relativePath))
+            {
+                RenderedImage = new InAppPickedRenderedImage(image.Id, image.DisplayName, image.Sha256)
+            });
         }
+
+        // Newest first: an operator searching for the frame they just made finds it at the top, which is the whole
+        // reason the scope starts narrow.
+        return options
+            .OrderByDescending(option => images.First(image => $"rendered:{image.Id}" == option.Key).CreatedUtc)
+            .ToList();
+    }
+
+    /// <summary>A rendered image's bytes, read through the store that owns them rather than off the filesystem.</summary>
+    private async Task<byte[]> ReadRenderedImageBytesAsync(string relativePath)
+    {
+        await using var stream = await SceneImageStorage.OpenReadAsync(relativePath);
+        return await ReadAllBytesAsync(stream, $"Rendered image '{relativePath}'");
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, string label)
+    {
+        using var buffer = new MemoryStream();
+        await stream.CopyToAsync(buffer);
+        var bytes = buffer.ToArray();
+        if (bytes.Length == 0)
+        {
+            throw new InvalidOperationException($"{label} has no bytes stored.");
+        }
+
+        return bytes;
+    }
+
+    /// <summary>Where a rendered image came from, so the list is readable once the scope reaches past this moment.</summary>
+    private static string? ProductionSubtitle(SceneImageRecord image)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(image.BeatId))
+        {
+            parts.Add($"beat {image.BeatId}");
+        }
+
+        if (image.ProductionStage is { } stage)
+        {
+            parts.Add(stage.ToString());
+        }
+
+        parts.Add(image.CreatedUtc.ToLocalTime().ToString("g"));
+        return string.Join(" · ", parts);
+    }
+
+    private static string ShortId(string id)
+        => id.Length <= 8 ? id : $"{id[..8]}…";
+
+    /// <summary>
+    /// Why a library image cannot be picked, in the words of the gate the HOST asked for — or null when it can.
+    ///
+    /// <para>
+    /// Two gates exist and they accept different images, which is why they are named rather than merged: a location
+    /// BACKDROP needs a named, approved image because its several views must be told apart, while a composition's
+    /// REFERENCE needs an approved immutable selection with the version and checksum the binding records. A host that
+    /// asks for both is refused, because there is no answer that satisfies both questions.
+    /// </para>
+    /// </summary>
+    private string? BlockerFor(SceneAssetImage image)
+    {
+        if (RequireBindableImage)
+        {
+            return SceneImageLocationBindGate.BlockerFor(image)?.Message;
+        }
+
+        if (RequireCompositionReference)
+        {
+            return CompositionReferenceBlocker(image);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Why an image cannot stand as a composition's reference, in the approved-scene-asset channel's own terms.
+    ///
+    /// <para>
+    /// It is the same contract the reference resolver re-validates at render time (approved, with the production
+    /// version and checksum the binding records), stated here so the list cannot offer an image the resolver would then
+    /// refuse. It deliberately does NOT require a name: an unnamed approved image resolves to the element's own role,
+    /// which is what every surface did before names existed.
+    /// </para>
+    /// </summary>
+    private static string? CompositionReferenceBlocker(SceneAssetImage image)
+    {
+        if (image.Status != SceneAssetStatus.Complete || string.IsNullOrWhiteSpace(image.FileRelativePath))
+        {
+            return "This image has no stored bytes, so no reference can be read from it.";
+        }
+
+        if (image.ProductionApprovalStatus != SceneAssetProductionApprovalStatus.Approved)
+        {
+            return "Not approved for production, so it cannot stand as a reference. Approve it first.";
+        }
+
+        if (image.ProductionVersion is null || string.IsNullOrWhiteSpace(image.Sha256))
+        {
+            return "This image records no production version and checksum, so a binding to it could not be proven "
+                + "exact. Re-approve it.";
+        }
+
+        return null;
     }
 
     private async Task PickAsync()
@@ -409,16 +900,27 @@
             return;
         }
 
+        if (option.UnavailableReason is { } reason)
+        {
+            // Defensive: the footer button is disabled for an unavailable image, so this only fires if a host wired its
+            // own trigger. Refusing out loud beats handing over an image the caller's own gate rejects.
+            _loadError = reason;
+            return;
+        }
+
         _busy = true;
+        _loadError = null;
         try
         {
             var content = await option.ReadBytes();
-            await Picked.InvokeAsync(new InAppPickedImage(option.SourceLabel, option.FileName, option.MediaType, content));
+            await Picked.InvokeAsync(new InAppPickedImage(
+                option.SourceLabel, option.FileName, option.MediaType, content, option.Identity, option.RenderedImage));
             await CancelAsync();
         }
         catch (Exception exception)
         {
-            _loadError = $"That image could not be read: {exception.Message}";
+            // The host's own refusal is a reason this image cannot be USED, not a claim that its bytes are unreadable.
+            _loadError = $"That image could not be used: {exception.Message}";
             Logger.LogWarning(exception, "Reading in-app image {Key} for the picker failed.", option.Key);
         }
         finally

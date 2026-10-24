@@ -1,13 +1,97 @@
 using System.Text.Json.Serialization;
+using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.Models;
 
+/// <summary>
+/// How the compiled prompt states explicitness, per render. The COMPILER's default is "match the depicted scene";
+/// this setting is the operator's explicit override of that default, stated to the compiler as an authoritative line.
+/// </summary>
+public enum SceneImageExplicitness
+{
+    /// <summary>
+    /// Preserve the scene's explicit content: never soften, censor or elide what the scene depicts. The default —
+    /// this app is adult-content-first, so nothing is stripped unless the operator says so.
+    /// </summary>
+    Explicit = 0,
+
+    /// <summary>Describe exactly what the scene depicts; let the compiler judge explicitness (no override).</summary>
+    MatchScene = 1,
+
+    /// <summary>Keep the result non-explicit: remove or soften explicit nudity and sexual acts.</summary>
+    Sfw = 2
+}
+
+/// <summary>
+/// Whether a participant POV shows parts of the CAMERA HOLDER's body (hands, arms, genitals, feet) in the frame.
+/// </summary>
+public enum CameraHolderPartsMode
+{
+    /// <summary>Today's behaviour: the camera holder is never depicted.</summary>
+    None = 0,
+
+    /// <summary>Derive the visible parts from the moment's recorded facts and the operator's own prose.</summary>
+    Derived = 1,
+
+    /// <summary>Use the operator's own text in <c>CameraHolderPartsText</c>.</summary>
+    Custom = 2
+}
+
+/// <summary>The one place an explicitness setting is worded for the compiler, so the builders never disagree.</summary>
+public static class SceneImageExplicitnessWording
+{
+    /// <summary>The authoritative directive appended to the user prompt. Always emitted when an override is set.</summary>
+    public static string Directive(SceneImageExplicitness explicitness) => explicitness switch
+    {
+        SceneImageExplicitness.Explicit =>
+            "preserve the scene's explicit content — do not soften, censor or elide what is depicted; if the scene is explicit, write it explicitly.",
+        SceneImageExplicitness.MatchScene =>
+            "match the scene exactly as depicted — neither add nor remove explicitness.",
+        SceneImageExplicitness.Sfw =>
+            "keep the result non-explicit — remove or soften explicit nudity and sexual acts, and describe any remaining partial nudity in the most covered terms consistent with the scene.",
+        _ => throw new InvalidOperationException(
+            $"Explicitness '{explicitness}' has no compiler directive. Add one deliberately: an unworded explicitness " +
+            "override would silently do nothing.")
+    };
+}
+
 /// <summary>Phase 2 image-generation controls used by the studio and its production services.</summary>
 public sealed class SceneImageStudioSettings
 {
+    /// <summary>
+    /// B-157 T7.1: the operator's correction to the frame this render's brief recorded — which person stands where.
+    ///
+    /// <para>
+    /// Null or empty means the compiled frame is used exactly as compiled, which is what every render did before this
+    /// existed. It is applied where the blocking is READ, so an override adjusts the brief's own frame instead of
+    /// replacing it, and the preview shows the same rule the render applies.
+    /// </para>
+    /// </summary>
+    public SceneBlockingOverride? SceneBlockingOverride { get; set; }
     /// <summary>realistic | cinematic | anime | cartoon | painterly | sketch | free text …</summary>
     public string Style { get; set; } = "realistic";
+
+    /// <summary>
+    /// How the compiled prompt states explicitness for this render. Defaults to <see cref="SceneImageExplicitness.Explicit"/>
+    /// (preserve explicit content); the operator can switch to SFW or back to the compiler's match-the-scene default.
+    /// Persisted beside the other render settings so every render is reproducible.
+    /// </summary>
+    public SceneImageExplicitness Explicitness { get; set; } = SceneImageExplicitness.Explicit;
+
+    /// <summary>
+    /// Whether a participant POV shows parts of the camera holder's body in the frame. Defaults to
+    /// <see cref="CameraHolderPartsMode.None"/> (never depicted); Derived extracts the parts from the moment data, and
+    /// Custom uses <see cref="CameraHolderPartsText"/>.
+    /// </summary>
+    public CameraHolderPartsMode CameraHolderParts { get; set; } = CameraHolderPartsMode.None;
+
+    /// <summary>
+    /// The operator's own description of the camera holder's visible parts, used when
+    /// <see cref="CameraHolderParts"/> is <see cref="CameraHolderPartsMode.Custom"/> (e.g. "his hands grip her hips,
+    /// his erect penis presses between her thighs"). Required when Custom is chosen.
+    /// </summary>
+    public string? CameraHolderPartsText { get; set; }
 
     public string ImageSize { get; set; } = "1024x1024";
 

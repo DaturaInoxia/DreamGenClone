@@ -104,6 +104,17 @@ public static class ReferenceApplicationSelectionValidation
                     + "reference asset inside it, so there is no image to condition on.");
             }
 
+            // A rendered app image is pinned by its OWN checksum, in its own store. The id alone is not enough: the row
+            // can be re-rendered or replaced, and the render compares the checksum before conditioning on it, so a
+            // binding without one names an image whose bytes nothing proves.
+            var hasAppImage = application.UsesAppImage;
+            if (hasAppImage && string.IsNullOrWhiteSpace(application.ReferenceImageSha256))
+            {
+                throw new InvalidOperationException(
+                    $"{label} application '{element}' names app image '{application.ReferenceImageId}' but no checksum, "
+                    + "so the record does not prove which bytes the render would condition on.");
+            }
+
             // A pose travels as a skeleton, and a skeleton has no version or checksum of its own - the preset ID is what
             // makes it exact, because the render reads the skeleton BY ID so a stale path cannot point at another file.
             var hasPose = !string.IsNullOrWhiteSpace(application.PosePresetId)
@@ -112,13 +123,13 @@ public static class ReferenceApplicationSelectionValidation
             var isTextOnly = string.Equals(
                 application.Strategy, ReferenceStrategyCatalogue.TextOnly, StringComparison.OrdinalIgnoreCase);
 
-            if (!isTextOnly && !hasSceneAsset && !hasPack && !hasPose)
+            if (!isTextOnly && !hasSceneAsset && !hasPack && !hasPose && !hasAppImage)
             {
                 throw new InvalidOperationException(
                     $"{label} application '{element}' declares strategy '{application.Strategy}' but names no reference "
                     + "image. A binding that carries an element structurally must name one: an approved scene asset "
-                    + "image with its version and checksum, an identity-pack reference (pack id and reference asset id), "
-                    + "or a pose (its preset id or skeleton path).");
+                    + "image with its version and checksum, a rendered app image with its checksum, an identity-pack "
+                    + "reference (pack id and reference asset id), or a pose (its preset id or skeleton path).");
             }
 
             if (application.Strength is < 0m or > 1m)

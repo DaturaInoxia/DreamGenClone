@@ -341,52 +341,6 @@
     padding: 8px 0;
 }
 
-.scene-production-attempt-strip {
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: 180px;
-    gap: 8px;
-    overflow-x: auto;
-    padding-bottom: 6px;
-}
-
-.scene-production-attempt {
-    min-width: 0;
-    padding: 7px;
-    border: 1px solid #343a40;
-    border-radius: 6px;
-    background: #181a1c;
-}
-
-.scene-production-attempt.has-parent {
-    margin-left: 18px;
-    border-left: 3px solid #4a8592;
-}
-
-.scene-production-attempt.is-selected {
-    border-color: #78bdca;
-    box-shadow: inset 0 0 0 1px #78bdca;
-}
-
-.scene-production-attempt-select {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    overflow: hidden;
-    border: 0;
-    border-radius: 4px;
-    background: #101010;
-    color: #8f979e;
-}
-
-.scene-production-attempt-select img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
 .scene-production-compare-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

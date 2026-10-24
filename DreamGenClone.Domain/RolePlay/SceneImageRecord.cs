@@ -170,7 +170,49 @@ public sealed class SceneImageRecord
     public bool IdentityStale { get; set; }
     public string? IdentityReferenceBindingsJson { get; set; }
     public string? AppliedReferenceBindingsJson { get; set; }
+
+    /// <summary>
+    /// The instruction the image editor ACTUALLY received for this row, when it differs from what was compiled.
+    ///
+    /// <para>
+    /// It exists because the reference role clause — the <c>&lt;imageN&gt;</c> tags and the sentences naming each
+    /// reference — is appended at SEND time, from the references that survived validation, and never rewrote
+    /// <see cref="PromptSnapshot"/>. So the row could not answer the first question anyone asks of a bad edit: "what
+    /// did the model actually read?" (reported 2026-10-15: a bound face reference was composited into the frame as a
+    /// second face, and whether the prompt had ever named that image was not answerable from the row at all).
+    /// </para>
+    ///
+    /// <para>
+    /// <see cref="PromptSnapshot"/> stays exactly what it was — the accepted prompt revision — because its checksum is
+    /// recorded in the compiler provenance and validated before an edit runs. This column is the record of what was
+    /// built ON TOP of it. Null for a row no editor ran on (a crop, an enhance, or a render).
+    /// </para>
+    /// </summary>
+    public string? SentInstructionSnapshot { get; set; }
     public string? Sha256 { get; set; }
+
+    /// <summary>
+    /// The operator's own name for this rendered image — "the trailer at dusk", "Front", anything that tells it apart
+    /// from its siblings in a list. Null means unnamed, and a blank write clears it back to null so "unnamed" has one
+    /// representation.
+    /// </summary>
+    /// <remarks>
+    /// Carried on the image rather than on a production attempt because a rendered image's identity is the image: a
+    /// name is how an operator retrieves it, and this one is read by the reference resolver when it describes a
+    /// location reference in the prompt.
+    /// </remarks>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// The tags this image carries, as <c>ImageTagCatalog</c> JSON — the same vocabulary and the same shape an asset
+    /// image's tags are stored in, so one search and one editor serve both stores.
+    /// </summary>
+    /// <remarks>
+    /// A tag is a claim about a picture, and a rendered image is as findable as a library one: the operator judges both
+    /// in a review deck and looks for both by the same words. Null means untagged, which is a different fact from an
+    /// empty list only in that nothing has ever been written.
+    /// </remarks>
+    public string? TagsJson { get; set; }
     public DateTime? BytesPurgedUtc { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

@@ -53,7 +53,10 @@ public sealed class InAppImagePickerContractTests
     {
         // Choosing a reference is a judgement about a picture, made with the same tools as every other image list.
         Assert.Contains("<ImageCard Model=\"option.Card\"", PickerSource, StringComparison.Ordinal);
-        Assert.Contains("SelectRequested=\"() => Select(option)\"", PickerSource, StringComparison.Ordinal);
+        // An image the host cannot accept is not wired to select at all: its picture opens the inspector instead, and the
+        // reason is drawn under it. Selecting it would offer an action the host's own gate refuses.
+        Assert.Contains("EventCallback.Factory.Create(this, () => Select(option))", PickerSource, StringComparison.Ordinal);
+        Assert.Contains(": default(EventCallback))", PickerSource, StringComparison.Ordinal);
         Assert.Contains("<ImageCardStatusFilter Options=\"FilterOptions\"", PickerSource, StringComparison.Ordinal);
         Assert.Contains("ImageCardStatus.Build(SourceOptions.Select(option => option.Card))", PickerSource, StringComparison.Ordinal);
         Assert.Contains("ImageCardStatus.Matches(option.Card, _statusKey)", PickerSource, StringComparison.Ordinal);
@@ -63,6 +66,76 @@ public sealed class InAppImagePickerContractTests
         Assert.DoesNotContain("<ImageInspector", PickerSource, StringComparison.Ordinal);
         Assert.Contains("z-index: 1055;", PickerSource, StringComparison.Ordinal);
         Assert.Contains("z-index: 1060;", InspectorSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The picker owns which card is chosen while the model stays immutable, so it hands the shared card the selection
+    /// to draw. Without it the footer said "Using …" while every card looked unchosen — the pick registered nowhere the
+    /// operator could see.
+    /// </summary>
+    [Fact]
+    public void Picker_ShowsWhichCardIsPicked_AndOffersOnlyCommandsThatBelongInAPicker()
+    {
+        Assert.Contains(
+            "Selected=\"@(string.Equals(option.Key, _selectedKey, StringComparison.Ordinal))\"",
+            PickerSource, StringComparison.Ordinal);
+        // The card's select button means CHOOSE here, not "show it in the viewer above".
+        Assert.Contains("SelectTitle=\"Select this image\"", PickerSource, StringComparison.Ordinal);
+        // The review-deck candidate-batch link would send the operator out of the pick they are making.
+        Assert.Contains("ShowBatchLink=\"false\"", PickerSource, StringComparison.Ordinal);
+        // A failed pick states its reason beside the button that failed, not at the top of a scrolled grid.
+        Assert.Contains("<span class=\"small text-danger\" role=\"alert\">@_loadError</span>", PickerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The picker's search, asset-group and bindable-only modes are OPT-IN, so the hosts that predate them (a face
+    /// slot choosing from a handful of packs) keep the plain library they had. The point of them is that the studio's
+    /// full image search is this same browser rather than a second one grown beside it.
+    /// </summary>
+    [Fact]
+    public void Picker_OptionalSearchGroupsAndBindableGate_AreOffUntilAHostAsksForThem()
+    {
+        Assert.Contains("[Parameter] public SceneAssetType? AssetTypeFilter { get; set; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("[Parameter] public bool ShowSearch { get; set; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("[Parameter] public bool RequireBindableImage { get; set; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("[Parameter] public string PickLabel { get; set; } = \"Use this image\";", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("@if (ShowSearch && (_sourceId == LibrarySourceId || _sourceId == ProductionSourceId))", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("@if (_sourceId == LibrarySourceId && Groups.Count > 0)", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("public string? UnavailableReason { get; init; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("public InAppPickedImageIdentity? Identity { get; init; }", PickerSource, StringComparison.Ordinal);
+
+        // With no asset type asked for, the library is listed flat — the pre-existing behavior, byte for byte.
+        Assert.Contains(".Where(asset => AssetTypeFilter is null || asset.Type == AssetTypeFilter)", PickerSource, StringComparison.Ordinal);
+
+        // The eligibility rule is the DOMAIN's, so the images offered and the images the bind accepts cannot disagree.
+        Assert.Contains("SceneImageLocationBindGate.BlockerFor(image)?.Message", PickerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The app's own rendered images are a SOURCE of their own, and the search over them opens on the moment being
+    /// composed and widens outwards. It exists so any image the app holds can stand as a composition's reference, which
+    /// is a different question from whether it is approved for production.
+    /// </summary>
+    [Fact]
+    public void Picker_OffersTheAppsOwnRenderedImagesScopeNarrowestFirst()
+    {
+        Assert.Contains("[Parameter] public SceneImageSearchScope? ProductionScope { get; set; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("private const string ProductionSourceId = \"production\";", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("sources.Add((ProductionSourceId, \"Studio production\"));", PickerSource, StringComparison.Ordinal);
+
+        // The list is asked of the service that owns the eligibility rule, not assembled here.
+        Assert.Contains("await ImageService.ListSearchableImagesAsync(scope with { Level = _scopeLevel })", PickerSource, StringComparison.Ordinal);
+
+        // The scope selector starts narrow and widens; a level whose id the host did not supply is not offered at all.
+        Assert.Contains("private SceneImageSearchScopeLevel _scopeLevel = SceneImageSearchScopeLevel.Moment;", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("(SceneImageSearchScopeLevel.Moment, \"This moment\",", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("(SceneImageSearchScopeLevel.Beat, \"This beat\",", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("(SceneImageSearchScopeLevel.Session, \"Whole session\",", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => SelectScopeLevelAsync(level.Level)\"", PickerSource, StringComparison.Ordinal);
+
+        // A pick from this source hands the host the identity a reference binding has to record.
+        Assert.Contains("public InAppPickedRenderedImage? RenderedImage { get; init; }", PickerSource, StringComparison.Ordinal);
+        Assert.Contains("RenderedImage = new InAppPickedRenderedImage(image.Id, image.DisplayName, image.Sha256)", PickerSource, StringComparison.Ordinal);
     }
 
     [Fact]

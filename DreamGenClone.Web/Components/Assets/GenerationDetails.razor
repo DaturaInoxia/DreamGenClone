@@ -9,8 +9,10 @@
 @inject ISceneAssetService AssetService
 
 @* What an image was generated WITH, read from its own row and resolved to names. A field the image did not record is
-   omitted, never defaulted: showing "none" for a pose that was never sent would be a lie about what rendered. *@
-@if (Image is null)
+   omitted, never defaulted: showing "none" for a pose that was never sent would be a lie about what rendered.
+   The inputs arrive as one record so an asset-library image and the app's own rendered image — which record their
+   inputs in different stores — are described by this ONE view. *@
+@if (Details is null)
 {
     <span class="small text-muted">No image selected.</span>
 }
@@ -126,9 +128,9 @@ else
 
 @code {
     [Parameter]
-    public SceneAssetImage? Image { get; set; }
+    public ImageGenerationInputDetails? Details { get; set; }
 
-    private SceneAssetImageGenerationDetails _details = null!;
+    private ImageGenerationInputDetails _details = ImageGenerationInputDetails.None;
     private readonly List<string> _referenceRows = [];
     private readonly List<string> _loraRows = [];
     private readonly List<string> _sceneLoraRows = [];
@@ -137,9 +139,7 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        _details = Image is null
-            ? new SceneAssetImageGenerationDetails(string.Empty, null, null, null, null, null, null, null, [], null, null, null, null, null, null, null, null, null, null, [], [], [])
-            : SceneAssetImageGenerationDetails.FromImage(Image);
+        _details = Details ?? ImageGenerationInputDetails.None;
 
         _referenceRows.Clear();
         _loraRows.Clear();
@@ -147,7 +147,7 @@ else
         _poseLabel = null;
         _characterLabel = null;
 
-        if (Image is null || !_details.HasAnythingToShow)
+        if (Details is null || !_details.HasAnythingToShow)
         {
             return;
         }
@@ -218,7 +218,7 @@ else
     }
 
     private async Task<string?> ResolvePoseAsync(
-        SceneAssetImageGenerationDetails details,
+        ImageGenerationInputDetails details,
         IReadOnlyList<IdentityPackOwner> owners)
     {
         if (!string.IsNullOrWhiteSpace(details.PosePresetId))
@@ -252,7 +252,7 @@ else
     }
 
     private async Task<string?> ResolveCharacterAsync(
-        SceneAssetImageGenerationDetails details,
+        ImageGenerationInputDetails details,
         IReadOnlyList<IdentityPackOwner> owners)
     {
         var packId = details.IdentityPackId ?? details.BodyReferencePackId;
@@ -293,7 +293,7 @@ else
         if (!string.IsNullOrWhiteSpace(reference.PosePresetId))
         {
             var pose = await ResolvePoseAsync(
-                new SceneAssetImageGenerationDetails(
+                new ImageGenerationInputDetails(
                     string.Empty, null, null, null, null, null, null, null, [],
                     reference.PosePresetId, reference.SkeletonRelativePath, null, null,
                     null, null, null, null, null, null, [], [], []),
@@ -335,6 +335,13 @@ else
             }
 
             return $"{slot}: asset {reference.SceneAssetId}";
+        }
+
+        // An image the operator picked out of the app (a rendered image, or one already in the library): the app holds
+        // the bytes and the id is the only name the ROW recorded, so the id is what is shown rather than a guess.
+        if (!string.IsNullOrWhiteSpace(reference.ReferenceImageId))
+        {
+            return $"{slot}: app image {reference.ReferenceImageId}";
         }
 
         return $"{slot}: {reference.Strategy}";

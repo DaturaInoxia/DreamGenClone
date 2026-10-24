@@ -31,6 +31,7 @@ public sealed class ImageCompilerProfileTests
         "juggernautXL_ragnarok.safetensors",
         "flux1-dev-fp8.safetensors",
         "qwen_image_2.1_int8_convrot.safetensors",
+        "noctQUncensoredRealismBuiltOn_v40Base_3260131.safetensors",
         "krea2_turbo_fp8_scaled.safetensors",
         "black-forest-labs/FLUX.2-pro",
         "ByteDance-Seed/Seedream-4.0",
@@ -320,6 +321,39 @@ public sealed class ImageCompilerProfileTests
 
         Assert.True(qwen!.MaxChars > bigLust!.MaxChars,
             "Qwen-Image-2.1 must carry a larger prompt budget than the SDXL-family checkpoints.");
+    }
+
+    [Fact]
+    public async Task Seed_CoversTheNoctQDerivativeAsItsOwnCheckpointRow()
+    {
+        // The Noct Q Uncensored build is registered against its OWN ModelIdentifier. Resolution is keyed on the
+        // checkpoint, so without this row every compile and render of that model is refused by name - the family is
+        // not consulted, deliberately.
+        var repository = NewRepository(NewDbPath());
+
+        var noctQ = await repository.FindByCheckpointAsync("noctQUncensoredRealismBuiltOn_v40Base_3260131.safetensors");
+
+        Assert.NotNull(noctQ);
+        Assert.Equal(SceneImageModelFamily.QwenImage21, noctQ!.Family);
+        Assert.Equal(SceneImagePromptDialect.NaturalLanguage, noctQ.PromptDialect);
+        Assert.Equal(ImagePoseInText.Full, noctQ.PoseInText);
+        Assert.Equal(SceneImageCompilerSystemPrompts.Qwen21Beat, noctQ.SystemPrompt);
+        Assert.Equal(string.Empty, noctQ.Negative);
+        Assert.False(string.IsNullOrWhiteSpace(noctQ.ResearchSource));
+
+        // The identifier is handed to UNETLoader verbatim, so it must be the real checkpoint FILENAME - the render
+        // path refuses an identifier that is not one, and the profile key has to match that same name.
+        Assert.EndsWith(".safetensors", noctQ.CheckpointIdentifier, StringComparison.OrdinalIgnoreCase);
+
+        // Same long-form prompt budget as the base Qwen-Image-2.1 row: a derivative that swaps weights does not
+        // change the architecture's prompt budget. The ENVELOPE is different on purpose - this build's author states
+        // cfg 3, where the base row's cfg 1 would leave the negative branch inert.
+        var baseQwen = await repository.FindByCheckpointAsync("qwen_image_2.1_int8_convrot.safetensors");
+        Assert.Equal(baseQwen!.MinChars, noctQ.MinChars);
+        Assert.Equal(baseQwen.MaxChars, noctQ.MaxChars);
+        Assert.Equal(baseQwen.MaxTokens, noctQ.MaxTokens);
+        Assert.Contains("\"cfg\":3.0", noctQ.SettingsEnvelopeJson, StringComparison.Ordinal);
+        Assert.NotEqual(baseQwen.SettingsEnvelopeJson, noctQ.SettingsEnvelopeJson);
     }
 
     [Fact]

@@ -28,6 +28,7 @@
 @inject ICharacterIdentityOwnerResolver OwnerResolver
 @inject NavigationManager Navigation
 @inject IModelResolutionService ModelResolutionService
+@inject ILogger<CharacterStudio> Logger
 
 <PageTitle>Character Studio - DreamGenClone</PageTitle>
 
@@ -1585,6 +1586,37 @@
     private CharacterIdentityBodyView? BodyViewFor(CharacterIdentityBodyViewKey key)
         => _bodyNavViews.FirstOrDefault(view => view.Key() == key);
 
+    /// <summary>
+    /// Reads the per-view statuses the left navigation shows.
+    ///
+    /// <para>
+    /// Called when the body build is resolved and when the Body tab is opened, so the navigation is correct the
+    /// moment the tab appears. The panel still OWNS the rows once it is mounted and publishes every subsequent
+    /// change (accepted, queued, failed), so the list a click produces is never overwritten by this read — this one
+    /// only has to fill the gap before the panel exists.
+    /// </para>
+    /// </summary>
+    private async Task RefreshBodyNavViewsAsync()
+    {
+        if (_bodyBuild is null)
+        {
+            _bodyNavViews = [];
+            return;
+        }
+
+        try
+        {
+            _bodyNavViews = (await BodyService.ListViewsAsync(_bodyBuild.Id)).ToList();
+        }
+        catch (Exception ex)
+        {
+            // The navigation is a convenience over the panel, which reports its own errors; failing to read it must
+            // not take the Body tab down. It simply shows nothing until the panel loads.
+            _bodyNavViews = [];
+            Logger.LogWarning(ex, "Body view statuses could not be read for the left navigation");
+        }
+    }
+
     private Task OnBodyViewsChangedAsync(IReadOnlyList<CharacterIdentityBodyView> views)
     {
         _bodyNavViews = views;
@@ -1727,7 +1759,13 @@
     {
         _activeSection = section;
         if (string.Equals(section, "Body", StringComparison.Ordinal))
+        {
             await RefreshBodyPromotionAsync();
+
+            // The statuses are re-read on the way in, so a view accepted from the deck (or a render that finished
+            // while another tab was open) is not shown as outstanding on the navigation.
+            await RefreshBodyNavViewsAsync();
+        }
     }
 
     /// <summary>The first eight characters of an artifact id, so a readiness card stays readable; an empty id stays empty.</summary>
@@ -2148,6 +2186,15 @@
             // What the body promotion still needs is read with the build, so the Body tab's panel never opens on a
             // stale or empty list.
             await RefreshBodyPromotionAsync();
+
+            // ...and so is the per-view status the left navigation shows. It is read HERE rather than only from the
+            // panel, because the panel is mounted by ONE section (body-angle): a navigation that waited for it would
+            // show every cell as "Not started" until the operator happened to click one (reported 2026-10-11).
+            await RefreshBodyNavViewsAsync();
+        }
+        else
+        {
+            _bodyNavViews = [];
         }
 
         try

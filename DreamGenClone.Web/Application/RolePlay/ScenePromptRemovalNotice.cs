@@ -1,4 +1,5 @@
 using System.Text;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 using DreamGenClone.Web.Domain.Scenarios;
 
@@ -18,11 +19,29 @@ internal static class ScenePromptRemovalNotice
     {
         if (overrides is null || overrides.IsEmpty) return string.Empty;
 
+        var removedKeys = new HashSet<string>(
+            overrides.Fields
+                .Where(field => field.Removed && !string.IsNullOrWhiteSpace(field.ElementKey))
+                .Select(field => field.ElementKey.Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        // A bound location takes over the WHOLE room, which is many payload elements. Naming each one would spend the
+        // notice repeating the room back to the model, so the complete signature is said once, in the room's own words.
+        var roomSupplied = RoomScopes.All(removedKeys.Contains);
+
         var elements = new List<string>();
         foreach (var field in overrides.Fields)
         {
             if (!field.Removed || string.IsNullOrWhiteSpace(field.ElementKey)) continue;
-            var description = Describe(field.ElementKey.Trim(), characters);
+            var key = field.ElementKey.Trim();
+            if (roomSupplied && RoomScopes.Contains(key))
+            {
+                const string room = "the room — its setting, surfaces, fixtures, objects and lighting";
+                if (!elements.Contains(room, StringComparer.OrdinalIgnoreCase)) elements.Add(room);
+                continue;
+            }
+
+            var description = Describe(key, characters);
             if (!elements.Contains(description, StringComparer.OrdinalIgnoreCase)) elements.Add(description);
         }
 
@@ -69,6 +88,15 @@ internal static class ScenePromptRemovalNotice
         return string.IsNullOrWhiteSpace(match?.Name) ? characterKey : match!.Name!;
     }
 
+    /// <summary>
+    /// Every payload element a bound location image takes over. Sourced from
+    /// <see cref="StepPromptElementPlan.LocationScopes"/> — the ONE owner of the room's complete signature — so the
+    /// notice and a binding's prompt-element removals can never describe two different rooms.
+    /// </summary>
+    private static readonly HashSet<string> RoomScopes = new(
+        StepPromptElementPlan.LocationScopes,
+        StringComparer.OrdinalIgnoreCase);
+
     private static readonly IReadOnlyDictionary<string, string> ElementDescriptions =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -78,6 +106,7 @@ internal static class ScenePromptRemovalNotice
             ["scene.lighting"] = "the lighting",
             ["scene.mood"] = "the mood",
             ["scene.objects"] = "the objects and props",
+            ["frozenState.objects"] = "the objects and props",
             ["moment.temporalAnchor"] = "the temporal anchor",
             ["moment.frozenState"] = "the moment continuity line",
             ["moment.visibleAction"] = "the visible action",
@@ -85,8 +114,16 @@ internal static class ScenePromptRemovalNotice
             ["moment.productionRoles"] = "the production roles",
             ["frozenState.visualDescription"] = "the visual description",
             ["frozenState.continuityState"] = "the global continuity state",
+            ["continuity.start.location"] = "the opening setting",
+            ["continuity.start.objectStates"] = "the opening objects and props",
+            ["continuity.start.lighting"] = "the opening lighting",
             ["continuity.start.stateSummary"] = "the opening continuity summary",
+            ["continuity.start.characterStates"] = "the opening character states",
+            ["continuity.end.location"] = "the closing setting",
+            ["continuity.end.objectStates"] = "the closing objects and props",
+            ["continuity.end.lighting"] = "the closing lighting",
             ["continuity.end.stateSummary"] = "the closing continuity summary",
+            ["continuity.end.characterStates"] = "the closing character states",
         };
 
     private static readonly IReadOnlyDictionary<string, string> CharacterFieldDescriptions =

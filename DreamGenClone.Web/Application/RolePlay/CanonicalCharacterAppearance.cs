@@ -42,7 +42,8 @@ internal static class CanonicalCharacterAppearance
         string pov,
         IReadOnlyList<Character>? characters,
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
-        IReadOnlyDictionary<string, string>? canonicalAppearance = null)
+        IReadOnlyDictionary<string, string>? canonicalAppearance = null,
+        IReadOnlyDictionary<string, string>? appearanceElementOverrides = null)
     {
         if (characters is null || characters.Count == 0)
             return string.Empty;
@@ -73,7 +74,7 @@ internal static class CanonicalCharacterAppearance
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var sb = new StringBuilder();
-        sb.AppendLine("DEPICTED CHARACTER APPEARANCE (AUTHORITATIVE FIXED IDENTITY — describe each person by these traits, never by name or relationship):");
+        sb.AppendLine("DEPICTED CHARACTER APPEARANCE (AUTHORITATIVE FIXED IDENTITY — give each person these traits; use a name only when the request anchors it, otherwise identify them by their place in the frame):");
         var emittedAny = false;
         foreach (var frozenCharacter in depicted)
         {
@@ -93,15 +94,52 @@ internal static class CanonicalCharacterAppearance
             if (ResolveAppearanceOverride(frozenCharacter, appearanceOverrides) is { Length: > 0 } overrideText)
                 appearance = overrideText;
 
+            var label = string.IsNullOrWhiteSpace(frozenCharacter.Name) ? frozenCharacter.CharacterId : frozenCharacter.Name;
+
+            // B-166 D10: a FACE and a BUILD reference are independently ownable, so when a binding removes only one of
+            // them the other must still be written. The authored canonical text is one undivided blob and says nothing
+            // about which half is which, so it cannot be split; the attribute-derived face/build sources can. Where
+            // neither exists the blob is face+body owned together and a one-sided removal drops the whole line - the
+            // documented behaviour rather than a guessed split.
+            var faceRemoved = IsAppearanceElementRemoved(frozenCharacter, appearanceElementOverrides, "face");
+            var buildRemoved = IsAppearanceElementRemoved(frozenCharacter, appearanceElementOverrides, "build");
+            if (faceRemoved || buildRemoved)
+            {
+                var faceText = ResolveAppearanceElementText(frozenCharacter, appearanceElementOverrides, "face")
+                    ?? (faceRemoved ? null : PhysicalAttributesFormatter.FormatVisualFace(character?.PhysicalAttributes));
+                var buildText = ResolveAppearanceElementText(frozenCharacter, appearanceElementOverrides, "build")
+                    ?? (buildRemoved ? null : PhysicalAttributesFormatter.FormatVisualBody(character?.PhysicalAttributes));
+
+                if (string.IsNullOrWhiteSpace(faceText) && string.IsNullOrWhiteSpace(buildText))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(faceText))
+                {
+                    sb.AppendLine($"- {label}: Appearance — FACE: {faceText}");
+                    emittedAny = true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(buildText))
+                {
+                    sb.AppendLine($"- {label}: Appearance — BUILD: {buildText}");
+                    emittedAny = true;
+                }
+
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(appearance))
                 continue;
 
-            var label = string.IsNullOrWhiteSpace(frozenCharacter.Name) ? frozenCharacter.CharacterId : frozenCharacter.Name;
             sb.AppendLine($"- {label}: {appearance}");
             emittedAny = true;
         }
 
-        return emittedAny ? sb.ToString() : string.Empty;
+        return emittedAny
+            ? sb.AppendLine("Describe each person listed above in the caption using exactly these traits.").ToString()
+            : string.Empty;
     }
 
     /// <summary>
@@ -126,8 +164,7 @@ internal static class CanonicalCharacterAppearance
     /// Resolves a user-authored appearance override for a frozen character by character id or name.
     /// Returns null when no override exists, an empty string when the appearance is to be removed.
     /// </summary>
-    private static string? ResolveAppearanceOverride(
-        FrozenCharacterRef frozen,
+    private static string? ResolveAppearanceOverride(        FrozenCharacterRef frozen,
         IReadOnlyDictionary<string, string>? overrides)
     {
         if (overrides is null || overrides.Count == 0) return null;
@@ -135,6 +172,36 @@ internal static class CanonicalCharacterAppearance
         {
             if (string.IsNullOrWhiteSpace(key)) continue;
             if (overrides.TryGetValue(key.Trim(), out var value)) return value ?? string.Empty;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whether a per-element appearance state exists for this character and says "removed". Keys are
+    /// <c>&lt;identity&gt;|face</c> / <c>&lt;identity&gt;|build</c>, written by
+    /// <see cref="ScenePromptOverridesApplier"/> against the SAME identity (<c>characterId</c>, then <c>name</c>).
+    /// </summary>
+    private static bool IsAppearanceElementRemoved(
+        FrozenCharacterRef frozen,
+        IReadOnlyDictionary<string, string>? elementOverrides,
+        string element)
+        => ResolveAppearanceElementText(frozen, elementOverrides, element) is { Length: 0 };
+
+    /// <summary>
+    /// The replacement text for one appearance element, or null when this character carries no state for it. An empty
+    /// value means the element is supplied by a reference image and must not be described.
+    /// </summary>
+    private static string? ResolveAppearanceElementText(
+        FrozenCharacterRef frozen,
+        IReadOnlyDictionary<string, string>? elementOverrides,
+        string element)
+    {
+        if (elementOverrides is null || elementOverrides.Count == 0) return null;
+        foreach (var key in new[] { frozen.CharacterId, frozen.Name })
+        {
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            if (elementOverrides.TryGetValue($"{key.Trim()}|{element}", out var value))
+                return value ?? string.Empty;
         }
         return null;
     }

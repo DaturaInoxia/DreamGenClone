@@ -132,7 +132,9 @@ public sealed class ComfyUIPoseConditionedImageClient : IPoseConditionedImageCli
             if (status != "success")
             {
                 throw new ImageGenerationException(
-                    $"ComfyUI pose workflow '{status}' for prompt {promptId}.", model.ProviderName, reasonCode: "comfyui_pose_error");
+                    $"ComfyUI pose workflow '{status}' for prompt {promptId}{ComfyUiWorkflowTransport.DescribeExecutionError(historyEntry)}.",
+                    model.ProviderName,
+                    reasonCode: "comfyui_pose_error");
             }
 
             string? filename = null;

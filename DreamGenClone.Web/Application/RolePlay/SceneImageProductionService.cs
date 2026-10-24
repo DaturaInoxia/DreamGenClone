@@ -2,6 +2,8 @@ using System.Text.Json;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
+using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -323,7 +325,12 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             momentMatches[0],
             enrichment,
             new MediaCompilerTargetProfile(
-                "canonical-still", "1", MediaProductionKind.StillImage,
+                // B-157: version 2 because the compiler's OUTPUT changed — a still brief now records the frame-space
+                // blocking (who stands where) beside its typed references. A brief compiled under version 1 has no
+                // frame at all, so nothing downstream can name a reference by position; leaving the version at 1 would
+                // make IsExactStillBrief keep returning that old brief forever and the whole feature would stay inert
+                // for every production group created before it. Bumping the version is what retires them.
+                "canonical-still", "2", MediaProductionKind.StillImage,
                 "canonical", "deterministic", "1", capabilities, "canonical-request-v1"),
             null,
             [],
@@ -339,7 +346,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         return brief.MediaKind == MediaProductionKind.StillImage
             && brief.Status == MediaCompilerStatus.Complete
             && string.Equals(brief.TargetProfileId, "canonical-still", StringComparison.Ordinal)
-            && string.Equals(brief.TargetProfileVersion, "1", StringComparison.Ordinal)
+            && string.Equals(brief.TargetProfileVersion, "2", StringComparison.Ordinal)
             && string.Equals(brief.FamilyKey, "canonical", StringComparison.Ordinal)
             && string.Equals(brief.CompilerKey, "deterministic", StringComparison.Ordinal)
             && string.Equals(brief.CompilerVersion, "1", StringComparison.Ordinal)
@@ -446,12 +453,28 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
     }
 
+    public Task<SceneImageProductionGroup> SavePromptDraftAsync(
+        string groupId,
+        SceneImagePromptSource source,
+        string? userIntent,
+        ScenePromptOverrides? overrides = null,
+        SceneImageExplicitness explicitness = SceneImageExplicitness.Explicit,
+        CameraHolderPartsMode cameraHolderParts = CameraHolderPartsMode.None,
+        string? cameraHolderPartsText = null,
+        CancellationToken cancellationToken = default)
+    {
+        Require(groupId, "Production group id");
+        return _productionRepository.SetPromptDraftAsync(
+            groupId.Trim(),
+            SceneImagePromptDraftJson.Serialize(source, userIntent, overrides, explicitness, cameraHolderParts, cameraHolderPartsText),
+            _timeProvider.GetUtcNow().UtcDateTime,
+            cancellationToken);
+    }
+
     public Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(
         string groupId,
         CancellationToken cancellationToken = default)
-        => _imageRepository.ListImagesByProductionGroupAsync(groupId, cancellationToken);
-
-    public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(
+        => _imageRepository.ListImagesByProductionGroupAsync(groupId, cancellationToken);    public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(
         string groupId,
         CancellationToken cancellationToken = default)
         => _productionRepository.ListApprovalDecisionsAsync(groupId, cancellationToken);
@@ -488,15 +511,32 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
         var image = await _imageRepository.GetImageAsync(imageId, cancellationToken)
             ?? throw new InvalidOperationException($"Scene image '{imageId}' was not found.");
-        if (group.IdentityPolicy == SceneImageIdentityPolicy.Required)
+        // The ONE gate, asked of the domain, so this refusal and every control that offers the action cannot disagree.
+        // It replaced a stage/identity-policy precondition that lived here AND in two pages, each with its own version.
+        if (SceneImageFrameApprovalGate.BlockerFor(group, image) is { } blocker)
         {
-            if (image.IdentityStale)
-                throw new InvalidOperationException("This Finish attempt is identity-stale after a geometry edit. Approval requires another identity pass.");
-            if (image.ProductionStage != SceneImageProductionStage.Identity)
-                throw new InvalidOperationException("Approval requires a completed Identity attempt, or an explicit identity skip.");
+            throw new InvalidOperationException(blocker.Message);
         }
+
         return await _productionRepository.ApproveAsync(
             groupId, imageId, sha256, decidedBy, note, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+    }
+
+    public async Task<ApprovedSceneFrameDecision> RevokeApprovalAsync(
+        string groupId,
+        string decidedBy,
+        string? note,
+        CancellationToken cancellationToken = default)
+    {
+        var group = await _productionRepository.GetAsync(groupId, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
+
+        // Which approval is current, and whether there is one at all, is the repository's own transactional fact — it
+        // reads the group inside the write, so a revoke can never withdraw a decision that a concurrent approve just
+        // replaced. Asking it here as well would be a second, non-atomic copy of that rule.
+        return await _productionRepository.RevokeCurrentApprovalAsync(
+            groupId, decidedBy, note, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
     }
 
     public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(

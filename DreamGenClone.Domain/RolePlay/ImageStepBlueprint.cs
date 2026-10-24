@@ -63,7 +63,18 @@ public enum ImageStepSlotKind
     /// A character rendered in a specific pose and wardrobe state - the character pose asset. Per-character, and
     /// it SUBSUMES appearance, clothing and position, because one image carries all three.
     /// </summary>
-    CharacterPose = 6
+    CharacterPose = 6,
+
+    /// <summary>
+    /// An OBJECT that appears in the frame — a prop. Behaves like a wardrobe reference (an image of a thing rather than
+    /// of a person, named and placed rather than reproduced wholesale) but carries no character: a prop may be held by
+    /// someone or belong to the scene, so it is the one slot besides <see cref="Pose"/> that may name either.
+    /// </summary>
+    /// <remarks>
+    /// Appended, never inserted: slot kinds are persisted as their NAME inside reference bindings, so a new member
+    /// cannot disturb an existing row.
+    /// </remarks>
+    Prop = 7
 }
 
 /// <summary>Where a slot's reference image may come from. The HOST declares this; it is never inferred.</summary>
@@ -87,7 +98,27 @@ public enum ImageStepReferenceSourceKind
     /// which is the id space the LoRA cell's conditioning and the identity renders already use. Folding one into the
     /// other would mean inventing a scene asset id for an image that has none.
     /// </summary>
-    IdentityPackAsset = 5
+    IdentityPackAsset = 5,
+
+    /// <summary>
+    /// A rendered image the app already holds — a Studio production attempt, a gallery render, an edit — addressed by
+    /// its own id in the scene-image store.
+    ///
+    /// <para>
+    /// A distinct source from <see cref="ApprovedSceneAsset"/>, and not an alias for it: a rendered image is not a
+    /// <c>SceneAssets</c> row, carries no approved image id and no production version, so the approved-asset channel
+    /// cannot serve it and folding one into the other would mean inventing an approval for an image that has none.
+    /// Its own checksum is what makes it exact — the render re-reads the image and refuses the run when the bytes are
+    /// not the ones that were bound.
+    /// </para>
+    ///
+    /// <para>
+    /// This is the channel that lets ANY image the app holds stand as a reference in a composition, which is a
+    /// different question from whether the image is approved for production: the operator decides what a reference
+    /// image is worth, and the render's only demand is that it still names the exact bytes.
+    /// </para>
+    /// </summary>
+    AppImage = 6
 }
 
 /// <summary>How a slot gets its initial value. Pre-fill is a convenience the operator can always change.</summary>
@@ -141,7 +172,11 @@ public enum ImageStepActorKeyRequirement
 /// prompt-element plan addresses characters by profile key, so an id here would silently remove nothing.
 /// </param>
 /// <param name="DisplayName">The character's name, as the operator sees it.</param>
-public sealed record ImageStepActor(string ActorKey, string DisplayName);
+/// <param name="ViewHint">
+/// Which reference view this moment's recorded stance suggests for this character (B-166 D8), or null when the brief
+/// records no angle. GUIDANCE for the picker only: it never pre-selects or substitutes a view.
+/// </param>
+public sealed record ImageStepActor(string ActorKey, string DisplayName, string? ViewHint = null);
 
 /// <summary>
 /// One reference slot a step offers.
@@ -189,6 +224,11 @@ public sealed record ImageStepSlotBlueprint(
         ImageStepSlotKind.CharacterPose => ImageStepActorKeyRequirement.Required,
         ImageStepSlotKind.Location => ImageStepActorKeyRequirement.Forbidden,
         ImageStepSlotKind.Pose => ImageStepActorKeyRequirement.Optional,
+
+        // A prop may be held by a named character or simply stand in the scene, so it is addressed per character only
+        // when the operator says whose it is. Guessing an owner would address one person's elements for an object
+        // nobody tied to them.
+        ImageStepSlotKind.Prop => ImageStepActorKeyRequirement.Optional,
         _ => throw new InvalidOperationException(
             $"Reference slot kind '{slotKind}' has no actor-key classification. Add it deliberately: the answer "
             + "decides whether its prompt elements are addressed per character or scene-wide.")
@@ -205,6 +245,17 @@ public sealed record ImageStepSlotBlueprint(
     /// whose element the step's text never described.
     /// </remarks>
     public string? ElementText { get; init; }
+
+    /// <summary>
+    /// A suggestion about WHICH reference view this slot wants, derived from the moment's recorded stance (B-166 D8),
+    /// or null when the brief records no angle.
+    /// </summary>
+    /// <remarks>
+    /// Guidance, never a decision: the operator picks the view, and a hint the host cannot justify is null rather than
+    /// a guess. It exists because binding a front face to a moment that turns the person away is a repeated,
+    /// silent-looking failure — the reference wins over the prose and the render comes back facing the wrong way.
+    /// </remarks>
+    public string? ViewHint { get; init; }
 
     /// <summary>
     /// When this slot holds a binding, the element is supplied by THAT slot's reference image rather than by any text

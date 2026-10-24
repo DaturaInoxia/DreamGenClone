@@ -96,6 +96,9 @@
         <li class="nav-item" role="presentation">
             <button type="button" class="nav-link @GetTabClass("stat-keywords")" @onclick='() => SelectTab("stat-keywords")'>Stat Keywords</button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button type="button" class="nav-link @GetTabClass("image-staging")" @onclick='() => SelectTab("image-staging")'>Image Staging</button>
+        </li>
     </ul>
 
     @if (_activeTab == "ranking")
@@ -2946,6 +2949,10 @@
     {
         <StatKeywordCategoriesPanel />
     }
+    else if (_activeTab == "image-staging")
+    {
+        <ImageStagingProfilePanel />
+    }
 </div>
 
 @code {
@@ -2978,7 +2985,8 @@
         "selection-engine",
         "beat-sheet",
         "templates",
-        "stat-keywords"
+        "stat-keywords",
+        "image-staging"
     ];
 
     private List<ThemeProfile> _profiles = [];

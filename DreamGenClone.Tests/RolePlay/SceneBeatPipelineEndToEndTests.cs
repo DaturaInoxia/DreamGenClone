@@ -129,14 +129,28 @@ public sealed class SceneBeatPipelineEndToEndTests
             var compiler = new DeterministicMultimodalMediaCompiler(new MediaCompilerDescriptor(
                 target.MediaKind, target.FamilyKey, target.CompilerKey, target.CompilerVersion, target.Capabilities));
             var briefRepository = new CapturingBriefRepository();
+            // B-157: the framing is derived by its own step before compilation, from the same store the app reads.
+            var blockingBuilder = new SceneBlockingBuilder(
+                new ImageStagingProfileResolver(new ImageStagingProfileRepository(options)));
             var compilationService = new MultimodalMediaCompilationService(
-                new MultimodalMediaCompilerRegistry([compiler]), briefRepository, plans, momentSets, enrichments, TimeProvider.System);
+                new MultimodalMediaCompilerRegistry([compiler]), briefRepository, plans, momentSets, enrichments,
+                blockingBuilder, TimeProvider.System);
             var selectedMoment = Assert.Single(momentSet.Moments, moment => moment.MomentId == recommendedMomentId);
 
             var brief = await compilationService.CompileAndPersistAsync(new CompileMediaBriefRequest(
                 plan, momentSet, selectedMoment, enrichment, target, null, [], [], [], null, null));
 
             Assert.Equal(MediaCompilerStatus.Complete, brief.Status);
+            Assert.Equal(MediaProductionKind.StillImage, brief.MediaKind);
+            // B-157 T2.1: the still brief snapshots how the scene is framed, not only what it contains.
+            Assert.Contains("\"blocking\":", brief.SemanticInputSnapshotJson, StringComparison.Ordinal);
+            using (var snapshot = JsonDocument.Parse(brief.SemanticInputSnapshotJson))
+            {
+                var blocking = snapshot.RootElement.GetProperty("blocking");
+                Assert.Equal(JsonValueKind.Object, blocking.ValueKind);
+                Assert.NotEqual(0, blocking.GetProperty("subjects").GetArrayLength());
+                Assert.True(blocking.GetProperty("camera").TryGetProperty("shotSize", out _));
+            }
             Assert.Same(brief, Assert.Single(briefRepository.Created));
             Assert.Equal(catalogue.Id, brief.Lineage.CatalogueId);
             Assert.Equal(plan.Id, brief.Lineage.BeatProductionPlanId);

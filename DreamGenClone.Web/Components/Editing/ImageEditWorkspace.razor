@@ -13,6 +13,7 @@
 @inject DreamGenClone.Application.ModelManager.IFunctionDefaultRepository FunctionDefaults
 @inject IImageWorkflowTemplateService WorkflowTemplates
 @inject IImagePresetService ImagePresets
+@inject IReferenceStrategyResolver ReferenceStrategies
 @inject IMediaEditHeadMeasurementService HeadMeasurements
 @inject IJSRuntime JS
 @inject NavigationManager Nav
@@ -118,7 +119,8 @@ else
                     }
                     else
                     {
-                        <img src="/scene-images/@_source.FileRelativePath" alt="Source image" class="scene-edit-image" />
+                        <img src="/scene-images/@_source.FileRelativePath" alt="Source image" class="scene-edit-image scene-edit-zoomable"
+                             title="View larger" @onclick="OpenSourceInspector" />
                     }
                 </div>
                 @if (_regionEnabled && !string.IsNullOrWhiteSpace(RegionBlockReason))
@@ -200,6 +202,50 @@ else
                         }
                     </div>
                     <div class="mb-3">
+                        @if (!string.IsNullOrWhiteSpace(_sourceReferenceNotice))
+                        {
+                            @* What was and was not re-bound from the image's own record. Shown rather than done
+                               quietly: the operator has to be able to tell a reference that was applied from one that
+                               was refused, and a reference the run carries with nothing on screen saying so is the
+                               silent drop the reference rules forbid. *@
+                            <div class="alert alert-info py-2 small mb-2" role="status">@_sourceReferenceNotice</div>
+                        }
+                        @if (IdentityAvailable)
+                        {
+                            @* Which characters this edit ADDRESSES, chosen from the roster the Identity tab also binds
+                               from. The Identity tab can only address a person the analysis DETECTED; this selector is
+                               how an edit of an image whose people were never detected still declares its per-character
+                               slots — without it a cast with no detected people left only the frame-wide elements, and
+                               a face, build or wardrobe reference had nowhere to go. *@
+                            <div class="border rounded p-2 mb-2" aria-label="Characters in this edit">
+                                <div class="d-flex justify-content-between align-items-baseline gap-2 mb-1">
+                                    <strong class="small">Characters in this edit</strong>
+                                    <span class="small text-muted">Picking one declares its face, build and wardrobe slots.</span>
+                                </div>
+                                @if (_identityCharacters.Count == 0)
+                                {
+                                    <span class="small text-muted">
+                                        @(string.IsNullOrWhiteSpace(_identityRosterStatus)
+                                            ? "No character with an approved identity pack is available here."
+                                            : _identityRosterStatus)
+                                    </span>
+                                }
+                                else
+                                {
+                                    @foreach (var choice in _identityCharacters)
+                                    {
+                                        <div class="form-check form-check-inline" @key="choice.CharacterId">
+                                            <input class="form-check-input" type="checkbox" id="@CastCharacterCheckboxId(choice.CharacterId)"
+                                                   checked="@IsCastCharacterSelected(choice.CharacterId)" disabled="@_busy"
+                                                   @onchange="args => OnCastCharacterToggledAsync(choice, args)" />
+                                            <label class="form-check-label small" for="@CastCharacterCheckboxId(choice.CharacterId)">
+                                                @choice.CharacterName
+                                            </label>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
                         @if (_editorModelChoices.Count == 0)
                         {
                             <div class="alert alert-warning py-2 mb-0">No fully configured image editor endpoints are available. Configure a Qwen editor model in Model Manager.</div>
@@ -219,9 +265,23 @@ else
                                                ModelPlaceholder="Choose an image editor model"
                                                Bindings="_bindings"
                                                BindingsChanged="OnBindingsChanged"
+                                               SceneLoras="_sceneLoras"
+                                               SceneLorasChanged="OnSceneLorasChanged"
                                                Busy="_busy"
                                                CanSubmit="false"
                                                ShowPrompt="false" />
+                            @if (AnyFaceSlotDeclared)
+                            {
+                                @* Two mechanisms reach a face on this page and they are NOT the same run, so which is
+                                   which is stated rather than left to be inferred: a face slot conditions THIS edit,
+                                   while the Identity tab queues its own face-only correction for a person the
+                                   analysis detected. *@
+                                <div class="form-text small mt-2">
+                                    A <strong>Face</strong> slot conditions this edit on a character's approved face.
+                                    The <strong>Identity</strong> tab is a separate face-only correction run for a
+                                    person the analysis detected.
+                                </div>
+                            }
                         }
                     </div>
                     <EditIterateWorkbench Error="@_errorMessage"
@@ -288,9 +348,9 @@ else
                         </div>
                         <div class="col-sm-6">
                             <label class="form-label small mb-1" for="@RegionFeatherInputId">Feather edge (px)</label>
-                            <input id="@RegionFeatherInputId" type="number" step="1" min="0" class="form-control form-control-sm"
+                            <input id="@RegionFeatherInputId" type="number" step="1" min="@(MediaEditRegionOperation.HostBoundaryBandPixels + 1)" class="form-control form-control-sm"
                                    @bind="RegionFeatherInput" disabled="@_busy" />
-                            <div class="form-text">0 sends no feather at all: the graph gets no feather node.</div>
+                            <div class="form-text">Width of the fade applied after the render. Must be wider than the host's 8 px mask-edge band, or that edge shows as a seam.</div>
                         </div>
                     </div>
 
@@ -642,6 +702,10 @@ else
                         <p class="small text-muted">Bind each detected person to a character's approved identity pack, then run a separate face-only identity correction. No typed prompt is required — identity compiles from the source image and runs independently of the Edit tab.</p>
                         @if (_compilationResult?.Status != SceneImageEditCompilationResultStatus.Ready)
                         {
+                            @if (!string.IsNullOrWhiteSpace(IdentityAnalysisFailure))
+                            {
+                                <div class="alert alert-warning py-2 small mb-2">The face analysis returned no targets: @IdentityAnalysisFailure</div>
+                            }
                             <div class="alert alert-info py-2 small mb-2">Identity needs a vision analysis of this image to detect the people to correct.</div>
                             <button type="button" class="btn btn-sm btn-outline-info" disabled="@_busy" @onclick="IdentityPrepareAsync">
                                 <i class="bi bi-person-badge me-1"></i> Analyze faces
@@ -796,8 +860,10 @@ else
         </div>
     }
 
-    @if (_result is not null || _lineage.Count > 1)
+    @if (_result is not null || _lineage.Count > 0)
     {
+        @* The lineage is a property of the IMAGE, not of this visit: it is listed whenever the store can produce the
+           chain, including when the editor is reopened on an image that has no result yet (2026-10-19). *@
         <section class="scene-edit-results mt-3">
             <div class="scene-edit-panel-heading">
                 <div>
@@ -812,7 +878,9 @@ else
                     <div class="col-md-6">
                         <div class="scene-edit-compare-frame">
                             <span>Before</span>
-                            <img src="/scene-images/@_source.FileRelativePath" alt="Source before editing" />
+                            <img src="/scene-images/@_source.FileRelativePath" alt="Source before editing"
+                                 class="scene-edit-zoomable" title="View larger"
+                                 @onclick="OpenSourceInspector" />
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -820,7 +888,9 @@ else
                             <span>After</span>
                             @if (_result.IsComplete)
                             {
-                                <img src="/scene-images/@_result.FileRelativePath" alt="Edited result" />
+                                <img src="/scene-images/@_result.FileRelativePath" alt="Edited result"
+                                     class="scene-edit-zoomable" title="View larger"
+                                     @onclick="OpenResultInspector" />
                             }
                             else if (_result.IsInFlight)
                             {
@@ -833,46 +903,61 @@ else
                         </div>
                     </div>
                 </div>
+            }
 
-                <div class="scene-edit-lineage">
-                    @foreach (var image in _lineage)
-                    {
-                        <div class="scene-edit-lineage-item @(image.ImageId == _source.ImageId ? "is-current" : "")">
-                            @if (image.IsComplete && !string.IsNullOrWhiteSpace(image.FileRelativePath))
-                            {
-                                <img src="/scene-images/@image.FileRelativePath" alt="@(image.IsEdit ? "Edited lineage image" : "Original lineage image")" class="scene-edit-lineage-thumb" />
-                            }
-                            else
-                            {
-                                <div class="scene-edit-lineage-thumb scene-edit-lineage-thumb-state">@image.StatusText</div>
-                            }
-                            <div class="scene-edit-lineage-meta">
-                                <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <span class="badge @(image.IsEdit ? "bg-info text-dark" : "bg-secondary")">@(image.IsEdit ? "Edit" : "Source")</span>
-                                    <span class="text-muted small">@image.StatusText · @image.CreatedUtc.ToLocalTime().ToString("g")</span>
-                                </div>
-                                <span class="font-monospace small text-muted">@image.ImageId</span>
-                                @if (image.IsEdit && !string.IsNullOrWhiteSpace(image.PromptSnapshot))
+            <div class="scene-edit-lineage">
+                @foreach (var image in _lineage)
+                {
+                    <div class="scene-edit-lineage-item @(IsActiveLineageImage(image) ? "is-current" : "")">
+                        @if (image.IsComplete && !string.IsNullOrWhiteSpace(image.FileRelativePath))
+                        {
+                            <img src="/scene-images/@image.FileRelativePath" alt="@(image.IsEdit ? "Edited lineage image" : "Original lineage image")"
+                                 class="scene-edit-lineage-thumb" title="View larger"
+                                 @onclick="() => OpenLineageInspector(image)" />
+                        }
+                        else
+                        {
+                            <div class="scene-edit-lineage-thumb scene-edit-lineage-thumb-state">@image.StatusText</div>
+                        }
+                        <div class="scene-edit-lineage-meta">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="badge @(image.IsEdit ? "bg-info text-dark" : "bg-secondary")">@(image.IsEdit ? "Edit" : "Source")</span>
+                                @if (IsActiveLineageImage(image))
                                 {
-                                    <details class="scene-edit-lineage-prompt">
-                                        <summary>Exact edit prompt</summary>
-                                        <div>@image.PromptSnapshot</div>
-                                    </details>
+                                    <span class="badge bg-primary" title="The editor is working on this image">In editor</span>
                                 }
+                                <span class="text-muted small">@image.StatusText · @image.CreatedUtc.ToLocalTime().ToString("g")</span>
                             </div>
-                            @if (EditImageUrlFactory is not null && image.IsComplete && !string.IsNullOrWhiteSpace(image.FileRelativePath))
+                            <span class="font-monospace small text-muted">@image.ImageId</span>
+                            @if (image.IsEdit && !string.IsNullOrWhiteSpace(image.PromptSnapshot))
                             {
-                                <a class="btn btn-sm btn-outline-primary ms-auto" href="@EditImageUrlFactory(image.ImageId)">
-                                    <i class="bi bi-pencil-square me-1"></i> Edit image
-                                </a>
+                                <details class="scene-edit-lineage-prompt">
+                                    <summary>Exact edit prompt</summary>
+                                    <div>@image.PromptSnapshot</div>
+                                </details>
                             }
                         </div>
-                    }
-                </div>
-            }
+                        @if (EditImageUrlFactory is not null && image.IsComplete && !string.IsNullOrWhiteSpace(image.FileRelativePath))
+                        {
+                            <a class="btn btn-sm btn-outline-primary ms-auto" href="@EditImageUrlFactory(image.ImageId)">
+                                <i class="bi bi-pencil-square me-1"></i> Edit image
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
         </section>
     }
 }
+
+@* The shared inspector is the ONE zoom/pan popup: the source, the result and every lineage thumbnail open it. *@
+<ImageInspector Open="_inspectorOpen"
+                ImagePath="@_inspectorPath"
+                Title="@_inspectorTitle"
+                Subtitle="@_inspectorSubtitle"
+                Caption="@_inspectorCaption"
+                Alt="Scene image"
+                Closed="CloseInspector" />
 
 @code {
     /// <summary>Fixed identity-only vision intent so the Identity flow compiles without a user-typed prompt.</summary>
@@ -964,23 +1049,72 @@ else
     private string? _selectedEditorModelId;
 
     /// <summary>
-    /// The references this edit will run with, in order. It starts EMPTY: the slots come from the step's blueprint, so
-    /// this list holds what the operator bound rather than a pre-built element list (the panel this page used to render
-    /// offered three element rows regardless of what the step actually had slots for).
+    /// The NON-identity scene LoRAs (unlock / act / anatomy / style) this edit applies, in chain order. Empty means
+    /// NO scene LoRA, which is a configured state: the queued run then carries none and the editor graph emits no
+    /// scene-LoRA loader node. Cleared on a model change, because a LoRA only binds to the family it was trained
+    /// against and a pick made under the previous model must not survive into a different checkpoint.
+    /// </summary>
+    private IReadOnlyList<SceneImageLoraSelection> _sceneLoras = [];
+
+    /// <summary>
+    /// The references this edit will run with, in order. The slots come from the step's blueprint, so this list holds
+    /// what was bound rather than a pre-built element list (the panel this page used to render offered three element
+    /// rows regardless of what the step actually had slots for). It OPENS on the references the source image was made
+    /// with — see <see cref="ApplySourceReferenceSeedAsync"/> — and the operator keeps, changes or clears them from
+    /// there.
     /// </summary>
     private IReadOnlyList<ReferenceApplicationSelection> _bindings = [];
 
     /// <summary>
-    /// The characters this edit addresses, taken from the identity targets the operator has identified. That is what
-    /// makes the per-character slots addressable: a body or wardrobe reference must name the character it belongs to.
+    /// What the source image's own row records about the references it was made with. Read once per load, so the
+    /// prefill, the cast and the notice all answer from the same record instead of three separate reads that could
+    /// disagree.
+    /// </summary>
+    private ImageEditSourceReferences _sourceReferences = ImageEditSourceReferences.None;
+
+    /// <summary>What the prefill did, in its own words — or empty when there is nothing to say.</summary>
+    private string _sourceReferenceNotice = string.Empty;
+
+    /// <summary>
+    /// The characters the operator picked from the roster as ADDRESSED by this edit. Together with the identity targets
+    /// below they form the cast; this list is what makes a character pickable when the analysis found nobody.
+    /// </summary>
+    private readonly List<string> _selectedCastCharacterIds = [];
+
+    /// <summary>
+    /// The characters this edit addresses, from three sources that are all genuinely different:
+    /// the identity TARGETS the operator bound to detected people; the roster characters the operator picked here; and
+    /// the actors the SOURCE image's own references named.
+    ///
+    /// <para>
+    /// That last one is load-bearing rather than decorative: a re-bound reference names the actor it belonged to, and a
+    /// binding with no declared slot is refused by the planner — so leaving the actor out of the cast would arm a
+    /// failure for the next time the operator touched any control.
+    /// </para>
     /// </summary>
     private IReadOnlyList<ImageStepActor> EditCast =>
         _identityTargetSelections
             .Where(target => !string.IsNullOrWhiteSpace(target.CharacterId)
                 && !string.IsNullOrWhiteSpace(target.CharacterName))
             .Select(target => new ImageStepActor(target.CharacterId, target.CharacterName))
+            .Concat(_identityCharacters
+                .Where(choice => IsCastCharacterSelected(choice.CharacterId))
+                .Select(choice => new ImageStepActor(choice.CharacterId, choice.CharacterName)))
+            .Concat(SourceReferenceSlotPrefill.ActorKeysOf(_sourceReferences.References)
+                .Select(key => new ImageStepActor(key, CharacterNameFor(key))))
             .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>The roster's name for an actor key, or the key itself when the roster does not carry it.</summary>
+    private string CharacterNameFor(string actorKey)
+        => _identityCharacters
+            .FirstOrDefault(choice => string.Equals(choice.CharacterId, actorKey, StringComparison.Ordinal))
+            ?.CharacterName
+            ?? actorKey;
+
+    /// <summary>Whether the step declares any face slot, which is what makes the two-mechanism note true rather than
+    /// boilerplate.</summary>
+    private bool AnyFaceSlotDeclared => EditBlueprint.Slots.Any(slot => slot.SlotKind == ImageStepSlotKind.Face);
 
     /// <summary>The step this workspace presents, built by the one factory that owns host knowledge.</summary>
     private ImageStepBlueprint EditBlueprint => ImageStepBlueprintFactory.ForEditElements(EditCast);
@@ -995,6 +1129,12 @@ else
     private string _editablePrompt = string.Empty;
     private string _statusMessage = string.Empty;
     private string _errorMessage = string.Empty;
+
+    /// <summary>
+    /// The compilation attempt the Identity panel queued. Its terminal state clears the page-level "queued" notice,
+    /// so a finished analysis cannot keep reading as one that never came back (2026-10-13).
+    /// </summary>
+    private string? _identityAnalysisAttemptId;
     private bool _loading = true;
     private bool _busy;
     private bool _polling;
@@ -1004,6 +1144,14 @@ else
     private CancellationTokenSource? _pollingCts;
     private Task? _pollingTask;
     private EditorTab _activeTab = EditorTab.Edit;
+
+    // The shared zoom/pan inspector. The host owns open/closed and what is being inspected, exactly like ImageCard:
+    // the same popup — with the same pan and zoom — is used by the source, the result and every lineage thumbnail.
+    private bool _inspectorOpen;
+    private string? _inspectorPath;
+    private string? _inspectorTitle;
+    private string? _inspectorSubtitle;
+    private string? _inspectorCaption;
 
     // Preset-pass state (B-133). The choices come from the store; the instruction is what the picked preset
     // assembles, and it is shown before it is sent because a preset is not a black box.
@@ -1162,8 +1310,8 @@ else
             if (!string.IsNullOrWhiteSpace(_regionSettingsError)) return _regionSettingsError;
             if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
                 return "Missing required configuration 'RegionGrowMaskBy': set it in the reference workflow settings before confining an edit.";
-            if (_regionFeatherPixels is not { } feather || feather < 0)
-                return "Missing required configuration 'RegionFeatherPixels': set it in the reference workflow settings before confining an edit.";
+            if (_regionFeatherPixels is not { } feather || feather <= MediaEditRegionOperation.HostBoundaryBandPixels)
+                return $"Missing required configuration 'RegionFeatherPixels': it must be wider than the host's {MediaEditRegionOperation.HostBoundaryBandPixels} px mask-edge band, so set it in the reference workflow settings before confining an edit.";
             if (_region is null)
                 return "Drag a box on the image to choose the region, or turn the region off to edit the whole frame.";
             return string.Empty;
@@ -1309,6 +1457,16 @@ else
         ? _compilationResult.InvalidReason
         : _attempt?.IsFailed == true ? _attempt.Error : null;
 
+    /// <summary>
+    /// Why the identity analysis produced no targets. The Identity panel re-offers the analysis whenever the
+    /// compilation is not ready, so without this a terminal-invalid analysis is indistinguishable from one that is
+    /// still running and the operator has nothing to act on (2026-10-13).
+    /// </summary>
+    private string? IdentityAnalysisFailure => CompilationError
+        ?? (_compilationResult?.Status == SceneImageEditCompilationResultStatus.ClarificationRequired
+            ? _compilationResult.ClarificationQuestion
+            : null);
+
     private string AttemptBadgeClass => _attempt?.StatusText switch
     {
         "Ready" => "bg-success",
@@ -1326,6 +1484,42 @@ else
         interactionId = Subject.InteractionId,
         prompt = _editablePrompt.Trim()
     }, JsonOptions);
+
+    /// <summary>Whether this lineage entry is the image the editor is working on right now.</summary>
+    private bool IsActiveLineageImage(ImageEditLineageItem image)
+        => _source is not null
+            && string.Equals(image.ImageId, _source.ImageId, StringComparison.OrdinalIgnoreCase);
+
+    private void OpenSourceInspector()
+        => OpenInspector(_source?.FileRelativePath, _source?.StatusText, _source?.ImageId, "Source before editing");
+
+    private void OpenResultInspector()
+        => OpenInspector(_result?.FileRelativePath, _result?.StatusText, _result?.ImageId, "Edited result");
+
+    private void OpenLineageInspector(ImageEditLineageItem image)
+        => OpenInspector(
+            image.FileRelativePath,
+            image.StatusText,
+            image.ImageId,
+            image.IsEdit ? "Edit result" : "Source image");
+
+    /// <summary>
+    /// Opens the shared inspector on a stored image. A row with no file yet (queued, failed, purged) has nothing to
+    /// show, so it opens nothing rather than an empty popup.
+    /// </summary>
+    private void OpenInspector(string? fileRelativePath, string? title, string? subtitle, string? caption)
+    {
+        if (string.IsNullOrWhiteSpace(fileRelativePath))
+            return;
+
+        _inspectorPath = $"/scene-images/{fileRelativePath}";
+        _inspectorTitle = title;
+        _inspectorSubtitle = subtitle;
+        _inspectorCaption = caption;
+        _inspectorOpen = true;
+    }
+
+    private void CloseInspector() => _inspectorOpen = false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -1347,6 +1541,9 @@ else
         _loading = true;
         _errorMessage = string.Empty;
         _identityTargetSelections.Clear();
+        _selectedCastCharacterIds.Clear();
+        _sourceReferences = ImageEditSourceReferences.None;
+        _sourceReferenceNotice = string.Empty;
         _lineage = [];
         _attempt = null;
         _result = null;
@@ -1359,6 +1556,7 @@ else
         _measuredHead = null;
         _cropDragHandle = null;
         _cropDragStartRect = null;
+        _inspectorOpen = false;
 
         try
         {
@@ -1389,6 +1587,19 @@ else
             {
                 await LoadIdentityRosterAsync();
             }
+
+            // The references the source image was made with are read AFTER the roster, so the actors they name can be
+            // labelled from it, and BEFORE the first refresh, so the bindings the operator sees on open are the ones the
+            // run would carry.
+            _sourceReferences = await _service.GetSourceReferencesAsync(Subject);
+            await ApplySourceReferenceSeedAsync();
+
+            // The scene LoRAs the source image was MADE with. Without this the edit opened with an empty picker and ran
+            // with none, even when the operator had picked a stack on the surface that produced the image - the run then
+            // silently differed from what they saw. From here the workspace's own picker owns the value: a model change
+            // clears it (a LoRA binds only its family) and the run re-validates whatever it is against that family.
+            _sceneLoras = await _service.GetSourceSceneLorasAsync(Subject);
+
             await _service.ReanalyzeAsync(_session.Id);
             _descriptionPending = true;
             await RefreshAsync();
@@ -1717,10 +1928,10 @@ else
                 _regionSettingsError =
                     "Missing required configuration 'RegionGrowMaskBy': set it in the reference workflow settings before confining an edit.";
             }
-            else if (_regionFeatherPixels is not { } feather || feather < 0)
+            else if (_regionFeatherPixels is not { } feather || feather <= MediaEditRegionOperation.HostBoundaryBandPixels)
             {
                 _regionSettingsError =
-                    "Missing required configuration 'RegionFeatherPixels': set it in the reference workflow settings before confining an edit.";
+                    $"Missing required configuration 'RegionFeatherPixels': it must be wider than the host's {MediaEditRegionOperation.HostBoundaryBandPixels} px mask-edge band, so set it in the reference workflow settings before confining an edit.";
             }
         }
         catch (Exception ex)
@@ -1747,8 +1958,9 @@ else
 
         if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
             throw new InvalidOperationException("A region grow value between 0 and 64 is required.");
-        if (_regionFeatherPixels is not { } feather || feather < 0)
-            throw new InvalidOperationException("A region feather that is not negative is required.");
+        if (_regionFeatherPixels is not { } feather || feather <= MediaEditRegionOperation.HostBoundaryBandPixels)
+            throw new InvalidOperationException(
+                $"A region feather wider than the host's {MediaEditRegionOperation.HostBoundaryBandPixels} px mask-edge band is required.");
 
         return region with { GrowMaskBy = grow, FeatherPixels = feather };
     }
@@ -1762,8 +1974,9 @@ else
 
         if (_regionGrowMaskBy is not { } grow || grow is < 0 or > 64)
             throw new InvalidOperationException("An outpaint grow value between 0 and 64 is required.");
-        if (_regionFeatherPixels is not { } feather || feather < 0)
-            throw new InvalidOperationException("An outpaint feather that is not negative is required.");
+        if (_regionFeatherPixels is not { } feather || feather <= MediaEditRegionOperation.HostBoundaryBandPixels)
+            throw new InvalidOperationException(
+                $"An outpaint feather wider than the host's {MediaEditRegionOperation.HostBoundaryBandPixels} px mask-edge band is required.");
 
         return new MediaEditOutpaintOperation(_outpaintDirection, _outpaintPercent, grow, feather);
     }
@@ -2137,7 +2350,10 @@ else
                 _selectedEditorModelId!,
                 _bindings.ToList(),
                 region,
-                Outpaint: outpaint));
+                Outpaint: outpaint,
+                // Null rather than an empty list: "no scene LoRA" is a configured state, and the queued payload must
+                // carry no stack at all so the run is identical to one queued before the picker existed.
+                SceneLoras: _sceneLoras.Count > 0 ? _sceneLoras : null));
             _statusMessage = outpaint is not null
                 ? $"Outpaint queued: extending {outpaint.Direction.ToString().ToLowerInvariant()} by {outpaint.Percent:0.#}%."
                 : region is not null
@@ -2187,6 +2403,17 @@ else
             }
         }
 
+        // The Identity panel states its own outcome, so the transient "queued" notice is dropped the moment the
+        // analysis it queued reaches a terminal state — ready or not. Leaving it up next to a panel that is only
+        // offering the button again made a finished analysis read as one that never came back (2026-10-13).
+        if (_identityAnalysisAttemptId is not null
+            && string.Equals(_attempt?.Id, _identityAnalysisAttemptId, StringComparison.Ordinal)
+            && _attempt?.IsInFlight == false)
+        {
+            _statusMessage = string.Empty;
+            _identityAnalysisAttemptId = null;
+        }
+
         _result = await _service.ResolveResultAsync(Subject, _session.Id, _result?.ImageId);
         _lineage = await _service.ListLineageAsync(Subject);
 
@@ -2222,6 +2449,7 @@ else
         _editablePrompt = string.Empty;
         _preparedIntent = string.Empty;
         _descriptionPending = false;
+        _identityAnalysisAttemptId = null;
     }
 
     private Task OnBindingsChanged(IReadOnlyList<ReferenceApplicationSelection> bindings)
@@ -2230,12 +2458,90 @@ else
         return Task.CompletedTask;
     }
 
-    private Task OnEditorModelChangedAsync(string? modelId)
+    private async Task OnEditorModelChangedAsync(string? modelId)
     {
         _selectedEditorModelId = modelId;
+        // A scene LoRA binds only to the FAMILY it was trained against, so a pick made under the previous model cannot
+        // survive into a different checkpoint. Cleared rather than re-validated: the picker re-lists the new family's
+        // catalogue, and a silently carried-over stack is exactly the "looks like success" case the resolver refuses.
+        _sceneLoras = [];
         // The slots a step offers depend on the selected model's capability, so a model change invalidates what was
         // bound under the previous one: keeping the bindings would leave the plan describing a model no longer chosen.
-        _bindings = [];
+        // The SOURCE's own references are offered again, because they are a fact about the image rather than a choice
+        // made against the old model — so the new model is asked whether it can carry each one, and says so when it
+        // cannot.
+        await ApplySourceReferenceSeedAsync();
+    }
+
+    private Task OnSceneLorasChanged(IReadOnlyList<SceneImageLoraSelection> selections)
+    {
+        _sceneLoras = selections;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Binds the references the SOURCE image was made with, so an edit starts from what the image already is instead
+    /// of from nothing. Run at load and after every model change — the two moments where the binding set is
+    /// (re)established — and never on an operator's edit, so it cannot fight what they bound by hand.
+    /// </summary>
+    private async Task ApplySourceReferenceSeedAsync()
+    {
+        // The record's own refusal outranks any seed: a row that cannot be read offers nothing to bind.
+        if (_sourceReferences.IsUnreadable)
+        {
+            _bindings = [];
+            _sourceReferenceNotice = _sourceReferences.UnreadableReason!;
+            return;
+        }
+
+        var seed = await SourceReferenceSlotPrefill.ResolveAsync(
+            ReferenceStrategies,
+            _selectedEditorModelId,
+            SelectedEditorMaxReferences,
+            EditBlueprint,
+            _sourceReferences.References);
+        _bindings = seed.Bindings.ToList();
+        _sourceReferenceNotice = SourceReferenceSlotPrefill.Notice(seed);
+    }
+
+    /// <summary>
+    /// The selected editor model's own configured reference capacity — the same number the composer plans its bindings
+    /// against, read from the same choice row, so the seed and the step cannot disagree about the budget.
+    /// </summary>
+    private int SelectedEditorMaxReferences =>
+        _editorModelChoices
+            .FirstOrDefault(choice => string.Equals(choice.ModelId, _selectedEditorModelId, StringComparison.Ordinal))
+            ?.MaxReferences
+        ?? 0;
+
+    private bool IsCastCharacterSelected(string characterId)
+        => _selectedCastCharacterIds.Contains(characterId, StringComparer.Ordinal);
+
+    /// <summary>Stable element id, one per subject and character, so two workspaces on a page cannot collide.</summary>
+    private string CastCharacterCheckboxId(string characterId) => $"cast-character-{StableId}-{characterId}";
+
+    /// <summary>
+    /// Adds or removes a character from the cast. Removing one also drops the references that ADDRESSED it, because a
+    /// binding whose actor the step no longer declares has no slot: the planner refuses it, so keeping it would arm a
+    /// failure on the next control the operator touched.
+    /// </summary>
+    private Task OnCastCharacterToggledAsync(ImageIdentityCharacterChoice choice, ChangeEventArgs args)
+    {
+        if (args.Value is true)
+        {
+            if (!IsCastCharacterSelected(choice.CharacterId))
+            {
+                _selectedCastCharacterIds.Add(choice.CharacterId);
+            }
+        }
+        else
+        {
+            _selectedCastCharacterIds.RemoveAll(id => string.Equals(id, choice.CharacterId, StringComparison.Ordinal));
+            _bindings = _bindings
+                .Where(binding => !string.Equals(binding.ActorKey, choice.CharacterId, StringComparison.Ordinal))
+                .ToList();
+        }
+
         return Task.CompletedTask;
     }
 
@@ -2347,6 +2653,7 @@ else
         {
             await StartNewSessionIfCompletedAsync();
             _attempt = await _service.PrepareAsync(_session.Id, IdentityAnalysisIntent, [], _selectedEditorModelId, null, null);
+            _identityAnalysisAttemptId = _attempt.Id;
             _preparedIntent = IdentityAnalysisIntent;
             _compilationResult = null;
             _identityTargetSelections.Clear();

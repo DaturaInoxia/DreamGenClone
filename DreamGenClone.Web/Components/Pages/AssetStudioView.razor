@@ -8,6 +8,7 @@
 @implements IAsyncDisposable
 
 @inject ISceneAssetService AssetService
+@inject ILocationImageAnalysisQueue AnalysisQueue
 @inject NavigationManager Navigation
 @inject ILogger<AssetStudioView> Logger
 
@@ -91,6 +92,7 @@
         <div class="row g-3 mb-4">
             <div class="col-xl-7">
                 <PromptAssetCreator AssetId="@_asset.Id" SubjectActor="SubjectActor()" ImagesChanged="LoadAsync" Draft="_draft"
+                                    RequestedLocationReference="_requestedLocationReference"
                                     SeedUserInput="@(_asset.Type == SceneAssetType.Location ? _asset.Prompt : null)" />
             </div>
             <div class="col-xl-5">
@@ -143,13 +145,69 @@
                                    DownloadRequested="() => OpenDownload(image)"
                                    VideoRequested="() => OpenVideo(image)"
                                    LoadIntoGeneratorRequested="() => LoadIntoGenerator(image)"
+                                   UseAsReferenceRequested="@(CanUseAsReference(image)
+                                       ? EventCallback.Factory.Create(this, () => UseAsReference(image))
+                                       : default(EventCallback))"
                                    RevokeRequested="() => RevokeApprovalAsync(image)"
                                    DeleteRequested="() => DeleteImageAsync(image)">
                             <BodyContent>
                                 @if (image.Status == SceneAssetStatus.Complete)
                                 {
                                     <div class="mt-2">
-                                        <ImageTags Image="image" Editable="true" TagsChanged="LoadAsync" />
+                                        <ImageTags ImageId="image.Id" Target="ImageTagTarget.AssetLibrary"
+                                                   TagsJson="image.TagsJson" Editable="true" TagsChanged="LoadAsync" />
+                                    </div>
+                                }
+                                @if (IsLocationAsset)
+                                {
+                                    @* B-160: what a vision model found in this location image, and the action that
+                                       asks it to look. Shown for LOCATION containers only, because a location image is
+                                       the one whose contents the prompt has to place people against — a face or a
+                                       wardrobe reference is not a place. *@
+                                    <div class="mt-2 border rounded p-2">
+                                        <div class="d-flex justify-content-between align-items-center gap-2">
+                                            <strong class="small">Location contents</strong>
+                                            <button type="button" class="btn btn-sm btn-outline-primary"
+                                                    disabled="@_busy" @onclick="() => ReadLocationAsync(image)">
+                                                <i class="bi bi-eye me-1"></i>@(AnalysisFor(image) is null ? "Read this location" : "Read again")
+                                            </button>
+                                        </div>
+                                        @if (AnalysisFor(image) is { } analysis)
+                                        {
+                                            <div class="small mt-1">@analysis.Description</div>
+                                            @if (analysis.Anchors.Count > 0)
+                                            {
+                                                <ul class="small mb-0 ps-3 mt-1">
+                                                    @foreach (var anchor in analysis.Anchors)
+                                                    {
+                                                        <li>
+                                                            <span class="fw-semibold">@anchor.Role</span>: @anchor.Name
+                                                            @if (anchor.Horizontal is not null || anchor.Depth is not null)
+                                                            {
+                                                                <span class="text-muted">
+                                                                    (@string.Join(", ", new[] { anchor.Horizontal?.ToString(), anchor.Depth?.ToString() }.Where(part => part is not null)))
+                                                                </span>
+                                                            }
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            }
+                                            @if (!analysis.IsAbout(image.Sha256))
+                                            {
+                                                @* Staleness is stated, not hidden: the reading is about a picture
+                                                   this one has replaced, so nothing downstream may use it. *@
+                                                <div class="alert alert-warning py-1 small mt-2 mb-0">
+                                                    This reading is of an earlier version of this image. Read it again.
+                                                </div>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <div class="form-text mt-1">
+                                                Read this image to learn what is in it — then the prompt can place people
+                                                on the right structure (a deck, a doorway, the line).
+                                            </div>
+                                        }
                                     </div>
                                 }
                             </BodyContent>
@@ -298,6 +356,46 @@
             ? $"Loaded image {image.Id[..Math.Min(8, image.Id.Length)]}… into the generator."
             : $"Image {image.Id[..Math.Min(8, image.Id.Length)]}… recorded nothing that can be loaded.";
     }
+
+    /// <summary>
+    /// Whether this image could stand as the generator's Location reference. It is the approved-image channel's own
+    /// contract — approved, with the version and checksum the binding has to record — so the command is offered exactly
+    /// where the render would accept it.
+    /// </summary>
+    private static bool CanUseAsReference(SceneAssetImage image)
+        => image.Status == SceneAssetStatus.Complete
+            && image.ProductionApprovalStatus == SceneAssetProductionApprovalStatus.Approved
+            && image.ProductionVersion is not null
+            && !string.IsNullOrWhiteSpace(image.Sha256);
+
+    /// <summary>
+    /// The card's "use as reference": load everything that made this image into the generator AND bind the image itself
+    /// as the step's Location reference, so the next render is anchored to it.
+    ///
+    /// <para>
+    /// Both halves go through the page's existing load and the composer's own plan — the draft is the SAME load the
+    /// "load the prompt and model" command performs, and the reference is a request the step applies, not a binding this
+    /// page authors.
+    /// </para>
+    /// </summary>
+    private void UseAsReference(SceneAssetImage image)
+    {
+        LoadIntoGenerator(image);
+        _requestedLocationReference = DreamGenClone.Web.Application.RolePlay.ImageStep.SceneImageLocationReferenceRequest
+            .ForApprovedAssetImage(
+                image.AssetId,
+                image.Id,
+                image.ProductionVersion!.Value,
+                image.Sha256!,
+                image.DisplayName);
+        _message = $"Loaded image {image.Id[..Math.Min(8, image.Id.Length)]}… and added it as the Location reference.";
+    }
+
+    /// <summary>
+    /// The image a card asked to bind as the generator's Location reference. Held as a REQUEST rather than a binding:
+    /// the composer owns the step's plan, so the page states the image and the step decides where it goes.
+    /// </summary>
+    private DreamGenClone.Web.Application.RolePlay.ImageStep.SceneImageLocationReferenceRequest? _requestedLocationReference;
 
     /// <summary>
     /// The image a query-parameter load already applied, so the page's polling reload does not re-apply it and stomp on
@@ -515,6 +613,61 @@
         // The poll is started by the load itself, so every path that loads the list - opening the page, generating,
         // renaming, deleting - reconciles it. See LoadAsync.
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// True for a location container whose images are places rather than people or garments — the surface where a
+    /// reading of what the image contains is meaningful (B-160).
+    /// </summary>
+    private bool IsLocationAsset => _asset?.Type == SceneAssetType.Location;
+
+    /// <summary>
+    /// The reading stored on an image, or null when it has none or the stored JSON is unreadable.
+    /// </summary>
+    /// <remarks>
+    /// An unreadable analysis is treated as absent rather than as a reason to fail the page: the card's job is to show
+    /// whether a reading exists, and "Read again" is the remedy either way.
+    /// </remarks>
+    private static LocationImageAnalysis? AnalysisFor(SceneAssetImage image)
+    {
+        try
+        {
+            return LocationImageAnalysisJson.TryRead(image.LocationAnalysisJson);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Asks for this location image to be read (B-160), or read AGAIN when it already has a reading.
+    /// </summary>
+    /// <remarks>
+    /// The second press is a genuine re-read: the first reading is kept until the new one succeeds, so a failed attempt
+    /// costs nothing, and the handler's "already read this checksum" rule is bypassed because the operator asked.
+    /// </remarks>
+    private async Task ReadLocationAsync(SceneAssetImage image)
+    {
+        try
+        {
+            _busy = true;
+            _message = null;
+            var again = AnalysisFor(image) is not null;
+            await AnalysisQueue.RequestAsync(image.Id, force: again);
+            _message = again
+                ? "Reading this location again. The current reading stays until the new one arrives."
+                : "Reading this location. The result appears here when it is done.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(exception, "Requesting a location analysis failed for image {ImageId}.", image.Id);
+            _message = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task LoadAsync()

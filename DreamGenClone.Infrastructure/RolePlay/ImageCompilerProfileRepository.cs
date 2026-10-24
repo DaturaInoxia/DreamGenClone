@@ -393,9 +393,14 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             Family = SceneImageModelFamily.QwenImage21,
             PromptDialect = SceneImagePromptDialect.NaturalLanguage,
             // Qwen-2.1 wants LONG, detailed prompts; this budget is the opposite of the SDXL-family envelope.
+            // 3400 characters rather than 1600: the compiler contract asks for "about 20 sentences / 400-500 words",
+            // which is ~3000 characters. A cap below the length the same prompt demands is unsatisfiable, and the model
+            // resolves it by writing a thin caption that drops the operator's own element text (measured 2026-10-23).
             MinChars = 300,
-            MaxChars = 1600,
-            MaxTokens = 300,
+            MaxChars = 3400,
+            // A long-form budget needs a matching token allowance: 300 tokens is ~1200 characters, so a 3400-character
+            // answer could not be produced even if the character rule allowed it.
+            MaxTokens = 700,
             RequiredComponentsJson = """["subject","action","setting","framing","lighting"]""",
             ForbiddenTokensJson = """["story-name","relationship","ownership","negation","pov-character-in-frame","pony-tag"]""",
             PoseInText = ImagePoseInText.Full,
@@ -406,6 +411,43 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
                 "QwenImage21SceneImagePromptCompiler (repo-verified: the official path runs cfg 1 with euler/simple, where the "
                 + "negative is inert) + operator statement 2026-09-29 that Qwen needs large detailed prompts. "
                 + "Character budget is PROVISIONAL; steps/resolution deliberately omitted rather than guessed. Tighten in B135-037.",
+        },
+        new()
+        {
+            // The Noct Q Uncensored build of Qwen-Image-2.1 (registered 2026-10-23). Same architecture, same prompt
+            // dialect and same graph as the base row; only the DiT merge, the text encoder and the VAE differ, so the
+            // checkpoint needs its OWN row (resolution is keyed on the checkpoint, never the family) carrying the same
+            // researched Qwen-Image-2.1 rules. The identifier is the real DiT FILENAME the ComfyUI host loads - the
+            // render path feeds it to UNETLoader verbatim and refuses anything that is not a checkpoint filename.
+            Id = "profile-qwen-image-2-1-noct-q",
+            CheckpointIdentifier = "noctQUncensoredRealismBuiltOn_v40Base_3260131.safetensors",
+            DisplayName = "Qwen-Image-2.1 Noct Q Uncensored (Local ComfyUI)",
+            Family = SceneImageModelFamily.QwenImage21,
+            PromptDialect = SceneImagePromptDialect.NaturalLanguage,
+            // Carried from profile-qwen-image-2-1, including the 3400/700 long-form budget: this build runs the same
+            // Qwen-Image-2.1 prompt dialect, so a smaller budget here would make the same contract unsatisfiable.
+            MinChars = 300,
+            MaxChars = 3400,
+            MaxTokens = 700,
+            RequiredComponentsJson = """["subject","action","setting","framing","lighting"]""",
+            ForbiddenTokensJson = """["story-name","relationship","ownership","negation","pov-character-in-frame","pony-tag"]""",
+            PoseInText = ImagePoseInText.Full,
+            Negative = string.Empty,
+            NegativeSource = null,
+            // The Noct Q author's envelope, as recorded on the model row - NOT the base row's cfg 1, which would leave
+            // this checkpoint's negative branch inert.
+            SettingsEnvelopeJson = """{"steps":30,"cfg":3.0,"sampler":"euler","scheduler":"simple"}""",
+            ResearchSource =
+                "Qwen-Image-2.1 researched rules, cited in profile-qwen-image-2-1 (that row carries the architecture's "
+                + "prompt dialect and prohibition set), applied unchanged here: this row is a Qwen-Image-2.1 derivative "
+                + "that swaps only the DiT (Noct Q Uncensored Realism V4 Base int8 merge, Civitai 2958896 -> "
+                + "noctQUncensoredRealismBuiltOn_v40Base_3260131.safetensors), the text encoder (Heretic fp8 uncensored "
+                + "Qwen3-VL 8B -> qwen3vl_8b_fp8_heretic.safetensors) and the VAE (texture-fix bf16 -> "
+                + "texture_fix_vae_for_qwen_image_2.1_bf16.safetensors). No Noct-Q specific prompting research exists, "
+                + "so no prompt-shape claim is made for this build; the character budget and the token allowance are "
+                + "carried from the base row. The envelope is the Noct Q author's stated 25-50 steps / euler / simple / "
+                + "cfg 3, NOT the base row's cfg 1 - so the negative branch is live here, and this row still declares no "
+                + "negative because none has been researched for it. Tighten in B135-037.",
         },
         new()
         {

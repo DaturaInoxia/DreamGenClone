@@ -484,7 +484,7 @@ public sealed class MediaEditCompilationServiceTests
         await using var fixture = await Fixture.CreateAsync(
             new FixedEditorModels(DreamGenClone.Domain.ModelManager.ImageProtocol.ComfyUi),
             new FixedEndpointReadiness(warm: false));
-        var region = new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 8, FeatherPixels: 4);
+        var region = new MediaEditRegionOperation(10, 20, 30, 40, GrowMaskBy: 8, FeatherPixels: 16);
 
         await fixture.Service.EnqueueRunAsync(new MediaEditRunRequest(
             MediaEditSubjectKind.AssetImage,
@@ -546,7 +546,7 @@ public sealed class MediaEditCompilationServiceTests
                 "image-11",
                 "22222222-2222-2222-2222-222222222222",
                 MaxAttempts: 1,
-                Region: new MediaEditRegionOperation(90, 0, 30, 30, GrowMaskBy: 0, FeatherPixels: 8))));
+                Region: new MediaEditRegionOperation(90, 0, 30, 30, GrowMaskBy: 0, FeatherPixels: 16))));
 
         Assert.Contains("run past its edge", error.Message, StringComparison.Ordinal);
         Assert.Empty(fixture.Queue.Jobs);

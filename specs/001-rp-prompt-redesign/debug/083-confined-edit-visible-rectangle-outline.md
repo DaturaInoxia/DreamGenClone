@@ -4,6 +4,11 @@
 **Scope:** the region mask and the render composite (CASE-25), plus the fail-fast for a zero feather.
 **Related:** CASE-21 (masked region), CASE-24 (outpaint), B-130 (ImageEditWorkspace region tools), 081/082 (the same editor).
 
+> **Follow-up (2026-10-17):** the "one-pixel step" below was WRONG. The host's decoded boundary is a smear about one
+> latent cell wide (8–10 px) and bright, so a ramp that *starts* at the mask edge still leaked it into the result — the
+> operator saw the seam again on both "Extend this image" and "Confine". The composite now holds the alpha at zero across
+> that band. See [085](085-mask-edge-seam-in-confine-and-extend.md).
+
 ---
 
 ## Report

@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
@@ -34,9 +35,15 @@ public static class ReferenceBindingPromptRemoval
     /// </summary>
     public static ScenePromptOverrides? Merge(
         ScenePromptOverrides? userOverrides,
-        IReadOnlyList<ReferenceApplicationSelection>? bindings)
+        IReadOnlyList<ReferenceApplicationSelection>? bindings,
+        IReadOnlyList<ScenePromptFieldOverride>? additionalDerived = null)
     {
         var derived = Derive(bindings);
+        if (additionalDerived is { Count: > 0 })
+        {
+            derived = [.. derived, .. additionalDerived];
+        }
+
         if (derived.Count == 0)
         {
             return userOverrides;
@@ -75,27 +82,7 @@ public static class ReferenceBindingPromptRemoval
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var binding in bindings)
         {
-            // A binding that supplies no image replaces nothing. A skeleton counts as supplying one: it is a reference
-            // image like any other, and it is what makes the stance prose redundant.
-            if (!binding.SuppliesImage
-                || string.Equals(binding.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (ReferenceBindingShape.SlotKindOf(binding) is not { } slotKind)
-            {
-                continue;
-            }
-
-            var requirement = ImageStepSlotBlueprint.ActorKeyRequirementFor(slotKind);
-
-            // A per-character element can only be addressed when the binding names the character. Until the caller
-            // supplies an actor key there is nothing to point the removal at, and guessing which character the
-            // operator meant is exactly the kind of silent substitution the RP rules forbid - so this derives
-            // nothing rather than removing the wrong prose. B130-011 populates actor keys from the Moment cast,
-            // which is what lights these up.
-            if (requirement == ImageStepActorKeyRequirement.Required && string.IsNullOrWhiteSpace(binding.ActorKey))
+            if (SlotKindFor(binding) is not { } slotKind)
             {
                 continue;
             }
@@ -110,5 +97,96 @@ public static class ReferenceBindingPromptRemoval
         }
 
         return fields;
+    }
+
+    /// <summary>
+    /// The removals a character LoRA implies (B-166 D6). A LoRA trained on a character carries that character's
+    /// identity the way a face reference does, so the prompt must stop describing the appearance the model is already
+    /// being conditioned on — otherwise the text competes with the LoRA and the render drifts between the two.
+    ///
+    /// <para>
+    /// Only the FACE element is removed: clothing stays text-controlled until it is measured (D6). The key is the
+    /// character's PROFILE id, which is the same key the compiled brief and the appearance override map use.
+    /// </para>
+    /// </summary>
+    public static IReadOnlyList<ScenePromptFieldOverride> DeriveForCharacterLoras(
+        IReadOnlyList<ResolvedCharacterLora>? loras)
+    {
+        if (loras is not { Count: > 0 })
+        {
+            return [];
+        }
+
+        var fields = new List<ScenePromptFieldOverride>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var lora in loras)
+        {
+            var key = lora.CharacterProfileId?.Trim();
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                throw new InvalidOperationException(
+                    $"Character LoRA artifact '{lora.ArtifactId}' resolves to no character, so the prompt cannot know "
+                    + "whose appearance the LoRA supplies. Fix the artifact's character ownership.");
+            }
+
+            foreach (var scope in StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Face, key))
+            {
+                if (seen.Add(scope))
+                {
+                    fields.Add(new ScenePromptFieldOverride { ElementKey = scope, Removed = true });
+                }
+            }
+        }
+
+        return fields;
+    }
+
+    /// <summary>
+    /// Whether this binding takes a prompt element over at all - the one filter <see cref="Derive"/> applies and the
+    /// one the caller must apply before it may remove anything, so a caller cannot act on a binding this refuses.
+    ///
+    /// <para>
+    /// Two rules decide it. A binding that supplies no image replaces nothing (a skeleton counts as supplying one: it
+    /// is a reference image like any other, and it is what makes the stance prose redundant), and a binding whose
+    /// strategy is <c>TextOnly</c> supplies nothing either however much it carries. Both are the SAME rules
+    /// <see cref="ReferenceApplicationSelection.SuppliesImage"/> and the reference rules state elsewhere.
+    /// </para>
+    /// </summary>
+    public static bool ImpliesRemoval(ReferenceApplicationSelection binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return SlotKindFor(binding) is not null;
+    }
+
+    /// <summary>
+    /// The slot a binding removes prose for, or null when it removes nothing: it supplies no image, its strategy means
+    /// text rather than an image, it names no slot kind, or it is a per-character element with no character to address.
+    /// </summary>
+    /// <remarks>
+    /// A per-character element can only be addressed when the binding names the character. Until the caller supplies
+    /// an actor key there is nothing to point the removal at, and guessing which character the operator meant is
+    /// exactly the kind of silent substitution the RP rules forbid - so this derives nothing rather than removing the
+    /// wrong prose.
+    /// </remarks>
+    private static ImageStepSlotKind? SlotKindFor(ReferenceApplicationSelection binding)
+    {
+        if (!binding.SuppliesImage
+            || string.Equals(binding.Strategy, "TextOnly", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (ReferenceBindingShape.SlotKindOf(binding) is not { } slotKind)
+        {
+            return null;
+        }
+
+        if (ImageStepSlotBlueprint.ActorKeyRequirementFor(slotKind) == ImageStepActorKeyRequirement.Required
+            && string.IsNullOrWhiteSpace(binding.ActorKey))
+        {
+            return null;
+        }
+
+        return slotKind;
     }
 }

@@ -64,11 +64,15 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
         IReadOnlyDictionary<string, string>? canonicalAppearance = null,
         ScenePromptOverrides? effectiveOverrides = null,
-        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null,
+        SceneImagePovProjection.Projection? povProjection = null,
+        IReadOnlyDictionary<string, string>? appearanceElementOverrides = null)
     {
         ValidateCanonicalBrief(brief, pov);
-        var systemPrompt = BuildCanonicalSystemPrompt() + NaturalLanguageSceneImagePromptBuilder.CanonicalAuthorityRules;
-        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance, effectiveOverrides, referenceBindings);
+        var systemPrompt = BuildCanonicalSystemPrompt() + NaturalLanguageSceneImagePromptBuilder.CanonicalAuthorityRules
+            + SceneImagePovProjection.PovSystemRule(povProjection)
+            + (povProjection?.SceneSuppliedByReference == true ? SceneImagePovProjection.ReferenceSuppliedRoomRule : string.Empty);
+        var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance, effectiveOverrides, referenceBindings, povProjection, appearanceElementOverrides);
         return (systemPrompt, userPrompt);
     }
 
@@ -175,6 +179,8 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         {
             throw new InvalidOperationException("Scene image pre-processor returned a prompt that is empty after parsing.");
         }
+
+        prompt = SceneImagePromptRefusal.EnsureIsPrompt(prompt);
 
         if (prompt.Length > OutputPromptMaxChars)
         {
@@ -591,22 +597,62 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         IReadOnlyDictionary<string, string>? appearanceOverrides,
         IReadOnlyDictionary<string, string>? canonicalAppearance = null,
         ScenePromptOverrides? effectiveOverrides = null,
-        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null,
+        SceneImagePovProjection.Projection? povProjection = null,
+        IReadOnlyDictionary<string, string>? appearanceElementOverrides = null)
     {
         var sb = new StringBuilder();
         // The brief is the SINGLE semantic source. The provider-request snapshot restates it and used to hand back
         // every element an override had removed, which is why it is not sent (debug 052); the DB record keeps it for
         // provenance. Only the brief reaches the pre-processor. Mirrors the SDXL canonical path.
+        //
+        // B-161: the operator's frame override is applied BEFORE the brief is handed over, so the frame the model reads
+        // is the frame the render will use — otherwise the prose states the compiled framing while the appended block
+        // states the operator's, and one prompt carries two cameras. A brief with no frame has none to correct.
+        var blocking = SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson);
+        // B-166 D7: the Omniscient lean comes from the value snapshotted into the brief; a participant POV is
+        // egocentric and takes none, and an explicit operator framing always wins.
+        var omniscientLean = string.Equals(pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
+            ? blocking?.Camera.OmniscientShotSize
+            : null;
+        var effectiveBlocking = blocking is null
+            ? null
+            : SceneBlockingResolver.ApplyForPrompt(blocking, settings.SceneBlockingOverride, omniscientLean);
+        // POV is a FRAMING dimension (CR-006 P5). Same projection as the natural-language families, so the tag dialect
+        // and the prose dialect describe the same frame instead of two wide shots with a different name on them. The
+        // caller resolves it from the COMPILED brief; a direct caller gets it resolved here.
+        var projection = povProjection ?? SceneImagePovProjection.Resolve(
+            brief, pov, effectiveBlocking,
+            cameraHolderPartsMode: settings.CameraHolderParts, cameraHolderPartsText: settings.CameraHolderPartsText);
         sb.AppendLine("CANONICAL STILL BRIEF (the complete semantic source for this request):");
-        sb.AppendLine(brief.SemanticInputSnapshotJson);
-        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance);
+        // A reference-supplied room also drops the frame rationale: it is prose ABOUT the room and the compiler echoes
+        // it as room description. The frame itself — camera and placements — is untouched.
+        var promptBlocking = effectiveBlocking is not null && projection.SceneSuppliedByReference
+            ? effectiveBlocking with { Rationale = string.Empty }
+            : effectiveBlocking;
+        var briefJson = projection.IsOmniscient
+            ? SceneBlockingJson.Replace(brief.SemanticInputSnapshotJson, promptBlocking)
+            : SceneBlockingJson.WithoutBlocking(brief.SemanticInputSnapshotJson);
+        if (projection.SceneSuppliedByReference)
+        {
+            briefJson = SceneImagePovProjection.DropCharacterLocations(briefJson);
+        }
+        // B-166 POV fix: the camera holder is not a subject, so the compiler must not be handed their description.
+        if (!projection.IsOmniscient)
+        {
+            briefJson = SceneImagePovProjection.DropViewpoint(briefJson, projection.UnseenViewpointProfileKey);
+        }
+        sb.AppendLine(SemanticSnapshotDeDuplicator.DeDuplicate(briefJson));
+        var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance, appearanceElementOverrides);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
             sb.AppendLine(appearanceBlock);
             sb.AppendLine();
         }
         sb.AppendLine($"PRODUCTION POV: {pov}");
+        sb.AppendLine(projection.ToPromptText());
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
+        sb.AppendLine($"EXPLICITNESS: {SceneImageExplicitnessWording.Directive(settings.Explicitness)}");
         if (!string.IsNullOrWhiteSpace(refineInstruction))
             sb.AppendLine($"REFINE INSTRUCTION: {refineInstruction.Trim()}");
 
@@ -620,7 +666,12 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
             sb.AppendLine(removalNotice);
         }
 
-        var roleClause = ReferenceRoleClauses.ForPreprocessor(referenceBindings);
+        // B-157 T5: the same blocking the snapshot carries, so the prose and the appended role block agree.
+        // B-161: the operator's frame override is applied first, so the positions AND the camera the prose names are
+        // the ones the render will use. A participant POV has no external frame — the projection above owns its camera,
+        // so positional reference naming is withheld rather than asserting a placement it contradicts.
+        var roleClause = ReferenceRoleClauses.ForPreprocessor(
+            referenceBindings, projection.IsOmniscient ? effectiveBlocking : null);
         if (!string.IsNullOrWhiteSpace(roleClause))
         {
             sb.AppendLine();

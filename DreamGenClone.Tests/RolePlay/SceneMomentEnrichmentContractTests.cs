@@ -115,6 +115,18 @@ public sealed class SceneMomentEnrichmentContractTests
         Assert.DoesNotContain("ComfyUI", messages.SystemPrompt, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void BuildMessages_RequiresExactSpatialGeometry()
+    {
+        var messages = new SceneMomentEnrichmentContract().BuildMessages(SceneMomentEnrichmentTestFixture.CreateSnapshot());
+
+        // position/sightline are the only geometry a camera can be projected from, so the contract demands exact
+        // placement and gaze direction instead of "near"/"above"/"toward".
+        Assert.Contains("spatial geometry", messages.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("never write only \"near\", \"above\", or \"beside\"", messages.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("never write only \"toward\" a person without a direction", messages.SystemPrompt, StringComparison.Ordinal);
+    }
+
     private static void AssertAllObjectsAreClosed(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)

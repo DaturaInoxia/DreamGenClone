@@ -152,6 +152,9 @@ public static class ImageStepBindingAxes
             // A character pose asset carries appearance, clothing AND position; the axe the reference PINS is the body
             // position the frame is built around.
             ImageStepSlotKind.CharacterPose => ImageBindingAxis.Pose,
+            // A prop pins an OBJECT the frame contains. It is its own axis rather than folded into Identity or
+            // Wardrobe: an object is neither who a person looks like nor what they are wearing.
+            ImageStepSlotKind.Prop => ImageBindingAxis.Prop,
             _ => throw new InvalidOperationException(
                 $"The reference '{binding.Kind ?? binding.ElementKey}' names no reference slot, so the axis it carries "
                 + "cannot be declared. Known slots: " + string.Join(", ", Enum.GetNames<ImageStepSlotKind>()) + ".")
@@ -175,6 +178,7 @@ public static class ImageStepBindingAxes
             "Location" => ImageStepSlotKind.Location,
             "Pose" => ImageStepSlotKind.Pose,
             "CharacterPose" => ImageStepSlotKind.CharacterPose,
+            "Prop" => ImageStepSlotKind.Prop,
             var key => throw new InvalidOperationException(
                 $"The reference element '{key}' is not a reference slot this app declares, so the axis it carries "
                 + "cannot be declared.")

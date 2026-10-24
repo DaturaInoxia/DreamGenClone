@@ -1,0 +1,493 @@
+@using DreamGenClone.Domain.RolePlay
+@using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
+
+@* B-157: what the model will actually RECEIVE — the prompt plus the block that says which <imageN> is which person,
+   and where each of them stands. The reference map is the thing an operator could previously only read out of a debug
+   record after the fact, and the thing the model gets wrong when two characters' pack views collide.
+
+   Read-only on purpose: an editable copy would become a second source for something the render composes itself, and
+   the render's copy is the one that counts. The text and the map come from the ONE owner
+   (FinalImagePromptPlanBuilder), so this cannot disagree with the render either.
+
+   It renders whenever the step HAS references, whether or not a frame was supplied. Only the PLACEMENT is frame
+   knowledge — an unframed host shows its references with "not placed" rather than hiding the map, so a surface with no
+   cast (the asset creator, an edit) can still confirm the prompt, the <imageN> numbering and each role line before it
+   spends a render (widened 2026-10-12). The placement OVERRIDE control is still frame-gated, because there is nothing
+   to place without one. *@
+@{
+    var roles = ReferenceRoleClauses.RolesFor(Bindings);
+    var leadingImages = LeadingImagesForThisSurface;
+    var planIssues = FinalImagePromptPlanBuilder.Validate(
+        roles, blocking: _effectiveBlocking);
+    var tagIssues = FinalImagePromptPlanBuilder.PromptTagIssues(Prompt, roles, leadingImages);
+    var finalPlan = planIssues.Count == 0 && string.IsNullOrWhiteSpace(_overrideIssue)
+        ? FinalImagePromptPlanBuilder.Build(Prompt, roles, blocking: _effectiveBlocking)
+        : null;
+}
+
+@* A prompt that names a tag this render will not send is a description bound to an image that is not there. Reported
+   rather than refused: it degrades a render instead of producing a quietly wrong one, and the operator can see and fix
+   it before spending the render. *@
+@if (tagIssues.Count > 0)
+{
+    <div class="alert alert-warning py-2 small mt-3" role="alert">
+        <span class="fw-semibold">The prompt names references this render will not send:</span>
+        @foreach (var issue in tagIssues)
+        {
+            <div>@issue</div>
+        }
+    </div>
+}
+@if (!string.IsNullOrWhiteSpace(_overrideIssue))
+{
+    @* The render refuses the same collision with the same wording, so the operator is told here rather than after a
+       queued render fails. *@
+    <div class="alert alert-danger py-2 small mt-3" role="alert">
+        <span class="fw-semibold">The placement override cannot be applied:</span>
+        <div>@_overrideIssue</div>
+    </div>
+}
+
+@* B-161: the FRAME controls stand on their own, above the inspector and always visible.
+ 
+   They used to live inside the collapsed "Final prompt and reference map" disclosure, below a branch that required a
+   bound reference — so the operator who reported "the prompt says dean is in background but he is not" could not find
+   the control that changes exactly that, and could not have reached it at all before binding an image. Framing is not
+   a property of the references: the camera clause is emitted for a frame whether or not one image rides with it
+   (SceneFramingClause), which is why this block is gated only on there being a frame to correct and on the host
+   accepting an override. The disclosure below keeps what a disclosure is for — the assembled prompt and the map, which
+   an operator reads on demand rather than adjusts.
+
+   Gated on the frame being READABLE, not on the override being VALID (fixed 2026-10-15): an override that collides
+   makes the resolver throw, and gating on the resolver's result therefore hid the placement selectors AND the Clear
+   button at the exact moment the error message told the operator to change a position — a dead end with no way out
+   (reported verbatim: "the editor is not displayed the error message is so i cant make the change"). The controls now
+   render from the operator's own choices, with the collision marked, so the instruction and the means to satisfy it
+   are on screen together. *@
+@if (OverrideChanged.HasDelegate && _displaySubjects.Count > 0)
+{
+    <div class="border rounded p-2 mt-3">
+        <div class="d-flex justify-content-between align-items-center gap-2">
+            <strong class="small">Frame</strong>
+            @if (Override is not null && !Override.IsEmpty)
+            {
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        @onclick="() => OverrideChanged.InvokeAsync(null)">
+                    Clear override
+                </button>
+            }
+        </div>
+
+        @* The shot decides how large every subject renders, which a depth word alone cannot do (see SceneFramingClause).
+           The list is the staging profile's own, supplied by the host — never a hardcoded one here. *@
+        @if (FramingChoices.Count > 0)
+        {
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                <span class="small text-muted" style="min-width: 8rem;">Framing</span>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        aria-label="Framing"
+                        value="@(Override?.Camera?.ShotSize ?? string.Empty)"
+                        @onchange="SetFramingAsync">
+                    <option value="">@CompiledFramingLabel</option>
+                    @foreach (var framing in FramingChoices)
+                    {
+                        <option value="@framing">@framing</option>
+                    }
+                </select>
+                <span class="small text-muted">The brief's own framing is used unless one is picked above.</span>
+            </div>
+        }
+
+        @* Camera HEIGHT (2026-10-22). This is the vertical axis the framing control never had: the shot says how much
+           of the subject fills the frame, the height says where the lens sits relative to them. Five positions, each
+           stored as a concept and stated to the model in the wording its family understands (CameraHeights). *@
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+            <span class="small text-muted" style="min-width: 8rem;">Camera height</span>
+            <select class="form-select form-select-sm" style="width: auto;"
+                    aria-label="Camera height"
+                    value="@(Override?.Camera?.Height ?? string.Empty)"
+                    @onchange="SetHeightAsync">
+                <option value="">@CompiledHeightLabel</option>
+                @foreach (var height in CameraHeightChoices)
+                {
+                    <option value="@height">@CameraHeightLabel(height)</option>
+                }
+            </select>
+            <span class="small text-muted">@HeightNotice</span>
+        </div>
+
+        @* B-157 T7.1: the operator can see the picture the prompt describes and the resolver cannot, so placement is
+           the other thing here a person may outrank — and only the axes they change move. *@
+        <div class="form-text fw-semibold mt-2">Placement</div>
+        @foreach (var subject in _displaySubjects)
+        {
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
+                <span class="small text-muted" style="min-width: 8rem;">@subject.SubjectKey</span>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        aria-label="Placement horizontal for @subject.SubjectKey"
+                        value="@subject.Position.Horizontal"
+                        @onchange="args => SetHorizontalAsync(subject.SubjectKey, args)">
+                    @foreach (var horizontal in SelectableHorizontals)
+                    {
+                        <option value="@horizontal">@horizontal</option>
+                    }
+                </select>
+                <select class="form-select form-select-sm" style="width: auto;"
+                        aria-label="Placement depth for @subject.SubjectKey"
+                        value="@subject.Position.Depth"
+                        @onchange="args => SetDepthAsync(subject.SubjectKey, args)">
+                    @foreach (var depth in SelectableDepths)
+                    {
+                        <option value="@depth">@depth</option>
+                    }
+                </select>
+                @if (_conflictingSubjectKeys.Contains(subject.SubjectKey))
+                {
+                    <span class="badge text-bg-danger">same position as another</span>
+                }
+            </div>
+        }
+        <div class="form-text">
+            A depth is how far someone stands from the camera; the framing decides how large that makes them.
+        </div>
+    </div>
+}
+
+@if (planIssues.Count > 0)
+{
+    <div class="alert alert-danger py-2 small mt-3" role="alert">
+        <span class="fw-semibold">This step's reference map cannot be assembled:</span>
+        @foreach (var issue in planIssues)
+        {
+            <div>@issue</div>
+        }
+    </div>
+}
+else if (finalPlan is not null && finalPlan.References.Count > 0)
+{
+    <details class="mt-3">
+        <summary class="form-text">Final prompt and reference map (@(finalPlan.References.Count == 1 ? "1 image" : $"{finalPlan.References.Count} images"))</summary>
+        <pre class="border rounded p-2 mt-2 small bg-body-tertiary" style="white-space: pre-wrap;">@finalPlan.Prompt</pre>
+        <table class="table table-sm align-middle mt-2">
+            <thead>
+                <tr>
+                    <th>Image</th>
+                    <th>Supplies</th>
+                    <th>Character</th>
+                    <th>Position</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in finalPlan.References)
+                {
+                    <tr>
+                        <td><span class="font-monospace">@entry.Tag</span></td>
+                        <td>@(entry.SlotKind?.ToString() ?? "reference")</td>
+                        <td>@(string.IsNullOrWhiteSpace(entry.SubjectKey) ? "—" : entry.SubjectKey)</td>
+                        <td>@DescribePosition(entry.Position)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </details>
+}
+
+@code {
+    /// <summary>The prompt the render will start from, before the reference block is appended.</summary>
+    [Parameter]
+    public string Prompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How many images this surface puts BEFORE the references, which decides the first tag (B-159).
+    ///
+    /// <para>
+    /// A generation sends only its references, so the first is <c>&lt;image1&gt;</c>. An EDIT sends its source image
+    /// first, so its first reference is <c>&lt;image2&gt;</c> — and the tag check has to know that or it would report
+    /// every correct edit prompt as wrong.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public int LeadingImagesForThisSurface { get; set; } = ReferenceRoleClauses.LeadingImageCount.Generate;
+
+    /// <summary>The references this step will send, in order.</summary>
+    [Parameter]
+    public IReadOnlyList<ReferenceApplicationSelection> Bindings { get; set; } = [];
+
+    /// <summary>
+    /// The frame the brief was compiled with. Null renders nothing: this component is opt-in, like the composer's LoRA
+    /// picker — a host that cannot supply a frame gets no preview rather than a misleading one.
+    /// </summary>
+    [Parameter]
+    public SceneBlocking? Blocking { get; set; }
+
+    /// <summary>
+    /// The operator's placement correction, when the host can store one. Passing the callback is what OPTS a host in:
+    /// a host that cannot persist an override shows no selector rather than one whose changes go nowhere.
+    /// </summary>
+    [Parameter]
+    public SceneBlockingOverride? Override { get; set; }
+
+    [Parameter]
+    public EventCallback<SceneBlockingOverride?> OverrideChanged { get; set; }
+
+    /// <summary>
+    /// The framings this surface may be rendered at, in the operator's own vocabulary — supplied by the host from the
+    /// staging profile it already resolves, so the choice is always one the surface can honour (B-161).
+    ///
+    /// <para>
+    /// Empty is legitimate and means "this host has no framing vocabulary to offer" (the Asset Manager's profile
+    /// declares none), and the control then does not render. It is deliberately NOT defaulted here: a list invented in
+    /// a component would be a second source for the configured staging vocabulary.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string> FramingChoices { get; set; } = [];
+
+    /// <summary>
+    /// The camera heights this surface may be rendered at. The CONCEPTS come from <see cref="CameraHeights.All"/> — one
+    /// table, never a list invented here — and a host may narrow it. Empty hides the control.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<string> CameraHeightChoices { get; set; } = CameraHeights.All;
+
+    /// <summary>The label of the "no height override" option, naming the height the brief was compiled with.</summary>
+    [Parameter]
+    public string CompiledHeightLabel { get; set; } = "compiled height";
+
+    /// <summary>Explains what the chosen height does, in the operator's terms.</summary>
+    [Parameter]
+    public string HeightNotice { get; set; } = "Where the lens sits relative to the subject.";
+
+    /// <summary>
+    /// The label of the "no override" option. It names the framing the brief was compiled with, so the operator can
+    /// see what the default actually is instead of an anonymous blank.
+    /// </summary>
+    [Parameter]
+    public string CompiledFramingLabel { get; set; } = "Use the brief's own framing";
+
+    private static readonly FrameHorizontal[] SelectableHorizontals =
+    [
+        FrameHorizontal.Left,
+        FrameHorizontal.Center,
+        FrameHorizontal.Right
+    ];
+
+    private static readonly FrameDepth[] SelectableDepths =
+    [
+        FrameDepth.Foreground,
+        FrameDepth.Midground,
+        FrameDepth.Background
+    ];
+
+    private SceneBlocking? _effectiveBlocking;
+    private string? _overrideIssue;
+
+    /// <summary>
+    /// The subjects the Frame controls show, built from the operator's OWN choices and never from the resolver's
+    /// result — so an override that collides still renders the selectors the operator needs to repair it.
+    /// </summary>
+    /// <remarks>
+    /// The frame that reaches the prompt is always <see cref="SceneBlockingResolver.ApplyForPrompt"/>. This list exists
+    /// only to be edited, which is why it deliberately skips the collision refusal: the refusal is what the operator is
+    /// being asked to fix (see <see cref="_conflictingSubjectKeys"/>).
+    /// </remarks>
+    private IReadOnlyList<SceneBlockingSubject> _displaySubjects = [];
+
+    /// <summary>Subjects sharing a frame position, marked in the UI so the operator knows which one to move.</summary>
+    private HashSet<string> _conflictingSubjectKeys = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override void OnParametersSet()
+    {
+        _effectiveBlocking = null;
+        _overrideIssue = null;
+        _displaySubjects = BuildDisplaySubjects(Blocking, Override);
+        _conflictingSubjectKeys = [.. _displaySubjects
+            .GroupBy(subject => subject.Position)
+            .Where(group => group.Count() > 1)
+            .SelectMany(group => group.Select(subject => subject.SubjectKey))];
+
+        if (Blocking is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // The SAME entry point the render reads the frame through (B-161), so the block shown here is the block the
+            // render appends — including the depth wording. Using a different call here would put the operator's
+            // preview and the model's instruction in disagreement about the same frame.
+            _effectiveBlocking = SceneBlockingResolver.ApplyForPrompt(Blocking, Override);
+        }
+        catch (InvalidOperationException exception)
+        {
+            // Reported, not swallowed: the render applies the same rule and would refuse the same override. The
+            // controls above stay on screen, because the message asks the operator to change one of them.
+            _overrideIssue = exception.Message;
+        }
+    }
+
+    /// <summary>
+    /// The compiled frame with the operator's chosen axes applied per subject, WITHOUT the collision check.
+    /// </summary>
+    /// <remarks>
+    /// Only the two axes move, exactly as the resolver moves them — an axis the operator did not touch keeps the
+    /// brief's value, so "move her left" does not silently restate her depth. The role text is deliberately left as the
+    /// brief recorded it: this list is for choosing, and the wording that reaches the prompt is the resolver's, so
+    /// re-deriving it here would be a second description of one frame.
+    /// </remarks>
+    private static IReadOnlyList<SceneBlockingSubject> BuildDisplaySubjects(
+        SceneBlocking? blocking,
+        SceneBlockingOverride? overrides)
+    {
+        if (blocking is null)
+        {
+            return [];
+        }
+
+        // Last entry wins, matching the resolver: an operator who changed their mind twice meant the second one.
+        var changes = (overrides?.Subjects ?? [])
+            .Where(change => !string.IsNullOrWhiteSpace(change.SubjectKey))
+            .GroupBy(change => change.SubjectKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+
+        var shown = new List<SceneBlockingSubject>(blocking.Subjects.Count);
+        foreach (var subject in blocking.Subjects)
+        {
+            if (!changes.TryGetValue(subject.SubjectKey, out var change))
+            {
+                shown.Add(subject);
+                continue;
+            }
+
+            var horizontal = change.Horizontal is { } chosenHorizontal and not FrameHorizontal.Unknown
+                ? chosenHorizontal
+                : subject.Position.Horizontal;
+            var depth = change.Depth is { } chosenDepth and not FrameDepth.Unknown
+                ? chosenDepth
+                : subject.Position.Depth;
+            shown.Add(subject with { Position = new FramePosition(horizontal, depth) });
+        }
+
+        return shown;
+    }
+
+    private Task SetHorizontalAsync(string subjectKey, ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<FrameHorizontal>(args.Value?.ToString(), out var horizontal))
+        {
+            return Task.CompletedTask;
+        }
+
+        return OverrideChanged.InvokeAsync(Merge(subjectKey, horizontal, null));
+    }
+
+    private Task SetDepthAsync(string subjectKey, ChangeEventArgs args)
+    {
+        if (!Enum.TryParse<FrameDepth>(args.Value?.ToString(), out var depth))
+        {
+            return Task.CompletedTask;
+        }
+
+        return OverrideChanged.InvokeAsync(Merge(subjectKey, null, depth));
+    }
+
+    /// <summary>
+    /// Folds one changed axis into the override, KEEPING the other axis the operator already chose for that subject —
+    /// a fresh entry would silently reset it to the brief's value. The framing choice travels with it (B-161): a
+    /// framing and a placement are one frame, and dropping either on the way in would lose a decision the operator
+    /// made on the same panel.
+    /// </summary>
+    private SceneBlockingOverride Merge(string subjectKey, FrameHorizontal? horizontal, FrameDepth? depth)
+    {
+        var subjects = Override?.Subjects ?? [];
+        var existing = subjects.FirstOrDefault(subject =>
+            string.Equals(subject.SubjectKey, subjectKey, StringComparison.OrdinalIgnoreCase));
+
+        var merged = subjects
+            .Where(subject => !string.Equals(subject.SubjectKey, subjectKey, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        merged.Add(new SceneBlockingSubjectOverride(
+            subjectKey,
+            horizontal ?? existing?.Horizontal,
+            depth ?? existing?.Depth));
+        return new SceneBlockingOverride(merged, Override?.Camera);
+    }
+
+    /// <summary>
+    /// Sets or clears the operator's framing (B-161), keeping any height they already chose.
+    /// </summary>
+    /// <remarks>
+    /// The emptied option clears the camera override rather than sending a blank shot size, so "no choice" means the
+    /// brief's own framing is used and never a blank the render would refuse. A chosen HEIGHT survives that: the two are
+    /// separate decisions, and dropping one while picking the other is how an operator loses work.
+    /// </remarks>
+    private Task SetFramingAsync(ChangeEventArgs args)
+    {
+        var chosen = args.Value?.ToString()?.Trim();
+        var height = Override?.Camera?.Height;
+        var compiledShot = Blocking?.Camera?.ShotSize;
+        var camera = string.IsNullOrWhiteSpace(chosen)
+            ? CameraOverrideOrNull(compiledShot, height, Override?.Camera?.Angle)
+            : new SceneBlockingCameraOverride(chosen, Override?.Camera?.Angle, height);
+        return OverrideChanged.InvokeAsync(new SceneBlockingOverride(Override?.Subjects ?? [], camera));
+    }
+
+    /// <summary>
+    /// Sets or clears the operator's camera HEIGHT (2026-10-22), keeping any framing they already chose.
+    /// </summary>
+    /// <remarks>
+    /// A height on its own still has to state a shot size, because the override record refuses a blank one — so the
+    /// compiled shot size is carried through rather than invented. Clearing the height leaves a framing override (and
+    /// the placements) untouched.
+    /// </remarks>
+    private Task SetHeightAsync(ChangeEventArgs args)
+    {
+        var chosen = args.Value?.ToString()?.Trim();
+        var shot = Override?.Camera?.ShotSize;
+        if (string.IsNullOrWhiteSpace(shot)) shot = Blocking?.Camera?.ShotSize;
+
+        if (string.IsNullOrWhiteSpace(chosen))
+        {
+            var kept = CameraOverrideOrNull(shot, null, Override?.Camera?.Angle);
+            return OverrideChanged.InvokeAsync(
+                kept is null && (Override?.Subjects?.Count ?? 0) == 0
+                    ? null
+                    : new SceneBlockingOverride(Override?.Subjects ?? [], kept));
+        }
+
+        if (string.IsNullOrWhiteSpace(shot))
+        {
+            throw new InvalidOperationException(
+                "A camera-height override needs the shot size it applies to, and neither the operator nor the compiled "
+                + "frame names one.");
+        }
+
+        return OverrideChanged.InvokeAsync(new SceneBlockingOverride(
+            Override?.Subjects ?? [],
+            new SceneBlockingCameraOverride(shot.Trim(), Override?.Camera?.Angle, chosen)));
+    }
+
+    /// <summary>A camera override carrying only what was actually decided, or null when nothing is left.</summary>
+    private static SceneBlockingCameraOverride? CameraOverrideOrNull(string? shotSize, string? height, string? angle)
+    {
+        if (string.IsNullOrWhiteSpace(shotSize)) return null;
+        if (string.IsNullOrWhiteSpace(height) && string.IsNullOrWhiteSpace(angle)) return null;
+        return new SceneBlockingCameraOverride(shotSize.Trim(), angle, height);
+    }
+
+    /// <summary>The operator's words for a height concept, so the dropdown reads as a position rather than a code.</summary>
+    private static string CameraHeightLabel(string height) => height switch
+    {
+        CameraHeights.Floor => "floor level, looking up",
+        CameraHeights.Waist => "waist height, level",
+        CameraHeights.Eye => "eye level",
+        CameraHeights.Above => "above the subject, looking down",
+        CameraHeights.Overhead => "directly overhead, looking down",
+        _ => height
+    };
+
+    /// <summary>A frame position in words for the map, or a plain statement that it has none.</summary>
+    private static string DescribePosition(FramePosition? position) =>
+        position is { } placed ? $"{placed.Horizontal} · {placed.Depth}" : "not placed";
+}

@@ -133,7 +133,13 @@
                 {
                     <button class="btn btn-sm btn-danger py-0 px-1" type="button" @onclick="() => SetStudioDispositionAsync(SceneImageAttemptDisposition.Rejected)" disabled="@_busy" title="Reject"><i class="bi bi-x-circle"></i></button>
                 }
-                <button class="btn btn-sm btn-success py-0 px-1" type="button" @onclick="ApproveStudioAsync" disabled="@(_busy || Current.ExecutionStatus != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(Current.Sha256))" title="Approve this image"><i class="bi bi-check2-circle"></i></button>
+                <button class="btn btn-sm btn-success py-0 px-1" type="button" @onclick="ApproveStudioAsync" disabled="@(_busy || Current.ApprovalBlockedReason is not null)" title="@ApproveStudioTitle"><i class="bi bi-check2-circle"></i></button>
+                @if (Current.IsApproved)
+                {
+                    @* The asset route has always been able to revoke a verdict; this is the same act on a production
+                       frame, so the deck's two halves offer one set of verdicts rather than two. *@
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1" type="button" @onclick="RevokeStudioAsync" disabled="@_busy" title="Revoke this approval"><i class="bi bi-slash-circle"></i></button>
+                }
             }
             else if (IsAssetRoute)
             {
@@ -269,90 +275,16 @@
             <div class="col-lg-4">
                 <div class="review-deck-rail">
                 <h5>Metadata</h5>
-                @if (IsStudioRoute)
-                {
-                    <dl class="row small">
-                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
-                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
-                        <dt class="col-sm-4">Stage</dt><dd class="col-sm-8">@Display(Current.Stage)</dd>
-                        <dt class="col-sm-4">Execution</dt><dd class="col-sm-8">@Display(Current.ExecutionStatus)</dd>
-                        <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Display(Current.NegativePrompt)</dd>
-                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
-                    </dl>
-                    @if (!string.IsNullOrWhiteSpace(Current.Details))
-                    {
-                        <h6>Details</h6><pre class="font-monospace text-break">@Current.Details</pre>
-                    }
-                }
-                else if (IsAssetRoute)
-                {
-                    <dl class="row small">
-                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
-                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
-                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
-                    </dl>
-
-                    @* The prompt itself is NOT repeated here: the generation details below already carry the description
-                       and the compiled prompt, and two copies of one long text pushed everything else off the rail. *@
-                    @if (_currentAssetImage is not null)
-                    {
-                        <h6>Tags</h6>
-                        <div class="mb-3">
-                            <ImageTags Image="_currentAssetImage" Editable="true" TagsChanged="LoadCurrentAsync" />
-                        </div>
-
-                        <h6>How this image was generated</h6>
-                        <GenerationDetails Image="_currentAssetImage" />
-                    }
-
-                    @if (!string.IsNullOrWhiteSpace(Current.Details))
-                    {
-                        <h6>Details</h6><pre class="font-monospace text-break">@Current.Details</pre>
-                    }
-                }
-                else
-                {
-                    <dl class="row small">
-                        <dt class="col-sm-4">Kind</dt><dd class="col-sm-8">@Current.Kind</dd>
-                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@Current.Status</dd>
-                        <dt class="col-sm-4">Reference kind</dt><dd class="col-sm-8">@Display(Current.ReferenceKind)</dd>
-                        <dt class="col-sm-4">Vision source</dt><dd class="col-sm-8">@Current.VisionSource</dd>
-                        <dt class="col-sm-4">Vision text</dt><dd class="col-sm-8 text-break">@Display(Current.VisionText)</dd>
-                        <dt class="col-sm-4">Prompt compiled</dt><dd class="col-sm-8 text-break">@Display(Current.PromptCompiled)</dd>
-                        <dt class="col-sm-4">Prompt edited</dt><dd class="col-sm-8 text-break">@Display(Current.PromptEdited)</dd>
-                        <dt class="col-sm-4">Negative prompt</dt><dd class="col-sm-8 text-break">@Display(Current.NegativePrompt)</dd>
-                        <dt class="col-sm-4">Seed</dt><dd class="col-sm-8">@Display(Current.Seed)</dd>
-                        <dt class="col-sm-4">Model</dt><dd class="col-sm-8 text-break">@Display(Current.Model)</dd>
-                        <dt class="col-sm-4">Endpoint</dt><dd class="col-sm-8 text-break">@Display(Current.EndpointId)</dd>
-                        <dt class="col-sm-4">Identity strategy</dt><dd class="col-sm-8 text-break">@Display(Current.IdentityStrategy)</dd>
-                        <dt class="col-sm-4">Refusal mode</dt><dd class="col-sm-8">@Current.RefusalMode</dd>
-                    </dl>
-                    @if (!string.IsNullOrWhiteSpace(Current.AppliedReferencesJson))
-                    {
-                        <h6>Applied references</h6><pre class="font-monospace text-break">@Current.AppliedReferencesJson</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(Current.CostJson))
-                    {
-                        <h6>Cost</h6><pre class="font-monospace text-break">@Current.CostJson</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(Current.ScoreJson))
-                    {
-                        <h6>Score</h6><pre class="font-monospace text-break">@Current.ScoreJson</pre>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(Current.CandidateNotes))
-                    {
-                        <h6>Candidate notes</h6><pre class="font-monospace text-break">@Current.CandidateNotes</pre>
-                    }
-                }
-
-                @* The two identifiers nobody reads while judging an image, kept for the audit trail and moved out of
-                   the way of the data that decides one. *@
-                <div class="review-deck-rail-footer">
-                    <dl class="row small mb-0">
-                        <dt class="col-sm-4">Checksum</dt><dd class="col-sm-8 text-break">@Display(Current.Sha256)</dd>
-                        <dt class="col-sm-4">Created</dt><dd class="col-sm-8 text-break">@Current.CreatedUtc</dd>
-                    </dl>
-                </div>
+                @* ONE rail for every route. The studio route used to render its own shorter field list, with no tags
+                   and no record of what the image was generated with, while the asset route showed both for the very
+                   same kind of picture. The field list, the editor and the audit footer now come from one component, so
+                   a change made for one route shows up on the others by construction. What still differs is data: which
+                   store the id belongs to, and whether the image is one of the app's own renders. *@
+                <ImageMetadataRail Item="Current"
+                                   TagTarget="_railTagTarget"
+                                   TagsJson="_railTagsJson"
+                                   Details="_railDetails"
+                                   TagsChanged="LoadCurrentAsync" />
                 </div>
             </div>
         </div>
@@ -404,9 +336,12 @@
                                 {
                                     <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Reject" disabled="@_busy" @onclick="() => SetItemStudioDispositionAsync(item.Id, SceneImageAttemptDisposition.Rejected)"><i class="bi bi-x-circle"></i></button>
                                 }
-                                @if (item.ExecutionStatus == SceneImageStatus.Complete && !string.IsNullOrWhiteSpace(item.Sha256))
+                                @* The SAME domain gate the service refuses with: a disabled button here and a refusal
+                                   there can never disagree, because both read one verdict. *@
+                                <button class="btn btn-sm btn-outline-success py-0 px-1" title="@ApproveItemTitle(item)" disabled="@(_busy || item.ApprovalBlockedReason is not null)" @onclick="() => ApproveItemAsync(item.Id)"><i class="bi bi-check2-circle"></i></button>
+                                @if (item.IsApproved)
                                 {
-                                    <button class="btn btn-sm btn-outline-success py-0 px-1" title="Approve" disabled="@_busy" @onclick="() => ApproveItemAsync(item.Id)"><i class="bi bi-check2-circle"></i></button>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Revoke this approval" disabled="@_busy" @onclick="RevokeStudioAsync"><i class="bi bi-slash-circle"></i></button>
                                 }
                             }
                             else if (IsAssetRoute)
@@ -458,7 +393,9 @@
     private string? _deleteConfirmId;
     private string? _frontBackUrl;
     private List<ReviewDeckItem> _lineageChildren = [];
-    private SceneAssetImage? _currentAssetImage;
+    private ImageTagTarget? _railTagTarget;
+    private string? _railTagsJson;
+    private ImageGenerationInputDetails? _railDetails;
     private string? _decisionFilter;
 
     /// <summary>Every card in this strip, the filter's options, and the ones the chosen view leaves visible.</summary>
@@ -790,16 +727,55 @@
                         ? _items.Where(item => string.Equals(item.ParentImageId, Current.Id, StringComparison.Ordinal)).ToList()
                     : (await ProducedImages.ListByParentAsync(Current.Id)).Select(MapLegacyItem).ToList();
 
-            // The asset route's rail shows the tags editor and the generation details, and both read the STORED row
-            // rather than this deck's flat projection — tags and LoRA selections are not part of that projection.
-            _currentAssetImage = Current is null || !IsAssetRoute
-                ? null
-                : await AssetService.GetImageAsync(Current.Id);
+            // The rail shows the image's tags and the inputs it was generated with, and neither is part of this deck's
+            // flat projection — the projection is one shape for three stores, and those two facts live in the row.
+            await LoadRailAsync();
         }
         catch (Exception exception)
         {
             _error = exception.Message;
         }
+    }
+
+    /// <summary>
+    /// Reads what the rail needs from the image's OWN row: its tags, and what it was generated with. Which store that
+    /// row lives in is the ROUTE's fact, so the route decides here and the rail is handed the result as data — the rail
+    /// itself never has to know that a production frame and a library asset are stored differently.
+    /// </summary>
+    private async Task LoadRailAsync()
+    {
+        _railTagTarget = null;
+        _railTagsJson = null;
+        _railDetails = null;
+
+        if (Current is null)
+        {
+            return;
+        }
+
+        if (IsStudioRoute)
+        {
+            if (await ImageService.GetImageAsync(Current.Id) is { } rendered)
+            {
+                _railTagTarget = ImageTagTarget.Rendered;
+                _railTagsJson = rendered.TagsJson;
+                _railDetails = ImageGenerationInputDetails.FromSceneImage(rendered);
+            }
+
+            return;
+        }
+
+        // The dataset scope's items ARE asset-library images (a cell attempt is one), so it reads the same store the
+        // asset route does rather than falling through to the bare route's older table.
+        if (IsImageRoute && await AssetService.GetImageAsync(Current.Id) is { } asset)
+        {
+            _railTagTarget = ImageTagTarget.AssetLibrary;
+            _railTagsJson = asset.TagsJson;
+            _railDetails = ImageGenerationInputDetails.FromAssetImage(asset);
+        }
+
+        // The bare route's images are rows in the older produced-images table: no tag store and no recorded input set,
+        // so the rail draws its field list and the audit footer and offers no editor that would refuse every write.
     }
 
     private async Task SetStudioDispositionAsync(SceneImageAttemptDisposition nextDisposition)
@@ -828,7 +804,7 @@
 
     private async Task ApproveStudioAsync()
     {
-        if (Current is null || string.IsNullOrWhiteSpace(Current.Sha256))
+        if (Current is null || Current.ApprovalBlockedReason is not null)
         {
             return;
         }
@@ -837,7 +813,9 @@
         _error = null;
         try
         {
-            await ProductionService.ApproveAsync(BatchId, Current.Id, Current.Sha256, "Review Deck", null);
+            // The gate above refuses an attempt with no recorded checksum, so the value is present here: the decision
+            // row is what proves WHICH bytes were approved, and the gate is what makes passing an absent one impossible.
+            await ProductionService.ApproveAsync(BatchId, Current.Id, Current.Sha256!, "Review Deck", null);
             await ReloadAsync();
         }
         catch (Exception exception)
@@ -849,6 +827,42 @@
             _busy = false;
         }
     }
+
+    /// <summary>
+    /// Withdraws the group's current approval, leaving it with no approved frame.
+    ///
+    /// <para>
+    /// It is the same act the asset route's Revoke performs on a candidate decision, which is the point: two halves of
+    /// one deck should not disagree about whether a verdict can be taken back. Nothing is re-rendered or deleted — the
+    /// decision that named a frame is superseded by one that names none.
+    /// </para>
+    /// </summary>
+    private async Task RevokeStudioAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            await ProductionService.RevokeApprovalAsync(BatchId, "Review Deck", null);
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>The toolbar's approve tooltip: the domain gate's own refusal, or what pressing it will do.</summary>
+    private string ApproveStudioTitle =>
+        Current?.ApprovalBlockedReason ?? "Approve this image as the frame of this production";
+
+    /// <summary>The same wording on the strip's card, from the same mapped verdict.</summary>
+    private static string ApproveItemTitle(ReviewDeckItem item)
+        => item.ApprovalBlockedReason ?? "Approve this image as the frame of this production";
 
     private async Task SetAssetDecisionAsync(SceneAssetCandidateDecision decision)
     {
@@ -937,7 +951,7 @@
     private async Task ApproveItemAsync(string imageId)
     {
         var item = _items.First(i => string.Equals(i.Id, imageId, StringComparison.Ordinal));
-        if (string.IsNullOrWhiteSpace(item.Sha256))
+        if (item.ApprovalBlockedReason is not null)
         {
             return;
         }
@@ -946,7 +960,7 @@
         _error = null;
         try
         {
-            await ProductionService.ApproveAsync(BatchId, imageId, item.Sha256, "Review Deck", null);
+            await ProductionService.ApproveAsync(BatchId, imageId, item.Sha256!, "Review Deck", null);
             await ReloadAsync();
         }
         catch (Exception exception)

@@ -5,7 +5,8 @@ namespace DreamGenClone.Web.Application.RolePlay;
 
 /// <summary>
 /// The Location-stage service: resolves the moment's location into a suggestion (never a lock), creates a location
-/// container from the moment's place-only seed, and binds/clears the per-POV backdrop plus the moment→container link.
+/// container from the moment's place-only seed, and binds/clears the per-POV backdrop plus that POV's moment→container
+/// link. Omniscient and each character POV carry their own binding.
 /// </summary>
 public interface ISceneMomentLocationService
 {
@@ -23,8 +24,21 @@ public interface ISceneMomentLocationService
         string groupId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Re-seeds a group's backdrop from the durable (moment, POV) binding when the group has none. A re-enrichment
+    /// creates a new production group, and this is the ONE place the operator's recorded binding is carried across it:
+    /// the group is returned unchanged when it already carries a backdrop for this enrichment, or when this POV has
+    /// recorded none. A recorded binding that no longer names an approvable, named image fails loudly rather than being
+    /// silently dropped.
+    /// </summary>
+    Task<SceneImageProductionGroup> RestoreBackdropAsync(
+        string groupId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The location binding recorded for one POV of a moment, or null when that POV has bound nothing.</summary>
     Task<SceneMomentLocationLink?> GetMomentLinkAsync(
         string momentId,
+        string pov,
         CancellationToken cancellationToken = default);
 
     /// <summary>

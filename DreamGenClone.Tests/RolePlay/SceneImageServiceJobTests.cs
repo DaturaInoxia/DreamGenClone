@@ -40,6 +40,18 @@ public sealed class SceneImageServiceJobTests
         Assert.Contains("Preserve everything outside those selected face regions exactly", instruction, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Pins the face-primary "Picture N" recipe, and the locator's SHAPE.
+    ///
+    /// <para>
+    /// The locator is a field the vision compiler fills, and it came back as a clause ("on the image left") while
+    /// this sentence was written as "the woman at center-left": the result was "the woman at on the image left", a
+    /// target the editor could not bind to a face, so the reference portrait was composited into the frame instead
+    /// of swapping the face — measured 2026-10-13 against the same reference image and model that produced a clean
+    /// swap from a v1 analysis. The locator now rides in a parenthetical, so the sentence reads the same whether the
+    /// compiler writes a bare place or a phrase and cannot be mangled by what it writes.
+    /// </para>
+    /// </summary>
     [Fact]
     public void BuildFaceOnlyIdentityInstructionUsesFacePrimaryPictureRecipe()
     {
@@ -49,10 +61,27 @@ public sealed class SceneImageServiceJobTests
             (2, "man", "image right")
         ]);
 
-        Assert.Contains("Apply the face of the person shown in Picture 2 to the woman at image left.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Apply the face of the person shown in Picture 2 to the woman (position: image left).", instruction, StringComparison.Ordinal);
         Assert.Contains("Keep that person's facial identity consistent with Picture 2 for the entire image; do not change anyone else.", instruction, StringComparison.Ordinal);
-        Assert.Contains("Apply the face of the person shown in Picture 3 to the man at image right.", instruction, StringComparison.Ordinal);
+        Assert.Contains("Apply the face of the person shown in Picture 3 to the man (position: image right).", instruction, StringComparison.Ordinal);
         Assert.Contains("Keep the pose, bodies, position, clothing, lighting, and everything else in the image exactly unchanged except the selected faces.", instruction, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The exact drift that produced the tiled face: a locator written as a direction clause. The sentence must
+    /// still read as English, and must never contain the spliced form that broke it.
+    /// </summary>
+    [Theory]
+    [InlineData("on the image left")]
+    [InlineData("left side of the frame")]
+    [InlineData("center-left")]
+    public void BuildEditorIdentityInstruction_KeepsAnyLocatorShapeOutOfTheSentenceGrammar(string locator)
+    {
+        var instruction = SceneImageService.BuildEditorIdentityInstruction([(1, "woman", locator)]);
+
+        Assert.Contains($"to the woman (position: {locator}).", instruction, StringComparison.Ordinal);
+        Assert.DoesNotContain($"at {locator}", instruction, StringComparison.Ordinal);
+        Assert.DoesNotContain(" at on ", instruction, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -261,7 +290,7 @@ public sealed class SceneImageServiceJobTests
     }
 
     private static (SceneImageService service, CapturingBackgroundJobQueue queue, SceneImageRepository repo, SceneImageStorageService storage, string dbPath, string root)
-        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson, RecordingMediaEditCompilationService? mediaEdits = null, ISceneImageProductionService? productionService = null)
+        Build(RolePlaySession? session, string beatsJson = CurrentBeatsJson, RecordingMediaEditCompilationService? mediaEdits = null, ISceneImageProductionService? productionService = null, IReferenceStrategyResolver? referenceStrategies = null)
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"scene-image-svc-{Guid.NewGuid():N}.db");
         var root = Path.Combine(Path.GetTempPath(), $"scene-image-svc-files-{Guid.NewGuid():N}");
@@ -311,7 +340,8 @@ public sealed class SceneImageServiceJobTests
             imageEditorModelResolver: new TestImageEditorModelResolver(),
             imageEditorEndpointReadiness: new WarmImageEditorEndpointReadiness(),
             durableJobQueue: queue,
-            mediaEdits: mediaEdits ?? new RecordingMediaEditCompilationService());
+            mediaEdits: mediaEdits ?? new RecordingMediaEditCompilationService(),
+            referenceStrategies: referenceStrategies);
         return (service, queue, repo, storage, dbPath, root);
     }
 
@@ -759,6 +789,9 @@ public sealed class SceneImageServiceJobTests
         public Task<SceneImageProductionGroup> ClearIdentitySkipAsync(string groupId, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        public Task<SceneImageProductionGroup> SavePromptDraftAsync(string groupId, SceneImagePromptSource source, string? userIntent, ScenePromptOverrides? overrides = null, SceneImageExplicitness explicitness = SceneImageExplicitness.Explicit, CameraHolderPartsMode cameraHolderParts = CameraHolderPartsMode.None, string? cameraHolderPartsText = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
         public Task<SceneImageProductionGroup?> GetCurrentGroupAsync(string momentEnrichmentId, string pov, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -775,6 +808,9 @@ public sealed class SceneImageServiceJobTests
             => throw new NotSupportedException();
 
         public Task<ApprovedSceneFrameDecision> ApproveAsync(string groupId, string imageId, string sha256, string decidedBy, string? note, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ApprovedSceneFrameDecision> RevokeApprovalAsync(string groupId, string decidedBy, string? note, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
         public Task<SceneImageAttemptRetentionPolicy?> GetRetentionPolicyAsync(CancellationToken cancellationToken = default)
@@ -1398,9 +1434,81 @@ public sealed class SceneImageServiceJobTests
         }
     }
 
+    /// <summary>
+    /// The edit form's bindings were intersected with the model selected WHEN THEY WERE BOUND, so a model chosen
+    /// afterwards can leave a binding this run cannot carry. Measured 2026-10-13: a pass on an image rendered with a
+    /// Location reference died inside the job with "Reference strategy 'NativeMultiReference' for 'Location' is
+    /// unavailable: Model '…' does not declare support for 'NativeMultiReference' in Model Manager" — after the row
+    /// existed, with nothing on the surface naming the binding to clear. It is refused HERE instead, naming the model
+    /// and the element, and nothing is dropped to let the run proceed.
+    /// </summary>
     [Fact]
-    public async Task EnqueueEditAsync_ProductionAttempt_RetainsLineageWithoutEnteringFinishWorkflowAndRejectsPurgedSource()
+    public async Task EnqueueEditAsync_WithAReferenceTheEditorModelCannotCarry_RefusesBeforeAnyRowOrJobExists()
     {
+        var session = MakeSession();
+        var mediaEdits = new RecordingMediaEditCompilationService();
+        var strategies = new IdentityStrategyDecisionTests.MapReferenceStrategies
+        {
+            Statuses = { [ReferenceStrategyCatalogue.NativeMultiReference] = ReferenceStrategyResolutionStatus.Unqualified }
+        };
+        var (service, _, repo, _, dbPath, root) = Build(session, mediaEdits: mediaEdits, referenceStrategies: strategies);
+        try
+        {
+            var prompt = CreatePromptRecord();
+            await repo.UpsertPromptAsync(prompt);
+            var source = new SceneImageRecord
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                PromptRecordId = prompt.Id,
+                PromptSnapshot = "original prompt",
+                Status = SceneImageStatus.Complete,
+                FileRelativePath = "s1/source.png"
+            };
+            await repo.InsertImageAsync(source);
+            var (editSession, attempt, revision) = await CreateReadyEditAsync(dbPath, source, "Change only the hand position.");
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnqueueEditAsync(new SceneImageEditRequest
+            {
+                SessionId = "s1",
+                InteractionId = "i1",
+                SourceImageId = source.Id,
+                EditSessionId = editSession.Id,
+                CompilationAttemptId = attempt.Id,
+                PromptRevisionId = revision.Id,
+                SourceImageSha256 = editSession.SourceImageSha256,
+                PromptSha256 = revision.PromptSha256,
+                EditorModelId = EditorModelId,
+                ReferenceApplications =
+                [
+                    new ReferenceApplicationSelection
+                    {
+                        ElementKey = "Location",
+                        SemanticRole = "location continuity",
+                        AssetType = SceneAssetType.Location,
+                        Strategy = ReferenceStrategyCatalogue.NativeMultiReference,
+                        SceneAssetId = "asset-location",
+                        SceneAssetImageId = "image-location",
+                        SceneAssetVersion = 1,
+                        SceneAssetSha256 = "LOCATIONSHA"
+                    }
+                ]
+            }));
+
+            Assert.Contains("'Location'", error.Message, StringComparison.Ordinal);
+            Assert.Contains("qwen-test", error.Message, StringComparison.Ordinal);
+            // Nothing was queued, and the refusal happened before the row: the interaction still holds only its source.
+            Assert.Empty(mediaEdits.Runs);
+            Assert.Single(await repo.ListImagesByInteractionAsync("s1", "i1"));
+        }
+        finally
+        {
+            Cleanup(dbPath, root);
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueEditAsync_ProductionAttempt_RetainsLineageWithoutEnteringFinishWorkflowAndRejectsPurgedSource()    {
         var (service, _, repo, _, dbPath, root) = Build(MakeSession());
         try
         {

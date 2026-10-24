@@ -39,7 +39,14 @@ public sealed record ReviewDeckItem(
     string? AppliedReferencesJson,
     string? CostJson,
     string? ScoreJson,
-    string? CandidateNotes);
+    string? CandidateNotes,
+    /// <summary>Studio only: whether this attempt is the production group's CURRENT approved frame.</summary>
+    bool IsApproved = false,
+    /// <summary>
+    /// Studio only: why this attempt cannot be approved, in the domain gate's own words, or null when it can. It is
+    /// carried on the projection so a deck's approve control and the service that writes the approval ask ONE rule.
+    /// </summary>
+    string? ApprovalBlockedReason = null);
 
 /// <summary>Maps each candidate source into <see cref="ReviewDeckItem"/>.</summary>
 public static class ReviewDeckMapper
@@ -95,7 +102,11 @@ public static class ReviewDeckMapper
         image.Sha256,
         image.CreatedUtc.ToString("O"),
         image.ErrorMessage,
+        // Disposition
         image.Disposition,
+        // ReferenceKind, VisionSource, VisionText, PromptCompiled, PromptEdited, Seed, EndpointId, IdentityStrategy,
+        // RefusalMode, AppliedReferencesJson, CostJson, ScoreJson, CandidateNotes — none of these exist on a rendered
+        // image row: they belong to the older produced-images table, whose only route is the bare one.
         null,
         null,
         null,
@@ -108,7 +119,12 @@ public static class ReviewDeckMapper
         null,
         null,
         null,
-        null);
+        null,
+        // The domain's own verdict, computed from the row this projection was built from. The deck's approve control
+        // reads it instead of re-deriving "complete + has a checksum", which is how the deck and the studio drifted
+        // apart: an attempt that was approvable in the studio could be refused by the deck's own inline test.
+        isApproved,
+        SceneImageFrameApprovalGate.BlockerFor(image)?.Message);
 
     public static ReviewDeckItem MapAsset(SceneAssetImage image) => new(
         image.Id,

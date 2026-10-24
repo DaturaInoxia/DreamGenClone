@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using DreamGenClone.Application.Abstractions;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -19,11 +20,15 @@ namespace DreamGenClone.Web.Application.RolePlay.Editing;
 /// <item><description><b>ApprovedAsset</b> — an approved, immutable <c>SceneAssets</c> image.</description></item>
 /// <item><description><b>IdentityPack</b> — a character's approved pack face or build, out of the pack store rather
 /// than the asset store.</description></item>
-/// <item><description><b>PoseSkeleton</b> — deliberately NOT resolved here: on a render a pose binding is
-/// consolidated into the render's own pose reference by <c>ImageStepPoseBinding</c> (so resolving it here as well
-/// would send the skeleton twice), and on an edit the source image already fixes the pose.</description></item>
+/// <item><description><b>PoseSkeleton</b> — a pose library skeleton, whose route is SURFACE-specific: a
+/// <c>Generate</c> carries it through the render's own pose reference (<c>ImageStepPoseBinding</c>), so resolving it
+/// here as well would send the skeleton twice; an <c>Edit</c> has no render settings, so the reference image is its
+/// only route and it IS resolved.</description></item>
 /// <item><description><b>ScratchImage</b> — no route exists on any surface, so it is REFUSED by name rather than
 /// dropped.</description></item>
+/// <item><description><b>AppImage</b> — a rendered image the app already holds, out of the scene-image store. Served
+/// on either surface, because a rendered image needs no render settings any more than an approved asset does; it is
+/// re-validated against the checksum the binding recorded.</description></item>
 /// </list>
 /// </summary>
 public sealed class MediaEditReferenceResolver
@@ -33,19 +38,28 @@ public sealed class MediaEditReferenceResolver
     private readonly IReferenceStrategyResolver _strategies;
     private readonly ICharacterImageIdentityRepository? _identity;
     private readonly ICharacterImageAssetStorageService? _identityStorage;
+    private readonly IPoseLibraryService? _poses;
+    private readonly ISceneImageRepository? _sceneImages;
+    private readonly ISceneImageStorageService? _sceneImageStorage;
 
     public MediaEditReferenceResolver(
         ISceneAssetRepository assets,
         ISceneAssetStorageService storage,
         IReferenceStrategyResolver strategies,
         ICharacterImageIdentityRepository? identity = null,
-        ICharacterImageAssetStorageService? identityStorage = null)
+        ICharacterImageAssetStorageService? identityStorage = null,
+        IPoseLibraryService? poses = null,
+        ISceneImageRepository? sceneImages = null,
+        ISceneImageStorageService? sceneImageStorage = null)
     {
         _assets = assets;
         _storage = storage;
         _strategies = strategies;
         _identity = identity;
         _identityStorage = identityStorage;
+        _poses = poses;
+        _sceneImages = sceneImages;
+        _sceneImageStorage = sceneImageStorage;
     }
 
     /// <summary>
@@ -102,6 +116,10 @@ public sealed class MediaEditReferenceResolver
             {
                 ReferenceChannel.IdentityPack => await ResolveIdentityPackAsync(
                     application, index + 1, cancellationToken),
+                ReferenceChannel.PoseSkeleton => await ResolvePoseSkeletonAsync(
+                    application, index + 1, cancellationToken),
+                ReferenceChannel.AppImage => await ResolveAppImageAsync(
+                    application, index + 1, cancellationToken),
                 _ => await ResolveApprovedAssetAsync(application, index + 1, cancellationToken)
             });
         }
@@ -119,10 +137,12 @@ public sealed class MediaEditReferenceResolver
     /// </para>
     ///
     /// <para>
-    /// <b>Pose is the one deliberate exception</b>, and it is not a drop: a pose binding is consolidated into the
-    /// render's own pose reference by <c>ImageStepPoseBinding</c> before the render is queued, so resolving it here
-    /// as a reference image as well would send the same skeleton twice. On an edit the source image already fixes the
-    /// pose, so a pose binding inherited from the source render's own bindings is inert by design.
+    /// <b>Pose is the one channel whose route is SURFACE-specific</b>, and that is not a duplicated decision path. A
+    /// <c>Generate</c> carries a pose through the render's own pose reference, consolidated by
+    /// <c>ImageStepPoseBinding</c> before the render is queued, so resolving it here as a reference image as well
+    /// would send the same skeleton twice. An <c>Edit</c> has no render settings and no <c>ImageStepPoseBinding</c>
+    /// consumer at all, so a reference image is its ONLY route — and declining it there is what left a bound pose
+    /// silently inert on every edit.
     /// </para>
     /// </summary>
     private static ReferenceChannel? ChannelOfFor(
@@ -137,8 +157,12 @@ public sealed class MediaEditReferenceResolver
         var channel = ReferenceBindingShape.ChannelOf(binding);
         return channel switch
         {
-            // Carried by the pose reference, never as a reference image. See this method's remarks.
-            ReferenceChannel.PoseSkeleton => null,
+            // Carried by the render's own pose reference on a GENERATE; the only route there is on an EDIT. The
+            // skeleton IS read in a reference slot as pose guidance by Qwen-Image-2.1 (measured 2026-09-23), which is
+            // the same mechanism the render's own native-pose route uses.
+            ReferenceChannel.PoseSkeleton => surface == ReferenceStrategyCatalogue.ReferenceImageSurface.Edit
+                ? channel
+                : null,
 
             // No surface has a route for an unapproved render from this chain. Fail fast, with the channel named.
             ReferenceChannel.ScratchImage => throw new InvalidOperationException(
@@ -149,6 +173,22 @@ public sealed class MediaEditReferenceResolver
             _ => channel
         };
     }
+
+    /// <summary>
+    /// Whether this surface resolves a reference IMAGE for a binding — the SAME predicate
+    /// <see cref="ResolveAsync"/> selects by, exposed so a caller can ask the capability question at ENQUEUE time
+    /// instead of copying the rule (a second copy would drift, which is the failure this class exists to prevent).
+    ///
+    /// <para>
+    /// False means the binding travels by another route and this resolver never touches it: a text-only binding
+    /// carries no image, a scratch image is refused by name when it IS resolved, and a pose comes from the render's
+    /// own pose reference on a GENERATE (see <see cref="ChannelOfFor"/>). True means <see cref="ResolveAsync"/> will
+    /// resolve the strategy against the model's own declaration and qualifications, and refuse the run when it cannot.
+    /// </para>
+    /// </summary>
+    public static bool CarriesReferenceImage(
+        ReferenceStrategyCatalogue.ReferenceImageSurface surface, ReferenceApplicationSelection binding)
+        => ChannelOfFor(surface, binding) is not null;
 
     /// <summary>
     /// An approved scene-asset image, re-validated against the approved immutable selection the binding recorded so a
@@ -180,7 +220,87 @@ public sealed class MediaEditReferenceResolver
             $"{assetImage.Id}.png",
             assetImage.Sha256,
             token => _storage.OpenReadAsync(relativePath, token),
-            ReferenceBindingShape.SlotKindOf(application));
+            ReferenceBindingShape.SlotKindOf(application),
+            // The container this view lives in: what lets the role clause tell two views of one place from two
+            // different places sharing a frame.
+            application.SceneAssetId,
+            // The operator's own statement about this reference, if they made one (B-159).
+            application.Directions);
+    }
+
+    /// <summary>
+    /// A RENDERED image the app already holds — a Studio production attempt, a gallery render, an edit — read out of
+    /// the scene-image store by its own id.
+    ///
+    /// <para>
+    /// It is re-validated against the checksum the binding recorded, because that checksum is the only thing that
+    /// makes the binding exact: the row's bytes can change under it (a regenerate writes a sibling, a rejected-bytes
+    /// purge clears them), so an image that no longer matches fails the run rather than conditioning on a picture
+    /// nobody chose.
+    /// </para>
+    ///
+    /// <para>
+    /// Approval is deliberately NOT required here. This channel is how any image the operator can see becomes a
+    /// reference, and an image's approval state is a PRODUCTION question, not a reproducibility one — which is why
+    /// the approved-scene-asset channel, whose whole contract is an approved immutable selection, is not widened to
+    /// carry these.
+    /// </para>
+    /// </summary>
+    private async Task<MediaEditReference> ResolveAppImageAsync(
+        ReferenceApplicationSelection application,
+        int ordinal,
+        CancellationToken cancellationToken)
+    {
+        var images = _sceneImages
+            ?? throw new InvalidOperationException(
+                "A reference bound to one of the app's own images requires the scene image repository.");
+        var storage = _sceneImageStorage
+            ?? throw new InvalidOperationException(
+                "A reference bound to one of the app's own images requires the scene image storage service.");
+
+        var imageId = application.ReferenceImageId!.Trim();
+        var image = await images.GetImageAsync(imageId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Reference image '{imageId}' was not found, so it cannot condition this run.");
+
+        if (image.Status != SceneImageStatus.Complete || string.IsNullOrWhiteSpace(image.FileRelativePath))
+        {
+            throw new InvalidOperationException(
+                $"Reference image '{imageId}' has no stored bytes ({image.Status}), so it cannot condition this run.");
+        }
+
+        if (string.IsNullOrWhiteSpace(image.Sha256))
+        {
+            throw new InvalidOperationException(
+                $"Reference image '{imageId}' has no recorded checksum, so the run cannot prove which bytes it would "
+                + "condition on.");
+        }
+
+        if (!string.Equals(image.Sha256, application.ReferenceImageSha256, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Reference image '{imageId}' no longer matches the checksum this reference was bound with, so the run "
+                + "would condition on different bytes than the operator chose. Bind the image again.");
+        }
+
+        var relativePath = image.FileRelativePath;
+        return new MediaEditReference(
+            ordinal,
+            // The operator's own name for the image wins, exactly as the approved-asset channel behaves: a location's
+            // several views are told apart only by a name, and the binding's snapshot of it is what the row held when
+            // they bound it.
+            DescribeReference(
+                application.SemanticRole,
+                string.IsNullOrWhiteSpace(image.DisplayName) ? application.ReferenceLabel : image.DisplayName),
+            $"{image.Id}.png",
+            image.Sha256,
+            token => storage.OpenReadAsync(relativePath, token),
+            ReferenceBindingShape.SlotKindOf(application),
+            // A rendered image lives in no asset container, so the role clause can never mistake two of them for two
+            // views of one place. The operator's own label is what tells them apart.
+            AssetContainerId: null,
+            // The operator's own statement about this reference, if they made one (B-159).
+            application.Directions);
     }
 
     /// <summary>
@@ -252,6 +372,71 @@ public sealed class MediaEditReferenceResolver
             sha256,
             token => storage.OpenReadAsync(relativePath, token),
             slotKind);
+    }
+
+    /// <summary>
+    /// A pose library skeleton, read BY PRESET ID — never from the path the binding happens to carry, so a stale path
+    /// cannot make the run condition on a different pose than the one the operator picked. This is the edit surface's
+    /// only pose route: the render path consolidates a pose into the render's own pose reference
+    /// (<c>ImageStepPoseBinding</c>), which an edit has nowhere to put.
+    ///
+    /// <para>
+    /// A binding that names no preset fails fast rather than being skipped: on an edit a pose slot's whole meaning is
+    /// the skeleton, so a pose that resolves to nothing is a reference the model never receives.
+    /// </para>
+    /// </summary>
+    private async Task<MediaEditReference> ResolvePoseSkeletonAsync(
+        ReferenceApplicationSelection application,
+        int ordinal,
+        CancellationToken cancellationToken)
+    {
+        var poses = _poses
+            ?? throw new InvalidOperationException(
+                "A reference bound to a pose-library skeleton requires the pose library service.");
+
+        if (string.IsNullOrWhiteSpace(application.PosePresetId))
+        {
+            throw new InvalidOperationException(
+                "A pose reference is bound to this step but names no pose library preset, so this editor has no "
+                + "skeleton to condition on. Clear the step's pose slot or pick the pose again from the pose library "
+                + "— a preset id is required because the skeleton is read by id, never by a path a stored payload "
+                + "could redirect.");
+        }
+
+        var presetId = application.PosePresetId.Trim();
+        byte[] bytes;
+        try
+        {
+            bytes = await poses.ReadSkeletonAsync(presetId, cancellationToken);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+        {
+            throw new InvalidOperationException(
+                $"Pose library preset '{presetId}' could not be read, so its skeleton cannot condition this edit: "
+                + exception.Message, exception);
+        }
+
+        if (bytes is null || bytes.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"Pose library preset '{presetId}' has no skeleton bytes, so it cannot condition this edit. "
+                + "Re-import or re-render that pose in the pose library.");
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(application.SkeletonRelativePath)
+            ? $"{presetId}.png"
+            : Path.GetFileName(application.SkeletonRelativePath);
+
+        return new MediaEditReference(
+            ordinal,
+            $"pose reference ({presetId} library skeleton)",
+            fileName,
+            Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            _ => Task.FromResult<Stream>(new MemoryStream(bytes, writable: false)),
+            ReferenceBindingShape.SlotKindOf(application),
+            // A skeleton lives in no asset container, so the role clause can never mistake two poses for two views of
+            // one place.
+            AssetContainerId: null);
     }
 
     /// <summary>

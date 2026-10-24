@@ -80,7 +80,8 @@ public sealed class CharacterPoseSlotTests
         var scopes = StepPromptElementPlan.Build(
             bindings.Select(binding => (Enum.Parse<ImageStepSlotKind>(binding.Kind!, ignoreCase: true), binding.ActorKey)));
 
-        Assert.Contains("character:becky.appearance", scopes);
+        Assert.Contains("character:becky.appearance.face", scopes);
+        Assert.Contains("character:becky.appearance.build", scopes);
         Assert.Contains("character:becky.clothing", scopes);
         Assert.Contains("character:becky.position", scopes);
     }

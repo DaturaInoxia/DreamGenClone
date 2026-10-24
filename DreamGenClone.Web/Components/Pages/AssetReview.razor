@@ -46,14 +46,17 @@
                     </div>
                     <div class="card-body py-2">
                         @* Editable HERE, at the moment an operator is deciding what the image is: a tag is a judgement
-                           about the picture, and the review surface is where that judgement is being made. *@
-                        <ImageTags Image="_image" Editable="true" />
+                           about the picture, and the review surface is where that judgement is being made. The host
+                           reloads the row it is showing, because this component is handed the stored tags rather than
+                           the row itself. *@
+                        <ImageTags ImageId="_image.Id" Target="ImageTagTarget.AssetLibrary"
+                                   TagsJson="_image.TagsJson" Editable="true" TagsChanged="ReloadImageAsync" />
                     </div>
                 </div>
                 <div class="card mb-3">
                     <div class="card-header py-2"><span class="small fw-semibold">How this image was generated</span></div>
                     <div class="card-body py-2">
-                        <GenerationDetails Image="_image" />
+                        <GenerationDetails Details="_details" />
                     </div>
                 </div>
                 <div class="card">
@@ -75,6 +78,7 @@
 
     private SceneAsset? _asset;
     private SceneAssetImage? _image;
+    private ImageGenerationInputDetails? _details;
 
     protected override Task OnParametersSetAsync() => ReloadAsync();
 
@@ -88,9 +92,29 @@
         _asset = string.IsNullOrWhiteSpace(AssetId)
             ? null
             : await AssetService.GetAssetAsync(AssetId);
+        await LoadImageAsync();
+    }
+
+    /// <summary>
+    /// Reads the image row and the provenance it carries. BOTH places that re-read the row go through here, so the
+    /// generation details can never end up describing a different row than the tags beneath them.
+    /// </summary>
+    private async Task LoadImageAsync()
+    {
         _image = string.IsNullOrWhiteSpace(ImageId)
             ? null
             : await AssetService.GetImageAsync(ImageId);
         if (_image?.AssetId != AssetId) _image = null;
+        _details = _image is null ? null : ImageGenerationInputDetails.FromAssetImage(_image);
+    }
+
+    /// <summary>
+    /// Re-reads just the image row — what the tag editor asks for after a write. The whole page does not need
+    /// re-reading for a tag: the asset row, the approval banner and the generation inputs are unchanged by one.
+    /// </summary>
+    private async Task ReloadImageAsync(IReadOnlyList<string> storedTags)
+    {
+        _ = storedTags;
+        await LoadImageAsync();
     }
 }

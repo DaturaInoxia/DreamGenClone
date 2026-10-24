@@ -243,25 +243,13 @@ public sealed class CharacterIdentityPromotionService : ICharacterIdentityPromot
     }
 
     /// <summary>
-    /// Why an unaccepted view is not accepted. Quoting the findings the acceptance gate refuses on is what makes
-    /// this readiness actionable: "not accepted" alone would hide the checks the reviewer still owes.
+    /// Why an unaccepted view is not accepted. It reports the view's own recorded failure, and deliberately does NOT
+    /// quote its findings: findings stopped being a condition of acceptance (operator decision, 2026-10-11), so naming
+    /// them here would send the operator to record checks that no longer unblock anything.
     /// </summary>
     private static string NotAcceptedDetail(CharacterIdentityBodyView view)
     {
         var parts = new List<string>();
-        if (!view.ManualOverrideApplied)
-        {
-            var notPassed = view.Findings.NotPassed;
-            if (notPassed.Count > 0)
-            {
-                parts.Add("Its findings are " + string.Join(
-                    " and ",
-                    notPassed.Select(item => item.Verdict == CharacterIdentityBodyCheckVerdict.NotReviewed
-                        ? $"{CharacterIdentityBodyChecks.Label(item.Check)} (not reviewed)"
-                        : $"{CharacterIdentityBodyChecks.Label(item.Check)} (failed)")) + ".");
-            }
-        }
-
         if (view.FailureReason is { Length: > 0 } failure)
             parts.Add(failure);
 

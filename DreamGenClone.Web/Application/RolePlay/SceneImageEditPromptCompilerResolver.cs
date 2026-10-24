@@ -31,6 +31,20 @@ public interface ISceneImageEditPromptCompilerResolver
 
 public sealed class SceneImageEditPromptCompilerResolver : ISceneImageEditPromptCompilerResolver
 {
+    /// <summary>
+    /// The versions this compiler family published before its current one. They still resolve to the same compiler
+    /// so a stale attempt fails with the explicit "the compiler prompt contract changed after this attempt was
+    /// queued" diagnostic instead of "no compiler is registered", which would misreport a version roll as a
+    /// deployment gap.
+    /// </summary>
+    private static readonly string[] Qwen21HistoricalVersions =
+    [
+        "qwen-edit-2.1-rules-v1",
+        "qwen-edit-2.1-rules-v2",
+        "qwen-edit-2.1-rules-v3",
+        "qwen-edit-2.1-rules-v4"
+    ];
+
     private readonly QwenSceneImageEditPromptCompiler _qwen2511;
     private readonly QwenImage21EditPromptCompiler _qwen21;
 
@@ -61,7 +75,8 @@ public sealed class SceneImageEditPromptCompilerResolver : ISceneImageEditPrompt
     {
         if (string.Equals(systemPromptVersion, QwenSceneImageEditPromptCompiler.SystemPromptVersion, StringComparison.Ordinal))
             return _qwen2511;
-        if (string.Equals(systemPromptVersion, QwenImage21EditPromptCompiler.SystemPromptVersion, StringComparison.Ordinal))
+        if (string.Equals(systemPromptVersion, QwenImage21EditPromptCompiler.SystemPromptVersion, StringComparison.Ordinal)
+            || Qwen21HistoricalVersions.Contains(systemPromptVersion, StringComparer.Ordinal))
             return _qwen21;
 
         throw new InvalidOperationException(

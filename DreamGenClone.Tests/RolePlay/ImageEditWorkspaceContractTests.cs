@@ -81,6 +81,52 @@ public sealed class ImageEditWorkspaceContractTests
         Assert.Contains("ImageEditSubjectKind.AssetImage", AssetAdapterSource, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The workspace OPENS on the references its source image was made with, and the store that knows where that
+    /// record lives is the adapter — so both stores answer the same question and neither keeps its own copy of the
+    /// decision. Pinned here because the whole point of the feature is that the operator does not re-bind by hand.
+    /// </summary>
+    [Fact]
+    public void BothStores_ReportTheReferencesTheirSourceImageWasMadeWith()
+    {
+        Assert.Contains("GetSourceReferencesAsync", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("GetSourceReferencesAsync", AssetAdapterSource, StringComparison.Ordinal);
+
+        // The scene store reads its own applied-reference column; the asset store reads the job payload its row
+        // preserved, through the ONE owner of that reading.
+        Assert.Contains("AppliedReferenceBindingsJson", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("AssociationMetadataJson", AssetAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SourceReferenceProvenance", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SourceReferenceProvenance", AssetAdapterSource, StringComparison.Ordinal);
+
+        // One decision, not a per-host rule: the seed owner decides, and the workspace only reports it.
+        Assert.Contains("SourceReferenceSlotPrefill.ResolveAsync(", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("SourceReferenceSlotPrefill.Notice(", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The cast reaches the step from the record as well as from the identity targets: a re-bound reference names the
+    /// actor it belonged to, and a binding whose actor the step does not declare has no slot — so leaving the actor out
+    /// would arm a failure for the next control the operator touched.
+    /// </summary>
+    [Fact]
+    public void TheCast_IncludesTheActorsTheSourceRecordNames()
+    {
+        Assert.Contains("SourceReferenceSlotPrefill.ActorKeysOf(", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A character can be picked explicitly, so an edit of an image whose people the analysis never detected still
+    /// declares its per-character slots. Without it the roster could only ever be reached through a detected person.
+    /// </summary>
+    [Fact]
+    public void ACharacterCanBeChosen_WithoutADetectedPerson()
+    {
+        Assert.Contains("Characters in this edit", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_selectedCastCharacterIds", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("_identityCharacters", WorkspaceSource, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void IdentityIsACapability_NotAFork()
     {
@@ -180,6 +226,73 @@ public sealed class ImageEditWorkspaceContractTests
         Assert.Contains("BackgroundJobTypes.SceneAssetImageEditDescription", AssetAdapterSource, StringComparison.Ordinal);
         Assert.Contains("GetDescriptionOutcomeAsync", SceneAdapterSource, StringComparison.Ordinal);
         Assert.Contains("BackgroundJobTypes.SceneImageEditDescription", SceneAdapterSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Scene LoRAs are picked in the ONE shared composer (this workspace renders no picker of its own) and carried by
+    /// the workspace into the run, and BOTH stores forward the same selection onto the same queued payload. Before
+    /// this, the request DTOs and the payload field existed but the workspace never supplied a selection and the run
+    /// never read one, so an edit LoRA could not be applied at all while the catalog advertised it.
+    /// </summary>
+    [Fact]
+    public void SceneLoras_ArePickedInTheSharedComposerAndForwardedByBothStores()
+    {
+        Assert.Contains("SceneLoras=\"_sceneLoras\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("SceneLorasChanged=\"OnSceneLorasChanged\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("SceneLoras: _sceneLoras.Count > 0 ? _sceneLoras : null", WorkspaceSource, StringComparison.Ordinal);
+
+        // One picker, in the shared component: a second one here would be two controls over one value.
+        Assert.DoesNotContain("<SceneLoraPicker", WorkspaceSource, StringComparison.Ordinal);
+
+        Assert.Contains("SceneLoras = request.SceneLoras", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SceneLoras = request.SceneLoras", AssetAdapterSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The edit OPENS on the scene-LoRA stack the source image was made with — the same reason its references are
+    /// seeded. Without this the picker opened empty and the edit ran with none, even though the operator had picked a
+    /// stack on the surface that produced the image, so the render silently differed from what they saw.
+    /// </summary>
+    [Fact]
+    public void TheSceneLoraStack_TheSourceImageWasMadeWith_SeedsTheEdit()
+    {
+        Assert.Contains("GetSourceSceneLorasAsync", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("GetSourceSceneLorasAsync", AssetAdapterSource, StringComparison.Ordinal);
+
+        // Read through the ONE owner of an image's recorded inputs, not a second JSON reader.
+        Assert.Contains("SceneImageRecordedInputs.Read(record.SettingsJson).SceneLoras", SceneAdapterSource, StringComparison.Ordinal);
+        Assert.Contains("SceneImageRecordedInputs.Read(image.AssociationMetadataJson).SceneLoras", AssetAdapterSource, StringComparison.Ordinal);
+
+        // And the workspace assigns it into its own selection, which is what the run carries.
+        Assert.Contains("_sceneLoras = await _service.GetSourceSceneLorasAsync(Subject)", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The lineage is a property of the image, not of the visit that produced it: reopening the editor on an image
+    /// that has no result yet used to hide the whole list, because it was nested inside the result block. The chain
+    /// must render from its own condition, and the entry the editor is working on must say so.
+    /// </summary>
+    [Fact]
+    public void TheLineage_ShowsOnOpenAndMarksTheImageTheEditorIsWorkingOn()
+    {
+        Assert.Contains("@if (_result is not null || _lineage.Count > 0)", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@if (IsActiveLineageImage(image))", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("In editor", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("private bool IsActiveLineageImage(ImageEditLineageItem image)", WorkspaceSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every picture in the workspace opens the ONE shared inspector, so "view larger" means the same popup — and the
+    /// same pan and zoom — as the review deck and the asset cards.
+    /// </summary>
+    [Fact]
+    public void EveryPictureInTheWorkspace_OpensTheSharedInspector()
+    {
+        Assert.Contains("<ImageInspector Open=\"_inspectorOpen\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("Closed=\"CloseInspector\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"OpenSourceInspector\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"OpenResultInspector\"", WorkspaceSource, StringComparison.Ordinal);
+        Assert.Contains("@onclick=\"() => OpenLineageInspector(image)\"", WorkspaceSource, StringComparison.Ordinal);
     }
 
     private static string Read(params string[] segments)

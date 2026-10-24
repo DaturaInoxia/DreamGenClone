@@ -33,6 +33,12 @@ public interface ISceneImageLLMPromptBuilder
     /// as an override, or null when the caller resolved none. It OUTRANKS the attribute-derived block, because it is
     /// the text the operator edits and every other consumer already reads it. The CALLER resolves it: the identity
     /// services are async and these builders are deliberately not, so the texts arrive here as data.
+    ///
+    /// <paramref name="povProjection"/> is the frame for this POV, resolved by the caller from the COMPILED brief. The
+    /// caller owns that resolution because only it holds the compiled brief: the brief passed to this method may already
+    /// have had elements removed by overrides/bindings (a bound location removes <c>frozenState.location</c>, a pose
+    /// removes <c>position</c>), and a frame must not be projected from a prompt payload stripped of the geometry it
+    /// needs. Null means "resolve it here from the brief I was given" — the behaviour for a direct caller such as a test.
     /// </summary>
     (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -44,7 +50,9 @@ public interface ISceneImageLLMPromptBuilder
         IReadOnlyDictionary<string, string>? appearanceOverrides = null,
         IReadOnlyDictionary<string, string>? canonicalAppearance = null,
         ScenePromptOverrides? effectiveOverrides = null,
-        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null,
+        SceneImagePovProjection.Projection? povProjection = null,
+        IReadOnlyDictionary<string, string>? appearanceElementOverrides = null)
         => BuildMessages(brief, pov, settings, resolvedPolicy, refineInstruction);
 
     /// <summary>Compose the system + user messages for the pre-processor model.</summary>
@@ -73,6 +81,21 @@ public interface ISceneImageLLMPromptBuilder
         IReadOnlyList<Character>? characters = null,
         SceneImageBeat? selectedBeat = null,
         string? pov = null);
+
+    /// <summary>
+    /// Compose the system + user messages from the OPERATOR'S OWN instruction instead of a scene source
+    /// (<see cref="SceneImagePromptSource.UserIntent"/>). The default implementation FAILS FAST: a builder that has not
+    /// adopted this source must say so by name rather than silently drafting from the scene and pretending it honoured
+    /// the intent.
+    /// </summary>
+    (string SystemPrompt, string UserPrompt) BuildIntentMessages(
+        string userIntent,
+        string pov,
+        SceneImageStudioSettings settings,
+        ImageContentPolicy resolvedPolicy,
+        IReadOnlyList<ReferenceApplicationSelection>? referenceBindings = null)
+        => throw new NotSupportedException(
+            $"Prompt builder '{GetType().Name}' does not support the 'User Intent' prompt source.");
 
     /// <summary>Parse the pre-processor output into the editable prompt (+ pulled excerpt).
     /// Tolerates a JSON envelope {{prompt, excerpt}} or plain text. Fails fast on empty/overlong.</summary>

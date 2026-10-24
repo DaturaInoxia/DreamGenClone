@@ -1,20 +1,21 @@
 @using DreamGenClone.Web.Application.RolePlay
+@using DreamGenClone.Web.Application.RolePlay.ImageStep
 
 <section class="alert alert-secondary py-2 mb-0 small" aria-label="Resolved render configuration">
     <div class="d-flex justify-content-between gap-2">
         <strong>Resolved render</strong>
         <span>@ModelLabel</span>
     </div>
-    @if (Selections.Count == 0 || !Selections.Any(selection => selection.UsesReference))
+    @if (Selections.Count == 0 || !Selections.Any(selection => selection.SuppliesImage))
     {
         <span class="d-block mt-1">Text-only render. No approved image references are attached.</span>
     }
     else
     {
         <ul class="mb-0 mt-1 ps-3">
-            @foreach (var selection in Selections.Where(selection => selection.UsesReference))
+            @foreach (var selection in Selections.Where(selection => selection.SuppliesImage))
             {
-                <li>@selection.ElementKey: @selection.Strategy · @selection.SceneAssetId/@selection.SceneAssetImageId · v@selection.SceneAssetVersion · strength @selection.Strength</li>
+                <li>@selection.ElementKey: @selection.Strategy · @DescribeSource(selection)</li>
             }
         </ul>
     }
@@ -26,4 +27,40 @@
 
     [Parameter, EditorRequired]
     public IReadOnlyList<ReferenceApplicationSelection> Selections { get; set; } = [];
+
+    /// <summary>
+    /// One reference, addressed the way its own store addresses it, plus the strength it travels at.
+    ///
+    /// <para>
+    /// The list may not be filtered on <c>UsesReference</c>. A pack image is a <c>SceneImageReferenceAsset</c> that
+    /// only its own pack can look up, so it carries NO scene asset id — and a face and a build bound from the
+    /// character's approved identity pack were therefore missing from the list of what the render sends, under a
+    /// heading that reads "Resolved render". The operator added a face and a body, saw neither, and reported both as
+    /// removed while both were attached (reported 2026-10-12). <c>SuppliesImage</c> is the predicate that answers the
+    /// question this badge asks; <c>UsesReference</c> answers only whether an APPROVED SCENE ASSET carries the image.
+    /// </para>
+    /// </summary>
+    private static string DescribeSource(ReferenceApplicationSelection selection)
+    {
+        // Which store carries the image is <see cref="ReferenceBindingShape"/>'s decision, read here rather than
+        // re-tested against the fields: a second classification is how the badge would start disagreeing with the
+        // render about which references exist.
+        var source = ReferenceBindingShape.ChannelOf(selection) switch
+        {
+            ReferenceChannel.IdentityPack => selection.ReferenceLabel is { Length: > 0 } label
+                ? $"pack · {label}"
+                : $"pack {selection.IdentityPackId}/{selection.ReferenceAssetId}",
+            ReferenceChannel.PoseSkeleton => $"skeleton {selection.SkeletonRelativePath}",
+            // The app's own image store, which addresses an image by its own id: it has no asset id to print and no
+            // production version, so the generic branch below would show the operator "null/null".
+            ReferenceChannel.AppImage => selection.ReferenceLabel is { Length: > 0 } label
+                ? $"app image · {label}"
+                : $"app image {selection.ReferenceImageId}",
+            _ => selection.SceneAssetVersion is int version
+                ? $"{selection.SceneAssetId}/{selection.SceneAssetImageId} · v{version}"
+                : $"{selection.SceneAssetId}/{selection.SceneAssetImageId}"
+        };
+
+        return selection.Strength is decimal strength ? $"{source} · strength {strength}" : source;
+    }
 }

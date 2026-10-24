@@ -24,6 +24,8 @@ public sealed class ImageCardContractTests
         Root, "DreamGenClone.Web", "wwwroot", "js", "image-zoom.js"));
     private static readonly string ReviewDeckSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Pages", "ReviewDeck.razor"));
+    private static readonly string RailComponentSource = File.ReadAllText(Path.Combine(
+        Root, "DreamGenClone.Web", "Components", "Shared", "ImageMetadataRail.razor"));
     private static readonly string FilterComponentSource = File.ReadAllText(Path.Combine(
         Root, "DreamGenClone.Web", "Components", "Shared", "ImageCardStatusFilter.razor"));
     private static readonly string StatusHelperSource = File.ReadAllText(Path.Combine(
@@ -94,7 +96,8 @@ public sealed class ImageCardContractTests
         Assert.Contains("<ImageCard Model=\"CandidateCardModel(candidate)\"", BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("ShowName=\"true\"", BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("NameChanged=\"name => RenameCandidateAsync(candidate, name)\"", BodyViewsPanelSource, StringComparison.Ordinal);
-        Assert.Contains("<ImageTags Image=\"candidate\" Editable=\"true\"", BodyViewsPanelSource, StringComparison.Ordinal);
+        Assert.Contains("<ImageTags ImageId=\"candidate.Id\" Target=\"ImageTagTarget.AssetLibrary\"",
+            BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("AcceptRequested=\"() => AcceptCandidateAsync(key, candidate.Id)\"", BodyViewsPanelSource, StringComparison.Ordinal);
         Assert.Contains("ShortlistRequested=\"() => DecideCandidateAsync(key, candidate.Id, SceneAssetCandidateDecision.Shortlisted)\"",
             BodyViewsPanelSource, StringComparison.Ordinal);
@@ -171,10 +174,16 @@ public sealed class ImageCardContractTests
         Assert.DoesNotContain(">Revoke</button>", ReviewDeckSource, StringComparison.Ordinal);
         Assert.DoesNotContain("View larger", ReviewDeckSource, StringComparison.Ordinal);
 
-        // The rail stretches to the image's row and scrolls only when its own content is taller.
+        // The rail stretches to the image's row and scrolls only when its own content is taller. The rail's own markup
+        // — including the audit footer — lives in ONE shared component now, so the deck keeps the wrapper and the
+        // component keeps the field list; the contract is asserted against the file that owns each half.
         Assert.Contains("review-deck-body", ReviewDeckSource, StringComparison.Ordinal);
-        Assert.Contains("review-deck-rail", ReviewDeckSource, StringComparison.Ordinal);
-        Assert.Contains("review-deck-rail-footer", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains(".review-deck-rail {", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("<div class=\"review-deck-rail\">", ReviewDeckSource, StringComparison.Ordinal);
+        Assert.Contains("review-deck-rail-footer", RailComponentSource, StringComparison.Ordinal);
+
+        // ONE rail for every route: the deck renders the shared component once, rather than a branch per route.
+        Assert.Contains("<ImageMetadataRail Item=\"Current\"", ReviewDeckSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -240,6 +249,30 @@ public sealed class ImageCardContractTests
 
         // Ctrl/Cmd/Alt belong to the browser: inspecting an image must not block the browser's own zoom.
         Assert.Contains("if (event.ctrlKey || event.metaKey || event.altKey)", ZoomScriptSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The action row sits DIRECTLY under the picture, above the badges, the id and the host's body content.
+    ///
+    /// <para>
+    /// The buttons are what the operator reaches for, so they belong against the image they act on rather than below
+    /// a paragraph of metadata (operator decision 2026-10-12). Asserted by DOCUMENT ORDER: the footer and the body are
+    /// otherwise indistinguishable, and only their sequence says which is under the picture.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void Card_PutsItsActionRowDirectlyUnderThePicture()
+    {
+        var picture = CardSource.IndexOf("ratio ratio-1x1", StringComparison.Ordinal);
+        var actions = CardSource.IndexOf("card-footer", StringComparison.Ordinal);
+        var body = CardSource.IndexOf("card-body py-2 small", StringComparison.Ordinal);
+
+        Assert.True(picture >= 0, "the card no longer renders a picture");
+        Assert.True(actions >= 0, "the card no longer renders an action row");
+        Assert.True(body >= 0, "the card no longer renders its badge body");
+
+        Assert.True(picture < actions, "the action row must follow the picture");
+        Assert.True(actions < body, "the action row must come BEFORE the badges, directly under the picture");
     }
 
     private static string FindRepositoryRoot()

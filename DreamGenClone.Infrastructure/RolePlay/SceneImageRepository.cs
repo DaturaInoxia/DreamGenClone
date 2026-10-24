@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
@@ -130,11 +131,13 @@ public sealed class SceneImageRepository : ISceneImageRepository
             INSERT INTO SceneImagePrompts (
                 Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                 Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle)
+                Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle,
+                PromptSource, UserIntent)
             VALUES (
                 $id, $sessionId, $interactionId, $beatAnalysisId, $beatSnapshotJson, $productionGroupId, $compiledMediaBriefId,
                 $pov, $settingsJson, $inputExcerpt, $outputPrompt, $refineInstruction,
-                $status, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc, $promptStyle)
+                $status, $modelIdentifier, $errorMessage, $createdUtc, $updatedUtc, $promptStyle,
+                $promptSource, $userIntent)
             ON CONFLICT(Id) DO UPDATE SET
                 SessionId = excluded.SessionId,
                 InteractionId = excluded.InteractionId,
@@ -151,7 +154,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ModelIdentifier = excluded.ModelIdentifier,
                 ErrorMessage = excluded.ErrorMessage,
                 UpdatedUtc = excluded.UpdatedUtc,
-                PromptStyle = excluded.PromptStyle;
+                PromptStyle = excluded.PromptStyle,
+                PromptSource = excluded.PromptSource,
+                UserIntent = excluded.UserIntent;
             """;
         command.Parameters.AddWithValue("$id", prompt.Id);
         command.Parameters.AddWithValue("$sessionId", prompt.SessionId.Trim());
@@ -171,6 +176,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$createdUtc", prompt.CreatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", prompt.UpdatedUtc.ToString("O"));
         command.Parameters.AddWithValue("$promptStyle", (int)prompt.PromptStyle);
+        command.Parameters.AddWithValue("$promptSource", (int)prompt.PromptSource);
+        command.Parameters.AddWithValue("$userIntent", (object?)prompt.UserIntent ?? DBNull.Value);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
@@ -190,7 +197,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle,
+                   PromptSource, UserIntent
             FROM SceneImagePrompts
             WHERE Id = $id;
             """;
@@ -221,7 +229,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle,
+                   PromptSource, UserIntent
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY UpdatedUtc DESC
@@ -264,7 +273,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
              SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                  Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle,
+                   PromptSource, UserIntent
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId
               AND InteractionId = $interactionId
@@ -319,7 +329,8 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.CommandText = """
             SELECT Id, SessionId, InteractionId, BeatAnalysisId, BeatSnapshotJson, ProductionGroupId, CompiledMediaBriefId,
                    Pov, SettingsJson, InputExcerpt, OutputPrompt, RefineInstruction,
-                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle
+                   Status, ModelIdentifier, ErrorMessage, CreatedUtc, UpdatedUtc, PromptStyle,
+                   PromptSource, UserIntent
             FROM SceneImagePrompts
             WHERE SessionId = $sessionId
               AND InteractionId = $interactionId
@@ -393,7 +404,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
                 MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson,
                 Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId,
-                FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson)
+                FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot)
             VALUES (
                 $id, $sessionId, $interactionId, $promptRecordId, $promptSnapshot, $status,
                 $operation, $sourceImageId, $editSessionId, $editCompilationAttemptId, $editPromptRevisionId, $editIntentSnapshot, $editCompilerProvenanceJson,
@@ -403,7 +414,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 $beatProductionPlanId, $beatProductionPlanVersion, $momentSetId, $momentSetVersion,
                 $momentId, $momentEnrichmentId, $momentEnrichmentRevision, $typedReferenceSnapshotJson,
                 $sha256, $bytesPurgedUtc, $dispositionUpdatedUtc, $requestedModelId,
-                $finishChangeClass, $identityStale, $identityReferenceBindingsJson, $appliedReferenceBindingsJson);
+                $finishChangeClass, $identityStale, $identityReferenceBindingsJson, $appliedReferenceBindingsJson, $displayName, $tagsJson, $sentInstructionSnapshot);
             """;
         command.Parameters.AddWithValue("$id", image.Id);
         command.Parameters.AddWithValue("$sessionId", image.SessionId.Trim());
@@ -425,6 +436,14 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$identityStale", image.IdentityStale ? 1 : 0);
         command.Parameters.AddWithValue("$identityReferenceBindingsJson", (object?)image.IdentityReferenceBindingsJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$appliedReferenceBindingsJson", (object?)image.AppliedReferenceBindingsJson ?? DBNull.Value);
+        // A blank name is stored as NULL: "never named" and "named the empty string" are the same fact to every reader,
+        // and a surface that shows a name box must be able to tell "no name yet" from "a name that is empty".
+        command.Parameters.AddWithValue("$displayName", string.IsNullOrWhiteSpace(image.DisplayName) ? DBNull.Value : image.DisplayName.Trim());
+        // Stored exactly as the row carries it: the VOCABULARY is the tag service's rule (ImageTagCatalog), which is
+        // where a tag is normalized and refused. The store does not restate that rule — a second copy here is how the
+        // written shape and the searched shape would drift apart.
+        command.Parameters.AddWithValue("$tagsJson", (object?)image.TagsJson ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sentInstructionSnapshot", (object?)image.SentInstructionSnapshot ?? DBNull.Value);
         command.Parameters.AddWithValue("$providerName", (object?)image.ProviderName ?? DBNull.Value);
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
@@ -480,7 +499,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
             FROM SceneImages
             WHERE Id = $id;
             """;
@@ -573,6 +592,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SET Status = 'Complete', FileRelativePath = $fileRelativePath,
                 ModelIdentifier = $modelIdentifier, ProviderName = $providerName,
                 ContentPolicy = $contentPolicy, Sha256 = $sha256, ImageSize = $imageSize,
+                SentInstructionSnapshot = $sentInstructionSnapshot,
                 ErrorMessage = NULL, CompletedUtc = $completedUtc, UpdatedUtc = $updatedUtc
             WHERE Id = $id AND Status IN ('Pending', 'Generating');
             """;
@@ -583,6 +603,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$sha256", (object?)image.Sha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sentInstructionSnapshot", (object?)image.SentInstructionSnapshot ?? DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc.Value.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", image.UpdatedUtc.ToString("O"));
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -604,6 +625,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
             SET Status = 'Complete', FileRelativePath = $fileRelativePath,
                 ModelIdentifier = $modelIdentifier, ProviderName = $providerName,
                 ContentPolicy = $contentPolicy, Sha256 = $sha256, ImageSize = $imageSize,
+                SentInstructionSnapshot = $sentInstructionSnapshot,
                 ErrorMessage = NULL, CompletedUtc = $completedUtc, UpdatedUtc = $updatedUtc
             WHERE Id = $id AND Status = 'Generating';
             """;
@@ -614,6 +636,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$contentPolicy", image.ContentPolicy.ToString());
         command.Parameters.AddWithValue("$sha256", (object?)image.Sha256 ?? DBNull.Value);
         command.Parameters.AddWithValue("$imageSize", (object?)image.ImageSize ?? DBNull.Value);
+        command.Parameters.AddWithValue("$sentInstructionSnapshot", (object?)image.SentInstructionSnapshot ?? DBNull.Value);
         command.Parameters.AddWithValue("$completedUtc", image.CompletedUtc.Value.ToString("O"));
         command.Parameters.AddWithValue("$updatedUtc", image.UpdatedUtc.ToString("O"));
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
@@ -661,7 +684,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
             FROM SceneImages
             WHERE SessionId = $sessionId AND InteractionId = $interactionId
             ORDER BY CreatedUtc DESC;
@@ -699,7 +722,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                    ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                    ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                    BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                   MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson
+                   MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
             FROM SceneImages
             WHERE ProductionGroupId = $productionGroupId
             ORDER BY CreatedUtc DESC, Id DESC;
@@ -736,7 +759,7 @@ public sealed class SceneImageRepository : ISceneImageRepository
                      ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
                      ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
                      BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
-                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
             FROM SceneImages
             WHERE SessionId = $sessionId
             ORDER BY CreatedUtc DESC;
@@ -785,6 +808,125 @@ public sealed class SceneImageRepository : ISceneImageRepository
         command.Parameters.AddWithValue("$nextDisposition", nextDisposition.ToString());
         command.Parameters.AddWithValue("$updatedUtc", updatedUtc.ToString("O"));
         return await command.ExecuteNonQueryAsync(cancellationToken) == 1;
+    }
+
+    /// <summary>
+    /// Sets the operator's name for a rendered image, and nothing else. A targeted UPDATE rather than the whole-row
+    /// upsert, because a name edit happens while a render may be mid-flight on the same row: writing back a record
+    /// read a moment earlier would revert a status, a checksum or a purge the renderer had since set.
+    /// </summary>
+    public async Task<SceneImageRecord> SetDisplayNameAsync(
+        string imageId,
+        string? displayName,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(imageId))
+        {
+            throw new InvalidOperationException("Image id is required to name a rendered image.");
+        }
+
+        if (updatedUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new InvalidOperationException("Name update timestamp must be UTC.");
+        }
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneImages
+            SET DisplayName = $displayName, UpdatedUtc = $updatedUtc
+            WHERE Id = $imageId;
+            """;
+        command.Parameters.AddWithValue("$imageId", imageId.Trim());
+        // A blank name clears the name rather than storing an empty string, so "unnamed" has one representation.
+        command.Parameters.AddWithValue(
+            "$displayName",
+            string.IsNullOrWhiteSpace(displayName) ? DBNull.Value : displayName.Trim());
+        command.Parameters.AddWithValue("$updatedUtc", updatedUtc.ToString("O"));
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException($"Scene image '{imageId}' was not found, so it could not be named.");
+        }
+
+        return await ReadImageByIdAsync(connection, imageId.Trim(), cancellationToken);
+    }
+
+    /// <summary>
+    /// Replaces a rendered image's tags and returns the row as it now stands. A targeted UPDATE for the same reason the
+    /// name is: a tag written while a render is in flight must not revert the render's own writes.
+    /// </summary>
+    public async Task<SceneImageRecord> SetTagsAsync(
+        string imageId,
+        IReadOnlyList<string> tags,
+        DateTime updatedUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(imageId))
+        {
+            throw new InvalidOperationException("Image id is required to tag a rendered image.");
+        }
+
+        ArgumentNullException.ThrowIfNull(tags);
+        // The same structural rule the asset store applies, asked of the one copy that owns it: this store does not get
+        // to accept a shape the other refuses.
+        ImageTagShape.Require(tags);
+
+        if (updatedUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new InvalidOperationException("Tag update timestamp must be UTC.");
+        }
+
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await EnsureSchemaAsync(connection, cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE SceneImages
+            SET TagsJson = $tagsJson, UpdatedUtc = $updatedUtc
+            WHERE Id = $imageId;
+            """;
+        command.Parameters.AddWithValue("$imageId", imageId.Trim());
+        command.Parameters.AddWithValue("$tagsJson", JsonSerializer.Serialize(tags));
+        command.Parameters.AddWithValue("$updatedUtc", updatedUtc.ToString("O"));
+        if (await command.ExecuteNonQueryAsync(cancellationToken) != 1)
+        {
+            throw new InvalidOperationException($"Scene image '{imageId}' was not found, so it could not be tagged.");
+        }
+
+        return await ReadImageByIdAsync(connection, imageId.Trim(), cancellationToken);
+    }
+
+    /// <summary>
+    /// One row of <c>SceneImages</c> by id, through the same column list every other read uses. It exists so a targeted
+    /// update can report the row it changed without a sixth copy of that list: the ordinals <see cref="ReadImage"/>
+    /// depends on are fixed by the SELECTs, and a second copy is how one of them drifts.
+    /// </summary>
+    private static async Task<SceneImageRecord> ReadImageByIdAsync(
+        SqliteConnection connection, string imageId, CancellationToken cancellationToken)
+    {
+        await using var read = connection.CreateCommand();
+        read.CommandText = """
+            SELECT Id, SessionId, InteractionId, PromptRecordId, PromptSnapshot, Status,
+                 Operation, SourceImageId, EditSessionId, EditCompilationAttemptId, EditPromptRevisionId, EditIntentSnapshot, EditCompilerProvenanceJson,
+                 FileRelativePath, ModelIdentifier, ProviderName, ContentPolicy, ImageSize, Style, SettingsJson,
+                     ErrorMessage, RegenerateOfId, BeatId, Pov, CreatedUtc, StartedUtc, CompletedUtc, UpdatedUtc, RenderMode, IdentityPackId, IdentityPacksJson,
+                     ProductionGroupId, CompiledMediaBriefId, ProductionStage, Disposition, CatalogueId,
+                     BeatProductionPlanId, BeatProductionPlanVersion, MomentSetId, MomentSetVersion,
+                     MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
+            FROM SceneImages
+            WHERE Id = $imageId;
+            """;
+        read.Parameters.AddWithValue("$imageId", imageId);
+        await using var reader = await read.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            throw new InvalidOperationException($"Scene image '{imageId}' was not found after it was updated.");
+        }
+
+        return ReadImage(reader);
     }
 
     public async Task<SceneImageBytePurgeReservation> ReserveRejectedBytesPurgeAsync(
@@ -1093,7 +1235,11 @@ public sealed class SceneImageRepository : ISceneImageRepository
             UpdatedUtc = ParseUtc(reader.GetString(16), sessionId, interactionId, "UpdatedUtc"),
             PromptStyle = reader.IsDBNull(17)
                 ? SceneImagePromptStyle.Unknown
-                : (SceneImagePromptStyle)reader.GetInt32(17)
+                : (SceneImagePromptStyle)reader.GetInt32(17),
+            PromptSource = reader.IsDBNull(18)
+                ? SceneImagePromptSource.Scene
+                : (SceneImagePromptSource)reader.GetInt32(18),
+            UserIntent = reader.IsDBNull(19) ? null : reader.GetString(19)
         };
     }
 
@@ -1155,6 +1301,10 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ,IdentityStale = !reader.IsDBNull(49) && reader.GetInt32(49) != 0
             ,IdentityReferenceBindingsJson = reader.IsDBNull(50) ? null : reader.GetString(50)
             ,AppliedReferenceBindingsJson = reader.IsDBNull(51) ? null : reader.GetString(51)
+            // The last two columns, and the ordinals are fixed by the five full-record SELECTs that all end with them.
+            ,DisplayName = reader.IsDBNull(52) ? null : reader.GetString(52)
+            ,TagsJson = reader.IsDBNull(53) ? null : reader.GetString(53)
+            ,SentInstructionSnapshot = reader.IsDBNull(54) ? null : reader.GetString(54)
         };
     }
 
@@ -1201,7 +1351,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ErrorMessage     TEXT NULL,
                 CreatedUtc       TEXT NOT NULL,
                 UpdatedUtc       TEXT NOT NULL,
-                PromptStyle      INTEGER NOT NULL DEFAULT 0
+                PromptStyle      INTEGER NOT NULL DEFAULT 0,
+                PromptSource     INTEGER NOT NULL DEFAULT 0,
+                UserIntent       TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImagePrompts_SessionInteraction
                 ON SceneImagePrompts (SessionId, InteractionId);
@@ -1259,6 +1411,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
                 ,IdentityStale INTEGER NOT NULL DEFAULT 0
                 ,IdentityReferenceBindingsJson TEXT NULL
                 ,AppliedReferenceBindingsJson TEXT NULL
+                ,DisplayName TEXT NULL
+                ,TagsJson TEXT NULL
+                ,SentInstructionSnapshot TEXT NULL
             );
             CREATE INDEX IF NOT EXISTS IX_SceneImages_Session
                 ON SceneImages (SessionId);
@@ -1294,7 +1449,9 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ("ProductionGroupId", "ALTER TABLE SceneImagePrompts ADD COLUMN ProductionGroupId TEXT NULL"),
             ("CompiledMediaBriefId", "ALTER TABLE SceneImagePrompts ADD COLUMN CompiledMediaBriefId TEXT NULL"),
             ("Pov", "ALTER TABLE SceneImagePrompts ADD COLUMN Pov TEXT NOT NULL DEFAULT ''"),
-            ("PromptStyle", "ALTER TABLE SceneImagePrompts ADD COLUMN PromptStyle INTEGER NOT NULL DEFAULT 0")
+            ("PromptStyle", "ALTER TABLE SceneImagePrompts ADD COLUMN PromptStyle INTEGER NOT NULL DEFAULT 0"),
+            ("PromptSource", "ALTER TABLE SceneImagePrompts ADD COLUMN PromptSource INTEGER NOT NULL DEFAULT 0"),
+            ("UserIntent", "ALTER TABLE SceneImagePrompts ADD COLUMN UserIntent TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();
@@ -1357,7 +1514,17 @@ public sealed class SceneImageRepository : ISceneImageRepository
             ,("FinishChangeClass", "ALTER TABLE SceneImages ADD COLUMN FinishChangeClass TEXT NULL")
             ,("IdentityStale", "ALTER TABLE SceneImages ADD COLUMN IdentityStale INTEGER NOT NULL DEFAULT 0")
             ,("IdentityReferenceBindingsJson", "ALTER TABLE SceneImages ADD COLUMN IdentityReferenceBindingsJson TEXT NULL")
-            ,("AppliedReferenceBindingsJson", "ALTER TABLE SceneImages ADD COLUMN AppliedReferenceBindingsJson TEXT NULL")
+            ,("AppliedReferenceBindingsJson", "ALTER TABLE SceneImages ADD COLUMN AppliedReferenceBindingsJson TEXT NULL"),
+            // The operator's NAME for a rendered image. Null on every row written before this existed, which reads as
+            // "unnamed" — never as an empty name — so a surface can offer the name box instead of inventing one.
+            ("DisplayName", "ALTER TABLE SceneImages ADD COLUMN DisplayName TEXT NULL"),
+            // The tags a rendered image carries, in the same vocabulary and shape an asset image's tags use, so one
+            // editor and one search serve both stores.
+            ("TagsJson", "ALTER TABLE SceneImages ADD COLUMN TagsJson TEXT NULL"),
+            // The instruction the editor actually received, when the send-time reference role clause added to the
+            // compiled prompt. PromptSnapshot keeps the accepted revision (its checksum is validated before a run), so
+            // this is the only record of what the model read.
+            ("SentInstructionSnapshot", "ALTER TABLE SceneImages ADD COLUMN SentInstructionSnapshot TEXT NULL")
         })
         {
             await using var check = connection.CreateCommand();

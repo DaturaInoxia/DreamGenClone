@@ -1261,11 +1261,13 @@ public sealed class CharacterIdentityBodyServiceTests
     }
 
     /// <summary>
-    /// Accepts one image of THIS view's deck and then accepts the view through the same findings gate, so the deck's
-    /// accept path cannot bypass the body-invariant checks.
+    /// <summary>
+    /// Accepting one image of THIS view's deck also accepts the view, in one action, and needs nothing recorded first.
+    /// The findings gate that used to sit here was removed with the review form (operator decision, 2026-10-11):
+    /// acceptance is the operator's call on the image in front of them.
     /// </summary>
     [Fact]
-    public async Task AcceptCandidate_RecordsTheDecision_ThenAcceptsTheViewThroughTheSameGate()
+    public async Task AcceptCandidate_RecordsTheDecision_ThenAcceptsTheView()
     {
         var world = CreateWorld();
         try
@@ -1276,13 +1278,7 @@ public sealed class CharacterIdentityBodyServiceTests
             await world.Body.GenerateAsync(build.Id, baseKey, "juggernaut", "1024x1536", "Becky");
             var imageId = world.Assets.Generated.Single().ImageId;
 
-            // Nothing reviewed yet: the view's acceptance is refused, and the refusal names the checks.
-            var refusal = await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.AcceptCandidateAsync(
-                build.Id, baseKey, imageId));
-            Assert.Contains("cannot be accepted", refusal.Message, StringComparison.Ordinal);
-            Assert.Contains("not reviewed", refusal.Message, StringComparison.Ordinal);
-
-            await RecordAllPassedFindingsAsync(world, build.Id, baseKey);
+            // Nothing reviewed, nothing recorded: the deck's accept accepts the view.
             var accepted = await world.Body.AcceptCandidateAsync(build.Id, baseKey, imageId);
 
             Assert.Equal(imageId, accepted.OutputArtifactId);
@@ -1567,10 +1563,15 @@ public sealed class CharacterIdentityBodyServiceTests
         }
     }
 
-    // ── Section C: the body-invariant findings gate (B122-011…014) ──────────────────────────────────────────
+    // ── Section C: acceptance no longer depends on findings (operator decision, 2026-10-11) ──────────────────
 
+    /// <summary>
+    /// A view that was never reviewed is ACCEPTED. The four body-invariant checks, the reviewer/note inputs and the
+    /// attributed override were removed from the body workflow at the operator's request, so nothing stands between
+    /// the image and the accept button.
+    /// </summary>
     [Fact]
-    public async Task Accept_RefusesAViewThatWasNeverReviewed_NamingEveryUnreviewedCheck()
+    public async Task Accept_TakesAViewThatWasNeverReviewed()
     {
         var world = CreateWorld();
         try
@@ -1580,16 +1581,9 @@ public sealed class CharacterIdentityBodyServiceTests
                 SceneImageReferenceBodyState.Clothed, SceneImageReferenceBodyView.Front);
             await world.Body.UploadAsync(build.Id, key, "base.png", new MemoryStream([1]));
 
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => world.Body.AcceptAsync(build.Id, key));
+            var accepted = await world.Body.AcceptAsync(build.Id, key);
 
-            // Silence is not a pass: the gate names the view and every check nobody recorded.
-            Assert.Contains("Clothed Front body view", error.Message, StringComparison.Ordinal);
-            Assert.Contains("body shape and proportions (not reviewed)", error.Message, StringComparison.Ordinal);
-            Assert.Contains("tattoos and marks (design and exact placement) (not reviewed)", error.Message, StringComparison.Ordinal);
-            Assert.Contains("skin, body hair and pubic hair (not reviewed)", error.Message, StringComparison.Ordinal);
-            Assert.Contains("anatomy review (not reviewed)", error.Message, StringComparison.Ordinal);
-            Assert.Contains("override", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(CharacterIdentityAngleStatus.Accepted, accepted.Status);
         }
         finally
         {
@@ -1597,8 +1591,12 @@ public sealed class CharacterIdentityBodyServiceTests
         }
     }
 
+    /// <summary>
+    /// A recorded FAIL is kept as history but does not block acceptance: findings stopped being a condition of
+    /// acceptance, so a failed check is a note about the image rather than a gate over it.
+    /// </summary>
     [Fact]
-    public async Task Accept_RefusesAViewWhoseCheckFailed_EvenWhenTheRestPassed()
+    public async Task Accept_TakesAViewWhoseRecordedCheckFailed()
     {
         var world = CreateWorld();
         try
@@ -1620,11 +1618,11 @@ public sealed class CharacterIdentityBodyServiceTests
                 reviewer: "reviewer-1",
                 note: "the forearm tattoo is on the wrong arm");
 
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(
-                () => world.Body.AcceptAsync(build.Id, key));
+            var accepted = await world.Body.AcceptAsync(build.Id, key);
 
-            Assert.Contains("tattoos and marks (design and exact placement) (failed)", error.Message, StringComparison.Ordinal);
-            Assert.DoesNotContain("body shape and proportions", error.Message, StringComparison.Ordinal);
+            Assert.Equal(CharacterIdentityAngleStatus.Accepted, accepted.Status);
+            // The record itself survives — it is history, not a gate.
+            Assert.Equal("reviewer-1", accepted.Findings.ReviewedBy);
         }
         finally
         {
@@ -1694,8 +1692,12 @@ public sealed class CharacterIdentityBodyServiceTests
         }
     }
 
+    /// <summary>
+    /// A recorded FAIL no longer blocks acceptance, so a view is accepted directly. The override record still exists
+    /// and is still persisted with its attribution — it is simply no longer the only way past a failed check.
+    /// </summary>
     [Fact]
-    public async Task AnExplicitOverride_LetsAFailedViewBeAccepted_AndIsPersistedWithItsAttribution()
+    public async Task AFailedCheck_DoesNotBlockAcceptance_AndAnOverrideIsStillRecorded()
     {
         var world = CreateWorld();
         try
@@ -1714,16 +1716,18 @@ public sealed class CharacterIdentityBodyServiceTests
                         : CharacterIdentityBodyCheckVerdict.Pass),
                 reviewer: "reviewer-1");
 
-            await Assert.ThrowsAsync<InvalidOperationException>(() => world.Body.AcceptAsync(build.Id, key));
+            // Accepted outright, with nothing else recorded.
+            var accepted = await world.Body.AcceptAsync(build.Id, key);
+            Assert.Equal(CharacterIdentityAngleStatus.Accepted, accepted.Status);
 
             await world.Body.RecordOverrideAsync(
                 build.Id, key, "the anatomy is the editor model's output; accepted as-is", "reviewer-1");
-            var accepted = await world.Body.AcceptAsync(build.Id, key);
 
-            Assert.Equal(CharacterIdentityAngleStatus.Accepted, accepted.Status);
-            Assert.True(accepted.ManualOverrideApplied);
-            Assert.Equal("reviewer-1", accepted.ManualOverrideAuthor);
-            Assert.Contains("editor model's output", accepted.ManualOverrideReason!, StringComparison.Ordinal);
+            // Re-read: the override was recorded after the acceptance above, so the earlier instance cannot show it.
+            var recorded = (await world.Body.ListViewsAsync(build.Id)).Single(view => view.Key() == key);
+            Assert.True(recorded.ManualOverrideApplied);
+            Assert.Equal("reviewer-1", recorded.ManualOverrideAuthor);
+            Assert.Contains("editor model's output", recorded.ManualOverrideReason!, StringComparison.Ordinal);
         }
         finally
         {

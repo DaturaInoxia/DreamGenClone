@@ -308,7 +308,39 @@ public sealed class MultimodalMediaCompilerTests
         CapturingBriefRepository briefs) => new(
             new MultimodalMediaCompilerRegistry([compiler]), briefs,
             new PlanRepository(fixture.Plan), new MomentSetRepository(fixture.MomentSet),
-            new EnrichmentRepository(fixture.Enrichment), TimeProvider.System);
+            new EnrichmentRepository(fixture.Enrichment), new FixedSceneBlockingBuilder(), TimeProvider.System);
+
+    /// <summary>
+    /// B-157: the compilation service derives a still's framing before compiling. These tests are about compilation,
+    /// so the framing is supplied as a fixed value; the builder's own derivation is covered by
+    /// <c>SceneBlockingBuilderTests</c> and the store's by <c>ImageStagingProfileTests</c>.
+    /// </summary>
+    private sealed class FixedSceneBlockingBuilder : ISceneBlockingBuilder
+    {
+        public int Calls { get; private set; }
+
+        public Task<SceneBlocking> BuildAsync(
+            string? compositionRationale,
+            string frozenStateContractJson,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(new SceneBlocking(
+                "test",
+                [new SceneBlockingSubject(
+                    "p0",
+                    new FramePosition(FrameHorizontal.Center, FrameDepth.Foreground),
+                    "the person in the CENTER in the foreground")],
+                new SceneBlockingCamera("eye level", "medium shot", null),
+                ["p0"],
+                compositionRationale?.Trim() ?? string.Empty));
+        }
+
+        public Task<SceneBlocking?> BuildAssetAsync(
+            IReadOnlyList<string?> subjectKeysInSendOrder,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<SceneBlocking?>(null);
+    }
 
     private static SceneBeatProductionPlan ClonePlan(SceneBeatProductionPlan plan) => new()
     {

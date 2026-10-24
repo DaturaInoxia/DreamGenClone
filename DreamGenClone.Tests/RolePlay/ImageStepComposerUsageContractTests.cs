@@ -169,6 +169,34 @@ public sealed class ImageStepComposerUsageContractTests
         Assert.Contains("This step needs a reference for:", source, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A bound reference is shown by its NAME, not by its id.
+    ///
+    /// <para>
+    /// The binding already carried the operator's name for the image — the pickers record what an image IS ("Front ·
+    /// Clothed", "Left side") beside its ids, precisely so a surface can say it — but the description checked the raw
+    /// <c>SceneAssetImageId</c> FIRST, so the name was never reached and the Location tab named a GUID nobody can
+    /// check against a picture (reported 2026-10-12). Two things have to hold: the name is preferred, and a strategy
+    /// change carries it, or the row goes back to naming a GUID the moment the strategy is touched.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABoundReferenceIsNamed_NotIdentifiedById()
+    {
+        var composer = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "DreamGenClone.Web", "Components", "Shared", "ImageStepComposer.razor"));
+
+        var named = composer.IndexOf("!string.IsNullOrWhiteSpace(binding.ReferenceLabel)", StringComparison.Ordinal);
+        var identified = composer.IndexOf("!string.IsNullOrWhiteSpace(binding.SceneAssetImageId)", StringComparison.Ordinal);
+
+        Assert.True(named >= 0, "the binding description no longer considers ReferenceLabel at all");
+        Assert.True(identified >= 0, "the id fallback disappeared; a binding with no name would render blank");
+        Assert.True(named < identified, "the operator's NAME must be preferred over the raw image id");
+
+        // Carried through a strategy change, which rebuilds the source field by field.
+        Assert.Contains("ReferenceLabel: existing.ReferenceLabel", composer, StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var current = new DirectoryInfo(AppContext.BaseDirectory); current is not null; current = current.Parent)

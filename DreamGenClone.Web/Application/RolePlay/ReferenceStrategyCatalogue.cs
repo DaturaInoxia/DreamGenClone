@@ -91,6 +91,14 @@ public static class ReferenceStrategyCatalogue
     private static readonly IReadOnlyList<string> PoseStrategies =
         [TextOnly, NativeMultiReference, ControlNet];
 
+    /// <summary>
+    /// An object reference is carried the same way a wardrobe is, minus the try-on mechanism: a prop is an IMAGE of a
+    /// thing, so native multi-reference is what puts it in the frame. There is no prop equivalent of
+    /// <see cref="WardrobeTryOn"/> — nothing re-dresses an object — and no ControlNet map for one.
+    /// </summary>
+    private static readonly IReadOnlyList<string> PropStrategies =
+        [TextOnly, NativeMultiReference];
+
     private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> ByElementKey =
         new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
         {
@@ -100,7 +108,8 @@ public static class ReferenceStrategyCatalogue
             ["Wardrobe"] = WardrobeStrategies,
             ["Location"] = LocationStrategies,
             ["Pose"] = PoseStrategies,
-            ["CharacterPose"] = PoseStrategies
+            ["CharacterPose"] = PoseStrategies,
+            ["Prop"] = PropStrategies
         };
 
     /// <summary>

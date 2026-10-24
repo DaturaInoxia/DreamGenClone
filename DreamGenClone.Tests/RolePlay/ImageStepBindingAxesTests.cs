@@ -61,6 +61,7 @@ public sealed class ImageStepBindingAxesTests
     [InlineData(ImageStepSlotKind.Location, ImageBindingAxis.Location)]
     [InlineData(ImageStepSlotKind.Pose, ImageBindingAxis.Pose)]
     [InlineData(ImageStepSlotKind.CharacterPose, ImageBindingAxis.Pose)]
+    [InlineData(ImageStepSlotKind.Prop, ImageBindingAxis.Prop)]
     public void ToCellBindings_MapsEachSlotKindToItsAxis(ImageStepSlotKind slotKind, ImageBindingAxis expected)
     {
         var axes = ImageStepBindingAxes.ToCellBindings(

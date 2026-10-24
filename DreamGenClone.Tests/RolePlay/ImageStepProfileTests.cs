@@ -40,6 +40,29 @@ public sealed class ImageStepProfileTests
     }
 
     /// <summary>
+    /// The EDIT step is the only kind that declares scene LoRAs. Its workspace renders no picker of its own, while the
+    /// compose, asset-create, playground and body-view hosts already render one beside the composer — declaring the
+    /// feature there as well would put two pickers over one value.
+    /// </summary>
+    [Fact]
+    public void ForKind_GivesOnlyTheEditStepTheSceneLoraPicker()
+    {
+        Assert.True(ImageStepProfile.ForKind(ImageStepKind.Edit).Allows(ImageStepFeature.SceneLoras));
+
+        foreach (var kind in Enum.GetValues<ImageStepKind>())
+        {
+            if (kind == ImageStepKind.Edit)
+            {
+                continue;
+            }
+
+            Assert.False(
+                ImageStepProfile.ForKind(kind).Allows(ImageStepFeature.SceneLoras),
+                $"{kind} already renders its own scene-LoRA picker beside the composer.");
+        }
+    }
+
+    /// <summary>
     /// A composition's prompt arrives from the moment it was opened and its host presents it, so the step does not
     /// present the composer's prompt panel - and therefore cannot offer a compile path either.
     /// </summary>

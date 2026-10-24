@@ -373,7 +373,10 @@ public sealed class SceneAssetGenerationJobHandlerIdentityReferenceTests
         Assert.True(backTag > frontTag, "the second sent image must be tagged <image2>");
         Assert.Contains("(Outdoor Front)", request.PositivePrompt[frontTag..backTag], StringComparison.Ordinal);
         Assert.Contains("(Workbench Back)", request.PositivePrompt[backTag..], StringComparison.Ordinal);
-        Assert.Contains("Frame the shot inside that room", request.PositivePrompt, StringComparison.Ordinal);
+        // Each place is stated as the place it is; the caption-writer's instructions stay out of the picture prompt
+        // (operator, 2026-10-22).
+        Assert.Contains("this image IS the room", request.PositivePrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Frame the shot inside that room", request.PositivePrompt, StringComparison.Ordinal);
         Assert.Equal(0, world.PromptOnlyClient.Calls);
     }
 

@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Editing;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 
 namespace DreamGenClone.Web.Application.RolePlay;
 
@@ -25,6 +26,19 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
 
     /// <summary>The per-compiler system-prompt version, persisted on an attempt so the attempt names which compiler ran.</summary>
     protected abstract string CompilerSystemPromptVersion { get; }
+
+    /// <summary>
+    /// Whether this compiler's instruction needs the preservation sentence appended from its structured
+    /// <c>preserve</c> list.
+    ///
+    /// <para>
+    /// False by default, because the 2511 instruction asks the model to state what it keeps in its own prose and
+    /// appending a second sentence would say it twice. The Qwen-Image-2.1 instruction turned that job over to the data
+    /// (v5, 2026-10-15) precisely because the model skipped it there; this flag is what keeps the two edit compilers
+    /// honest about which of them the model's prose is trusted for.
+    /// </para>
+    /// </summary>
+    protected virtual bool AppendsPreservationClause => false;
 
     /// <summary>
     /// The instruction text for this compiler's editor graph. The default is the 2511 (ordered-reference) text;
@@ -231,7 +245,7 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
     /// rather than failing the whole compilation. Nothing is fabricated: if the essential field for
     /// the declared status is missing, the parse still fails.
     /// </summary>
-    private static void NormalizeTerminalState(SceneImageEditCompilationResult result)
+    private void NormalizeTerminalState(SceneImageEditCompilationResult result)
     {
         switch (result.Status)
         {
@@ -243,6 +257,20 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
                     throw new InvalidOperationException(
                         "A ready compiler result requires changes, preservation, and a compiled prompt; "
                         + "targets may be empty for a whole-frame or outpaint edit.");
+                RequireProseInstruction(result.CompiledPrompt);
+
+                // The preservation sentence is the APPLICATION's half of the instruction, not the model's: it is built
+                // from `preserve` — which this same check already requires to be non-empty — so what is held at input
+                // fidelity cannot depend on the model remembering to say it. Appended here, where the compiled prompt
+                // becomes the instruction, so the stored revision carries it and the operator reads the same text the
+                // editor will. Opt-in per compiler: the 2511 instruction states preservation in its own prose, and
+                // adding a second sentence there would say it twice.
+                if (AppendsPreservationClause)
+                {
+                    result.CompiledPrompt = EditInstructionPreservation.AppendPreservation(
+                        result.CompiledPrompt!, result.Preserve);
+                }
+
                 result.ClarificationQuestion = null;
                 result.InvalidReason = null;
                 break;
@@ -260,6 +288,54 @@ public abstract class SceneImageEditPromptCompilerBase : ISceneImageEditPromptCo
                 break;
             default:
                 throw new InvalidOperationException("Scene image edit compiler response has a non-terminal status.");
+        }
+    }
+
+    /// <summary>
+    /// Envelope field names that never belong in a compiled instruction. Their presence means the model wrote the
+    /// response object into the <c>compiledPrompt</c> value instead of the instruction it was asked for.
+    /// </summary>
+    private static readonly string[] EnvelopeFieldNames =
+    [
+        "\"schemaVersion\"", "\"compiledPrompt\"", "\"requestedChanges\"", "\"invalidReason\""
+    ];
+
+    /// <summary>
+    /// The compiled prompt is the only text the image editor receives, and it is sent verbatim, so it must be a
+    /// prose instruction. A local vision model sometimes answers with the whole response envelope (or another JSON
+    /// object) inside the field; that is not an instruction, and persisting it would ask the editor to render
+    /// JSON. It is refused here — explicitly, with the cause named — rather than silently passed through.
+    /// </summary>
+    private static void RequireProseInstruction(string compiledPrompt)
+    {
+        var trimmed = compiledPrompt.Trim();
+        if (IsJsonObjectOrArray(trimmed)
+            || EnvelopeFieldNames.Any(field => trimmed.Contains(field, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "A ready compiler result must carry a prose instruction in 'compiledPrompt', but the model returned "
+                + "a serialized response envelope or JSON object instead. The compiled prompt is sent to the image "
+                + "editor verbatim, so it is refused rather than persisted. Re-run the compilation; if it repeats, "
+                + "the model configured for the edit-prompt compiler is not following the response contract.");
+        }
+    }
+
+    /// <summary>
+    /// True only when the text actually parses as a JSON object or array, so an instruction that merely opens with a
+    /// bracket is still prose. A truncated envelope fails to parse but is caught by the field-name check.
+    /// </summary>
+    private static bool IsJsonObjectOrArray(string trimmed)
+    {
+        if (!trimmed.StartsWith('{') && !trimmed.StartsWith('['))
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(trimmed);
+            return document.RootElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

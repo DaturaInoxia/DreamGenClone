@@ -91,6 +91,7 @@ public static class ImageStepPromptOmission
         ImageStepSlotKind.Location => "Location",
         ImageStepSlotKind.Pose => "Pose",
         ImageStepSlotKind.CharacterPose => "Pose and appearance",
+        ImageStepSlotKind.Prop => "Object",
         _ => slotKind.ToString()
     };
 
