@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.ImageStep;
@@ -36,7 +37,7 @@ public sealed class FinalImagePromptPlanTests
     [Fact]
     public void Build_DerivesTheMapFromTheSameOrderedListAsTheClause()
     {
-        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), blocking: Blocking());
+        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), SceneImageModelFamily.Sdxl, blocking: Blocking());
 
         Assert.True(plan.IsValid);
         Assert.Equal(4, plan.References.Count);
@@ -54,7 +55,7 @@ public sealed class FinalImagePromptPlanTests
     [Fact]
     public void Build_WithNoBlocking_KeepsTheEstablishedPromptAndAnEmptyMapPositions()
     {
-        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters());
+        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), SceneImageModelFamily.Sdxl);
 
         Assert.Contains("is the FACE reference", plan.Prompt, StringComparison.Ordinal);
         Assert.All(plan.References, entry => Assert.Null(entry.Position));
@@ -64,7 +65,7 @@ public sealed class FinalImagePromptPlanTests
     public void Build_WithFewerThanTwoReferences_EmitsNoBlock()
     {
         var plan = FinalImagePromptPlanBuilder.Build(
-            "a lone figure", [Role(ImageStepSlotKind.Face, "p0", "Front · Clothed")], blocking: Blocking());
+            "a lone figure", [Role(ImageStepSlotKind.Face, "p0", "Front · Clothed")], SceneImageModelFamily.Sdxl, blocking: Blocking());
 
         Assert.Empty(plan.References);
         Assert.StartsWith("a lone figure", plan.Prompt, StringComparison.Ordinal);
@@ -81,7 +82,7 @@ public sealed class FinalImagePromptPlanTests
     public void Build_HonoursTheEditOffsetInTheMap()
     {
         var plan = FinalImagePromptPlanBuilder.Build(
-            "instruction", TwoCharacters(), ReferenceRoleClauses.LeadingImageCount.Edit, Blocking());
+            "instruction", TwoCharacters(), SceneImageModelFamily.Sdxl, ReferenceRoleClauses.LeadingImageCount.Edit, Blocking());
 
         // On an edit the source image is slot 1, so the first reference is <image2>.
         Assert.Equal(2, plan.References[0].Index);
@@ -103,7 +104,7 @@ public sealed class FinalImagePromptPlanTests
             string.Empty);
 
         var error = Assert.Throws<InvalidOperationException>(
-            () => FinalImagePromptPlanBuilder.Build("p", TwoCharacters(), blocking: broken));
+            () => FinalImagePromptPlanBuilder.Build("p", TwoCharacters(), SceneImageModelFamily.Sdxl, blocking: broken));
 
         Assert.Contains("share the frame position", error.Message, StringComparison.Ordinal);
     }
@@ -118,7 +119,7 @@ public sealed class FinalImagePromptPlanTests
         };
 
         var error = Assert.Throws<InvalidOperationException>(
-            () => FinalImagePromptPlanBuilder.Build("p", roles, blocking: Blocking()));
+            () => FinalImagePromptPlanBuilder.Build("p", roles, SceneImageModelFamily.Sdxl, blocking: Blocking()));
 
         Assert.Contains("supplies the Face slot 2 times", error.Message, StringComparison.Ordinal);
     }
@@ -140,7 +141,7 @@ public sealed class FinalImagePromptPlanTests
         };
 
         var error = Assert.Throws<InvalidOperationException>(() => FinalImagePromptPlanBuilder.Build(
-            "p", roles, blocking: Blocking(), maxReferences: 10,
+            "p", roles, SceneImageModelFamily.Sdxl, blocking: Blocking(), maxReferences: 10,
             filledSlotKinds: roles.Select(role => role.SlotKind!.Value).ToList()));
 
         Assert.Contains("budget is 6", error.Message, StringComparison.Ordinal);
@@ -180,7 +181,7 @@ public sealed class FinalImagePromptPlanTests
                 Directions: new ReferenceDirections(null, null, "a clothesline down the middle"))
         ];
 
-        var plan = FinalImagePromptPlanBuilder.Build("wide shot", roles);
+        var plan = FinalImagePromptPlanBuilder.Build("wide shot", roles, SceneImageModelFamily.Sdxl);
 
         Assert.True(plan.IsValid);
         Assert.Single(plan.References);
@@ -196,7 +197,7 @@ public sealed class FinalImagePromptPlanTests
     {
         ReferenceRoleClauses.ReferenceRole[] roles = [Role(ImageStepSlotKind.Face, "p0", "Front · Clothed")];
 
-        var plan = FinalImagePromptPlanBuilder.Build("wide shot", roles);
+        var plan = FinalImagePromptPlanBuilder.Build("wide shot", roles, SceneImageModelFamily.Sdxl);
 
         Assert.Empty(plan.References);
         Assert.Equal("wide shot", plan.Prompt);
@@ -306,7 +307,7 @@ public sealed class FinalImagePromptPlanTests
     [Fact]
     public void Build_StatesTheFramesCameraAndWhatItMeansForScale()
     {
-        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), blocking: Blocking());
+        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), SceneImageModelFamily.Sdxl, blocking: Blocking());
 
         Assert.Contains("CAMERA — AUTHORITATIVE", plan.Prompt, StringComparison.Ordinal);
         Assert.Contains("medium shot", plan.Prompt, StringComparison.Ordinal);
@@ -330,7 +331,7 @@ public sealed class FinalImagePromptPlanTests
         const string compiled = "Close shot at low angle. A man stands over the camera.\n\n"
             + "CAMERA — AUTHORITATIVE: this frame is a close shot at low angle. The subject fills the frame.";
 
-        var plan = FinalImagePromptPlanBuilder.Build(compiled, [], blocking: Blocking());
+        var plan = FinalImagePromptPlanBuilder.Build(compiled, [], SceneImageModelFamily.Sdxl, blocking: Blocking());
 
         var occurrences = plan.Prompt.Split("CAMERA — AUTHORITATIVE").Length - 1;
         Assert.Equal(1, occurrences);
@@ -345,7 +346,7 @@ public sealed class FinalImagePromptPlanTests
     {
         var blocking = Blocking() with { Camera = new SceneBlockingCamera("eye level", "wide establishing shot", null) };
 
-        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), blocking: blocking);
+        var plan = FinalImagePromptPlanBuilder.Build("two figures at the bench", TwoCharacters(), SceneImageModelFamily.Sdxl, blocking: blocking);
 
         Assert.Contains("scaled by how far they are from that camera", plan.Prompt, StringComparison.Ordinal);
         Assert.EndsWith("at close range.", plan.Prompt.TrimEnd(), StringComparison.Ordinal);
@@ -361,6 +362,7 @@ public sealed class FinalImagePromptPlanTests
         var overridden = FinalImagePromptPlanBuilder.Build(
             "p",
             TwoCharacters(),
+            SceneImageModelFamily.Sdxl,
             blocking: SceneBlockingResolver.ApplyForPrompt(
                 Blocking(),
                 new SceneBlockingOverride([], new SceneBlockingCameraOverride("wide establishing shot"))));
@@ -371,7 +373,7 @@ public sealed class FinalImagePromptPlanTests
         // No frame means no camera claim at all rather than a guessed one.
         Assert.DoesNotContain(
             "CAMERA — AUTHORITATIVE",
-            FinalImagePromptPlanBuilder.Build("p", TwoCharacters()).Prompt,
+            FinalImagePromptPlanBuilder.Build("p", TwoCharacters(), SceneImageModelFamily.Sdxl).Prompt,
             StringComparison.Ordinal);
         Assert.Empty(SceneFramingClause.LineFor(null));
     }

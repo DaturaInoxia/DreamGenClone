@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 using DreamGenClone.Web.Application.RolePlay;
 using DreamGenClone.Web.Application.RolePlay.Evaluation;
@@ -44,6 +45,76 @@ public sealed class SceneImagePromptContractValidatorTests
             + "palms flat on the boards and her back to the lens, the camera at her own eye level behind her.";
 
         Assert.Empty(SceneImagePromptContractValidator.ValidateCaptionShape(prompt));
+    }
+
+    /// <summary>
+    /// A five-sentence answer returned one sentence per line is the right CONTENT in a shape the image model ignores:
+    /// an image prompt's line breaks carry no meaning. Refusing it failed a live compile with "one corrective pass did
+    /// not fix it" (reported 2026-10-24) although the caption itself was fine, so line breaks are normalised by the
+    /// parser and are not a defect here.
+    /// </summary>
+    [Fact]
+    public void ValidateCaptionShape_AcceptsAHardWrappedAnswer()
+    {
+        const string prompt =
+            "A photorealistic medium shot inside a gritty shed.\n"
+            + "A woman bends over the workbench, palms flat on the boards.\n"
+            + "Her back is to the lens, her hair hanging forward.\n"
+            + "The camera sits at her own eye level behind her.\n"
+            + "Slatted light falls across her shoulders.";
+
+        Assert.Empty(SceneImagePromptContractValidator.ValidateCaptionShape(prompt));
+    }
+
+    /// <summary>
+    /// A profile key identifies a body inside the brief; it is never a word of the caption. One leaked live
+    /// (SceneImage 57fcc461, 2026-10-25: "his penis buried to the root (p0)") from a contact note — and in ComfyUI
+    /// syntax that parenthesis WEIGHTS the token rather than being ignored, so the leak changes the picture.
+    /// </summary>
+    [Theory]
+    [InlineData("A photorealistic shot inside the shed, his penis buried to the root (p0).")]
+    [InlineData("A photorealistic shot where p1 stands behind her, hands on her hips.")]
+    public void ValidateCaptionShape_RefusesAParticipantKey(string prompt)
+    {
+        var violation = Assert.Single(SceneImagePromptContractValidator.ValidateCaptionShape(prompt));
+        Assert.True(violation.Blocking);
+        Assert.Contains("participant key", violation.Detail, StringComparison.Ordinal);
+        Assert.Contains("Name the person instead", violation.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateCaptionShape_AcceptsDigitsThatAreNotParticipantKeys()
+    {
+        const string prompt =
+            "A photorealistic 35mm shot of the shed at p.m. light, the workbench in the foreground.";
+
+        Assert.Empty(SceneImagePromptContractValidator.ValidateCaptionShape(prompt));
+    }
+
+    [Fact]
+    public void ValidateCaptionShape_RefusesABulletedOrNumberedList()
+    {
+        const string bulleted =
+            "A photorealistic medium shot. Elements: - the woman, bent over the workbench. - the slatted light. "
+            + "- the workbench boards.";
+
+        var bullet = Assert.Single(SceneImagePromptContractValidator.ValidateCaptionShape(bulleted));
+        Assert.True(bullet.Blocking);
+        Assert.Contains("list item", bullet.Detail, StringComparison.Ordinal);
+
+        const string numbered =
+            "A photorealistic medium shot. 1. the woman, bent over the workbench. 2. the slatted light.";
+
+        var numbering = Assert.Single(SceneImagePromptContractValidator.ValidateCaptionShape(numbered));
+        Assert.True(numbering.Blocking);
+    }
+
+    [Fact]
+    public void CollapseToSingleParagraph_JoinsLinesAndSqueezesWhitespace()
+    {
+        Assert.Equal(
+            "one two three four",
+            NaturalLanguageSceneImagePromptBuilder.CollapseToSingleParagraph("one two\n\nthree\r\n  four  "));
     }
 
     /// <summary>
@@ -111,6 +182,80 @@ public sealed class SceneImagePromptContractValidatorTests
         Assert.True(violation.Blocking);
         Assert.Contains("INSIDE the caption", violation.Detail, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// The caption must attribute the holder's body to a SECOND person. Live failure 2026-10-25: the note said "hands on
+    /// Becky's thighs" and the caption wrote "hands clenching tightly around her thighs to steady herself" — her own
+    /// hands — and a sibling render drew no hands at all.
+    /// </summary>
+    [Fact]
+    public void ValidateCameraHolderBody_RefusesPartsAttributedToTheSubject()
+    {
+        const string caption =
+            "In front of me is Becky bent over at the waist with her torso low over the workbench boards; she has raised "
+            + "hips, hands clenching tightly around her thighs to steady herself against a climax.";
+
+        var violation = Assert.Single(SceneImagePromptContractValidator.ValidateCameraHolderBody(
+            caption, "the camera holder's hands on Becky's thighs (clenching tightly)"));
+
+        Assert.True(violation.Blocking);
+        Assert.Contains("SECOND PERSON", violation.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateCameraHolderBody_AcceptsPartsGivenToASecondPerson()
+    {
+        const string caption =
+            "A tightly framed shot from behind Becky as she bends over the workbench, when a man stands behind her with "
+            + "his hands closing on her thighs, his hips level with hers.";
+
+        Assert.Empty(SceneImagePromptContractValidator.ValidateCameraHolderBody(
+            caption, "the camera holder's hands on Becky's thighs (clenching tightly)"));
+    }
+
+    /// <summary>
+    /// The projection's system rule says third person; the compiler wrote "In front of me … my eye-level camera … behind
+    /// us" anyway (prompt 50e778e5, 2026-10-25). A first-person caption reads as a selfie to the image model.
+    /// </summary>
+    [Fact]
+    public void ValidateNoFrameExclusions_RefusesACaptionThatDescribesTheCrop()
+    {
+        // The live failure (SceneImage 8bb09d13, 2026-10-25): the caption told the image model to cut her head off for a
+        // frame that could contain the whole body.
+        const string caption =
+            "A close-up shot from above. Her head is not visible due to being positioned below the frame line where the "
+            + "image cuts off at about waist height.";
+
+        var violation = Assert.Single(SceneImagePromptContractValidator.ValidateNoFrameExclusions(caption));
+
+        Assert.True(violation.Blocking);
+        Assert.Contains("outside the picture", violation.Detail, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("A close view from above in which her whole body lies across the frame, head low over the bench.")]
+    [InlineData("Her back is to the lens and her face is turned away toward the tin wall.")]
+    public void ValidateNoFrameExclusions_AcceptsWhatTheFrameContains(string caption)
+        => Assert.Empty(SceneImagePromptContractValidator.ValidateNoFrameExclusions(caption));
+
+    [Fact]
+    public void ValidateThirdPerson_RefusesAFirstPersonShotDescription()
+    {
+        const string caption =
+            "In front of me is Becky bent over at the waist; her back faces away from my eye-level camera as I stand "
+            + "behind her, the tin wall close behind us.";
+
+        var violation = Assert.Single(SceneImagePromptContractValidator.ValidateThirdPerson(caption));
+
+        Assert.True(violation.Blocking);
+        Assert.Contains("FIRST person", violation.Detail, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("A tightly framed shot from behind Becky as she bends over the workbench, her back to the lens.")]
+    [InlineData("Camera: medium shot at eye level from behind Becky; the workbench boards fill the lower frame.")]
+    public void ValidateThirdPerson_AcceptsAThirdPersonDescription(string caption)
+        => Assert.Empty(SceneImagePromptContractValidator.ValidateThirdPerson(caption));
 
     [Fact]
     public void Validate_NamesACharacterWithNoAnchor()
@@ -309,6 +454,144 @@ public sealed class SceneImagePromptContractValidatorTests
 
         Assert.Empty(instruction);
     }
+
+    /// <summary>
+    /// The reported failure (SceneImage a53cd560, 2026-10-27): two people bound plus a location, so the location is the
+    /// THIRD tag. The compiler copied the anchored contract's example — written for a one-person scene, where the place
+    /// is &lt;image2&gt; — and pointed the shed at a person's body plate; the render, independently, named &lt;image3&gt; as
+    /// the place. One prompt, two contradictory claims about which image is the room.
+    /// </summary>
+    [Fact]
+    public void ValidateReferenceTags_RefusesThePlacePointedAtAPersonsPlate()
+    {
+        var violations = SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic medium shot at eye level of a woman <image1> bending over a workbench in a shed <image2>, "
+            + "her feet flat on the ground and her forearms along the boards.",
+            TwoPeopleAndALocation(),
+            SceneImageModelFamily.QwenImage21);
+
+        Assert.Equal(2, violations.Count);
+
+        // The mis-pointed place is what REFUSES the caption: that is the contradiction the image model would obey.
+        var blocking = Assert.Single(violations, violation => violation.Blocking);
+        Assert.Contains("puts the setting \"shed\" on <image2>", blocking.Detail, StringComparison.Ordinal);
+        // The corrective pass is told the tag that IS the room, not merely that something is wrong.
+        Assert.Contains("<image3>", blocking.Detail, StringComparison.Ordinal);
+
+        // The omission is recorded as a diagnostic so the operator sees it, but it does not refuse a compile: an
+        // action-only User Intent draft legitimately never names the place.
+        Assert.Single(violations, violation => !violation.Blocking);
+    }
+
+    /// <summary>
+    /// A reference-bound User Intent draft is ACTION ONLY by contract — the location image supplies the room, so a
+    /// caption that never names the place is correct and must not cost a retry or a failed compile.
+    /// </summary>
+    [Fact]
+    public void ValidateReferenceTags_DoesNotRefuseAnActionOnlyDraftThatNeverNamesThePlace()
+    {
+        var violations = SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic close shot of the woman <image1> turned away from the man <image2>, her shoulders hunched.",
+            TwoPeopleAndALocation(),
+            SceneImageModelFamily.QwenImage21);
+
+        Assert.DoesNotContain(violations, violation => violation.Blocking);
+    }
+
+    [Fact]
+    public void ValidateReferenceTags_AcceptsThePlaceNamedWithTheLocationTag()
+    {
+        var violations = SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic medium shot at eye level of a woman <image1> beside a man <image2> in a shed <image3>.",
+            TwoPeopleAndALocation(),
+            SceneImageModelFamily.QwenImage21);
+
+        Assert.Empty(violations);
+    }
+
+    /// <summary>
+    /// A relation phrase is a fact about two people, not a claim that a person's photograph is the room. "In front of
+    /// &lt;image2&gt;" must not read as "the setting is &lt;image2&gt;".
+    /// </summary>
+    [Fact]
+    public void ValidateReferenceTags_DoesNotTreatARelationPhraseAsAPlace()
+    {
+        var violations = SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic shot of a woman <image1> standing in front of a man <image2>, the room <image3> behind them.",
+            TwoPeopleAndALocation(),
+            SceneImageModelFamily.QwenImage21);
+
+        Assert.Empty(violations);
+    }
+
+    /// <summary>
+    /// Only the family whose CONTRACT writes tags into the caption is checked. The other families state the reference
+    /// block at render time and their compiled prose is tag-free by design, so a missing tag there is not a defect.
+    /// </summary>
+    [Fact]
+    public void ValidateReferenceTags_IsNotAppliedToATagFreeFamily()
+    {
+        Assert.Empty(SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic shot of a woman bending over a bench in a shed.",
+            TwoPeopleAndALocation(),
+            SceneImageModelFamily.Krea2));
+    }
+
+    /// <summary>
+    /// One image in total is sent UNTAGGED (the vendor's N = 1 rule), so there is no number for the caption to point
+    /// anywhere and nothing to check.
+    /// </summary>
+    [Fact]
+    public void ValidateReferenceTags_SkipsASingleReferenceThatIsNeverNumbered()
+    {
+        Assert.Empty(SceneImagePromptContractValidator.ValidateReferenceTags(
+            "A photorealistic shot of a gritty shed interior.",
+            [LocationBinding(1)],
+            SceneImageModelFamily.QwenImage21));
+    }
+
+    private static IReadOnlyList<ReferenceApplicationSelection> TwoPeopleAndALocation() =>
+    [
+        new ReferenceApplicationSelection
+        {
+            ElementKey = "Body",
+            Kind = nameof(ImageStepSlotKind.Body),
+            SemanticRole = "character body",
+            ActorKey = "p0",
+            Source = "IdentityPackAsset",
+            Strategy = "NativeMultiReference",
+            Ordinal = 1,
+            IdentityPackId = "pack-1",
+            ReferenceAssetId = "asset-p0",
+            ReferenceLabel = "Profile Left · Unclothed"
+        },
+        new ReferenceApplicationSelection
+        {
+            ElementKey = "Body",
+            Kind = nameof(ImageStepSlotKind.Body),
+            SemanticRole = "character body",
+            ActorKey = "p1",
+            Source = "IdentityPackAsset",
+            Strategy = "NativeMultiReference",
+            Ordinal = 2,
+            IdentityPackId = "pack-1",
+            ReferenceAssetId = "asset-p1",
+            ReferenceLabel = "Profile Left · Clothed"
+        },
+        LocationBinding(3)
+    ];
+
+    private static ReferenceApplicationSelection LocationBinding(int ordinal) => new()
+    {
+        ElementKey = "Location",
+        Kind = nameof(ImageStepSlotKind.Location),
+        SemanticRole = "location continuity",
+        Strategy = "NativeMultiReference",
+        Ordinal = ordinal,
+        SceneAssetId = "asset-loc",
+        SceneAssetImageId = "img-loc",
+        ReferenceLabel = "Indoor Back"
+    };
 
     private static ReferenceApplicationSelection Binding(string actorKey) => new()
     {

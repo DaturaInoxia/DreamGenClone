@@ -22,10 +22,10 @@ public interface IImageGenerationClient
         SceneImageGenerationOptions? options = null);
 
     /// <summary>
-    /// Reachability/health probe for an image model. POSTs a minimal image request to the provider's
-    /// image-generation path (Split-image models don't answer on the chat path). Returns a success
-    /// flag plus a user-facing message. Used by the Model Manager "Test Connection" for image-kind
-    /// models.
+    /// Health probe for an image model. Must never generate: this is a GET on the provider's model list,
+    /// which is free and whose 401/403 still proves the API key. Providers that expose no list are reported
+    /// as reachable-but-unverified; a bad key or an empty balance surfaces as a generation failure instead.
+    /// Used by the Model Manager "Test" button and "Re-check All".
     /// </summary>
     Task<(bool Success, string Message)> CheckImageModelHealthAsync(
         string providerBaseUrl,

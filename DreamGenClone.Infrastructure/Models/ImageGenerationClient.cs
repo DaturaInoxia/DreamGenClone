@@ -176,6 +176,8 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         CancellationToken cancellationToken = default,
         ImageProtocol imageProtocol = ImageProtocol.OpenAiImages)
     {
+        // contentPolicy is deliberately unused: discovering negative_prompt / disable_safety_checker support
+        // required a real 1024x1024 render per parameter, so that probing is gone for good.
         try
         {
             var client = _httpClientFactory.CreateClient("CompletionClient");
@@ -188,61 +190,55 @@ public sealed class ImageGenerationClient : IImageGenerationClient
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
             }
 
-            // Browser UA for the OpenAI-compatible images endpoint (Cloudflare 403 error 1010
-            // otherwise, verified on gpt-image-2/Together).
+            // Browser UA for Together's Cloudflare edge (403 error 1010 otherwise, verified on gpt-image-2).
             if (client.DefaultRequestHeaders.UserAgent.Count == 0)
             {
                 client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
             }
 
-            // Minimal image request to the image-generation path. Seedream/FLUX-style image models
-            // do not accept chat-completions bodies, so we probe the images endpoint instead.
-            var relativePath = imageGenerationPath.TrimStart('/');
-            var basicResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
-            {
-                Model = modelIdentifier,
-                Prompt = "a colored square",
-                N = 1,
-                Width = 1024,
-                Height = 1024,
-                ResponseFormat = "base64"
-            }, cancellationToken);
-            if (!basicResult.Success)
-                return basicResult;
+            // Health checks must never spend money. The image endpoint has no free readiness route, so the
+            // check is a GET on the provider's model list: it costs nothing and its 401/403 still proves the
+            // key. Nothing is rendered here by design — a bad key or an empty balance surfaces when the user
+            // actually generates.
+            var probe = await ProviderModelsProbe.QueryAsync(client, imageGenerationPath, modelIdentifier, cancellationToken);
 
-            var negativeResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
+            switch (probe.StatusCode)
             {
-                Model = modelIdentifier,
-                Prompt = "a colored square",
-                NegativePrompt = "blurry, distorted, extra fingers",
-                N = 1,
-                Width = 1024,
-                Height = 1024,
-                ResponseFormat = "base64"
-            }, cancellationToken);
-            if (!negativeResult.Success)
-                return (false, $"Basic image request passed, but negative_prompt was rejected: {negativeResult.Message}");
+                case 401 or 403:
+                    _logger.LogWarning("Image model health check failed: key rejected for {ModelIdentifier} at {BaseUrl} (HTTP {Status})", modelIdentifier, providerBaseUrl, probe.StatusCode);
+                    return (false, $"API key rejected (HTTP {probe.StatusCode}).");
 
-            if (contentPolicy is ImageContentPolicy.AdultAllowed or ImageContentPolicy.AdultAllowedConfigurable)
-            {
-                var safetyResult = await ProbeImageRequestAsync(client, relativePath, new ImageGenerationRequest
-                {
-                    Model = modelIdentifier,
-                    Prompt = "a colored square",
-                    DisableSafetyChecker = true,
-                    N = 1,
-                    Width = 1024,
-                    Height = 1024,
-                    ResponseFormat = "base64"
-                }, cancellationToken);
-                if (!safetyResult.Success)
-                    return (false, $"Basic image and negative_prompt passed, but disable_safety_checker was rejected: {safetyResult.Message}");
+                case 402:
+                    return (false, "Payment required — the provider account has no credit.");
+
+                case 429:
+                    return (false, "Rate limit exceeded while listing models.");
+
+                case >= 500:
+                    return (false, $"Provider server error ({probe.StatusCode}).");
             }
 
-            _logger.LogInformation("Image model parameter health check passed: {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
-            return (true, contentPolicy is ImageContentPolicy.AdultAllowed or ImageContentPolicy.AdultAllowedConfigurable
-                ? "Image model passed basic, negative_prompt, and adult safety-checker parameter tests."
-                : "Image model passed basic and negative_prompt parameter tests.");
+            if (!probe.ListingSupported)
+            {
+                _logger.LogInformation("Image model health check: {ModelIdentifier} at {BaseUrl} exposes no model list (HTTP {Status}); reachability only, nothing was generated", modelIdentifier, providerBaseUrl, probe.StatusCode);
+                return (true, $"Provider is reachable, but it exposes no model list (HTTP {probe.StatusCode}) to check the key against. "
+                    + "No image was generated, so the key and credits stay unverified until the first real generation.");
+            }
+
+            if (probe.StatusCode >= 400)
+            {
+                return (false, $"Model list request failed (HTTP {probe.StatusCode}).");
+            }
+
+            if (!probe.ContainsModel)
+            {
+                _logger.LogWarning("Image model health check: {ModelIdentifier} is not listed at {BaseUrl}", modelIdentifier, providerBaseUrl);
+                return (false, $"API key accepted, but '{modelIdentifier}' is not in the provider's model list. "
+                    + "No image was generated to verify it — generation will fail if the model really is unavailable.");
+            }
+
+            _logger.LogInformation("Image model health check passed (model list, nothing generated): {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
+            return (true, $"API key accepted and '{modelIdentifier}' is listed by the provider. No image was generated.");
         }
         catch (TaskCanceledException)
         {
@@ -259,53 +255,6 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         }
     }
 
-    private async Task<(bool Success, string Message)> ProbeImageRequestAsync(
-        HttpClient client,
-        string relativePath,
-        ImageGenerationRequest payload,
-        CancellationToken cancellationToken)
-    {
-        using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
-        if (response.IsSuccessStatusCode)
-            return (true, "ok");
-
-        var statusCode = (int)response.StatusCode;
-        var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-        var errorMessage = statusCode switch
-        {
-            401 => "Invalid API key.",
-            404 => $"Model '{payload.Model}' not found on provider.",
-            429 => "Rate limit exceeded.",
-            402 => "Payment required.",
-            >= 500 => $"Provider server error ({statusCode}).",
-            _ => $"Unexpected status {statusCode}."
-        };
-
-        _logger.LogWarning(
-            "Image model parameter probe failed: Model={ModelIdentifier}, Status={StatusCode}, Response={ErrorContent}",
-            payload.Model,
-            statusCode,
-            errorContent);
-        return (false, $"{errorMessage} (HTTP {statusCode})");
-    }
-
-    private sealed class ImageGenerationRequest
-    {
-        [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
-        [JsonPropertyName("prompt")] public string Prompt { get; set; } = string.Empty;
-        [JsonPropertyName("negative_prompt")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public string? NegativePrompt { get; set; }
-
-        [JsonPropertyName("disable_safety_checker")]
-        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public bool? DisableSafetyChecker { get; set; }
-        [JsonPropertyName("n")] public int N { get; set; } = 1;
-        [JsonPropertyName("width")] public int Width { get; set; } = 1024;
-        [JsonPropertyName("height")] public int Height { get; set; } = 1024;
-        [JsonPropertyName("response_format")] public string ResponseFormat { get; set; } = "base64";
-    }
-
     /// <summary>Parses an OpenAI-style "WxH" size tag into integer width/height. Returns false when
     /// the tag is missing/malformed so the caller can fall back to the recorded defaults.</summary>
     private static bool TryParseDimension(string? size, out int dimension)
@@ -314,6 +263,17 @@ public sealed class ImageGenerationClient : IImageGenerationClient
         if (string.IsNullOrWhiteSpace(size)) return false;
         var parts = size.Trim().ToLowerInvariant().Split('x', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         return parts.Length == 2 && int.TryParse(parts[0], out dimension) && dimension > 0;
+    }
+
+    /// <summary>Request body for a real generation. Never constructed by a health check.</summary>
+    private sealed class ImageGenerationRequest
+    {
+        [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
+        [JsonPropertyName("prompt")] public string Prompt { get; set; } = string.Empty;
+        [JsonPropertyName("n")] public int N { get; set; } = 1;
+        [JsonPropertyName("width")] public int Width { get; set; } = 1024;
+        [JsonPropertyName("height")] public int Height { get; set; } = 1024;
+        [JsonPropertyName("response_format")] public string ResponseFormat { get; set; } = "base64";
     }
 
     private sealed class ImageGenerationResponse

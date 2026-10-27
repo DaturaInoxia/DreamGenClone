@@ -629,7 +629,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         // Asset Manager has no beat/moment scene, so its framing comes from that profile rather than from a brief;
         // when nothing is bound per character it carries none, and the clause keeps its scene-level sentences.
         var prompt = FinalImagePromptPlanBuilder.Build(
-            compiledPrompt, roles, blocking: await BuildAssetBlockingAsync(roles, cancellationToken)).Prompt;
+            compiledPrompt, roles, model.SceneImageModelFamily, blocking: await BuildAssetBlockingAsync(roles, cancellationToken)).Prompt;
 
         _logger.LogInformation(
             "Scene asset pose render via NATIVE reference: ImageId={ImageId}, Model={Model}, Stance={Stance}, "
@@ -769,7 +769,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
         // references by <imageN> tag, and an untagged pair made the model average them (measured 2026-10-04 —
         // L1 1.574 untagged vs 0.887 tagged against the location reference).
         var prompt = FinalImagePromptPlanBuilder.Build(
-            compiledPrompt, assetRoles, blocking: await BuildAssetBlockingAsync(assetRoles, cancellationToken)).Prompt;
+            compiledPrompt, assetRoles, model.SceneImageModelFamily, blocking: await BuildAssetBlockingAsync(assetRoles, cancellationToken)).Prompt;
 
         _logger.LogInformation(
             "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "
@@ -1168,7 +1168,7 @@ public sealed class SceneAssetGenerationJobHandler : IBackgroundJobHandler, IDur
                 roles.Add(new ReferenceRoleClauses.ReferenceRole(ImageStepSlotKind.Pose, null));
             }
 
-            var promptWithRoles = FinalImagePromptPlanBuilder.Build(compiledPrompt, roles).Prompt;
+            var promptWithRoles = FinalImagePromptPlanBuilder.Build(compiledPrompt, roles, model.SceneImageModelFamily).Prompt;
 
             _logger.LogInformation(
                 "Scene asset reference-conditioned render via NATIVE reference: ImageId={ImageId}, Model={Model}, "

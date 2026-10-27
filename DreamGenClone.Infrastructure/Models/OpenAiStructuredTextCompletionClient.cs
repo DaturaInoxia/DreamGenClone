@@ -92,7 +92,8 @@ public sealed class OpenAiStructuredTextCompletionClient :
             resolved.MaxTokens,
             responseFormat,
             reasoning,
-            chatTemplateKwargs);
+            chatTemplateKwargs,
+            resolved.PresencePenalty);
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, resolved.ChatCompletionsPath.TrimStart('/'))
         {
@@ -365,7 +366,10 @@ public sealed class OpenAiStructuredTextCompletionClient :
         [property: JsonPropertyName("max_tokens")] int MaxTokens,
         [property: JsonPropertyName("response_format")] ResponseFormat ResponseFormat,
         [property: JsonPropertyName("reasoning"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ReasoningOptions? Reasoning,
-        [property: JsonPropertyName("chat_template_kwargs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, object>? ChatTemplateKwargs);
+        [property: JsonPropertyName("chat_template_kwargs"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, object>? ChatTemplateKwargs,
+        // B-167: sent only when the function's row declares one. Omitted otherwise, so a provider that rejects the
+        // parameter (or applies its own default) sees exactly the request it saw before this existed.
+        [property: JsonPropertyName("presence_penalty"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] double? PresencePenalty);
 
     private sealed record ReasoningOptions(
         [property: JsonPropertyName("effort")] string Effort);

@@ -1,3 +1,4 @@
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
@@ -81,7 +82,7 @@
 
     @* B-157: the final prompt and the reference map, from the one shared component — so the composition page and this
        panel cannot show two different answers about which image is which person. *@
-    <StepPromptFramePreview Prompt="@Prompt" Bindings="@Bindings" Blocking="@Blocking"
+    <StepPromptFramePreview Prompt="@Prompt" Bindings="@Bindings" Blocking="@Blocking" Family="@Family"
                             LeadingImagesForThisSurface="@LeadingImagesForThisSurface" />
 </section>
 
@@ -89,6 +90,13 @@
     /// <summary>The prompt text. Two-way: the host owns the value, this panel only edits it.</summary>
     [Parameter]
     public string Prompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The FAMILY this step will render on. It decides how the camera statement at the end of the preview is worded, so
+    /// it is passed straight through to <c>StepPromptFramePreview</c> rather than guessed here.
+    /// </summary>
+    [Parameter]
+    public SceneImageModelFamily Family { get; set; } = SceneImageModelFamily.Unknown;
 
     [Parameter]
     public EventCallback<string?> PromptChanged { get; set; }

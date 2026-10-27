@@ -50,18 +50,20 @@ public sealed class ReferenceBindingPromptRemovalTests
 
         // The room is repeated across the whole brief, so every place that restates it is removed. Leaving the
         // neighbours behind is how a bound location still produced a room-dominated prompt (2026-10-20).
+        // B-167 D2: only leaves the image brief actually carries — the duplicate prose restatements and the beat
+        // continuity blocks are not selected into a Still brief at all.
         Assert.Equal(
             [
-                "frozenState.location", "frozenState.environment", "frozenState.lighting",
-                "frozenState.objects", "frozenState.visualDescription", "frozenState.continuityState",
-                "moment.frozenState", "moment.compositionRationale",
-                "continuity.start.location", "continuity.start.objectStates", "continuity.start.lighting", "continuity.start.characterStates", "continuity.start.stateSummary",
-                "continuity.end.location", "continuity.end.objectStates", "continuity.end.lighting", "continuity.end.characterStates", "continuity.end.stateSummary"
+                "frozenState.location", "frozenState.objects", "moment.compositionRationale"
             ],
             fields.Select(field => field.ElementKey));
         Assert.All(fields, field => Assert.True(field.Removed));
         Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.timeOfDay");
         Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.mood");
+        // ENVIRONMENT and LIGHTING are the operator's, not the reference's (operator decision 2026-10-25): a room image
+        // says where the people are, not how the light falls.
+        Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.environment");
+        Assert.DoesNotContain(fields, field => field.ElementKey == "frozenState.lighting");
     }
 
     [Fact]
@@ -208,8 +210,10 @@ public sealed class ReferenceBindingPromptRemovalTests
         Assert.Equal("a cathedral nave", kept.Value);
         Assert.False(kept.Removed);
         // ...while the element the operator said nothing about is still removed by the binding.
-        Assert.Contains(merged.Fields, field => field.ElementKey == "frozenState.environment" && field.Removed);
-        Assert.Contains(merged.Fields, field => field.ElementKey == "frozenState.lighting" && field.Removed);
+        Assert.Contains(merged.Fields, field => field.ElementKey == "frozenState.objects" && field.Removed);
+        // ...and the ones a location reference does NOT supply are untouched, so their rows stay editable.
+        Assert.DoesNotContain(merged.Fields, field => field.ElementKey == "frozenState.environment");
+        Assert.DoesNotContain(merged.Fields, field => field.ElementKey == "frozenState.lighting");
     }
 
     [Fact]

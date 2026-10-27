@@ -263,14 +263,18 @@ public sealed class FinalImagePromptPlanGuardTests
     [Fact]
     public void TheStillBriefProfileVersionMatchesTheMatcherThatReusesIt()
     {
-        // B-157: the still brief now records the frame, so its profile version moved to 2 — and IsExactStillBrief has
-        // to move WITH it. When only one of the two changes, the version that was supposed to retire the old briefs
-        // never does, and the feature stays silently inert for every production group created earlier.
+        // B-157: the still brief records the frame, so its profile version moved to 2 — and IsExactStillBrief has to
+        // move WITH it. When only one of the two changes, the version that was supposed to retire the old briefs never
+        // does, and the feature stays silently inert for every production group created earlier.
+        // B-167 moved it to 3 for the same reason: the brief's selected facts changed (one owner per fact, plus
+        // event/contacts, minus the duplicate restatements and beat continuity).
         var source = ReadWebFile("Application", "RolePlay", "SceneImageProductionService.cs");
 
-        Assert.Contains("\"canonical-still\", \"2\"", source, StringComparison.Ordinal);
-        Assert.Contains("brief.TargetProfileVersion, \"2\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"canonical-still\", \"3\"", source, StringComparison.Ordinal);
+        Assert.Contains("brief.TargetProfileVersion, \"3\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"canonical-still\", \"2\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("\"canonical-still\", \"1\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("brief.TargetProfileVersion, \"2\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("brief.TargetProfileVersion, \"1\"", source, StringComparison.Ordinal);
     }
 
@@ -439,7 +443,7 @@ public sealed class FinalImagePromptPlanGuardTests
             preview,
             StringComparison.Ordinal);
         Assert.Contains(
-            "FinalImagePromptPlanBuilder.Build(Prompt, roles, blocking: _effectiveBlocking)",
+            "FinalImagePromptPlanBuilder.Build(Prompt, roles, Family, blocking: _effectiveBlocking)",
             preview,
             StringComparison.Ordinal);
 

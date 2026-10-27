@@ -22,12 +22,12 @@ public sealed class SceneMomentEnrichmentContractTests
 
         Assert.Equal([
             "schemaVersion", "catalogueBeatId", "momentId", "visualDescription", "characters",
-            "location", "timeOfDay", "lighting", "environment", "mood", "objects",
+            "location", "timeOfDay", "lighting", "environment", "mood", "objects", "event", "contacts",
             "instantaneousSoundCueKeys", "videoKeyState"
         ], required);
         Assert.Equal([
             "name", "profileKey", "involvement", "physicalLocation", "position",
-            "actionOrObservation", "sightline", "visibleCharacterNames", "clothing"
+            "actionOrObservation", "sightline", "visibleCharacterNames", "clothing", "at", "facing"
         ], characterRequired);
         Assert.Equal(1, characters.GetProperty("minItems").GetInt32());
         Assert.Equal(1, characters.GetProperty("maxItems").GetInt32());

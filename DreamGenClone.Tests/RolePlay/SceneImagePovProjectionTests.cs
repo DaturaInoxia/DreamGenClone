@@ -66,29 +66,185 @@ public sealed class SceneImagePovProjectionTests
     }
 
     [Fact]
-    public void Resolve_CustomCameraHolderParts_StatesExactlyThoseParts()
+    public void Resolve_V4FacingTarget_IsReadExactlyRatherThanPatternMatched()
     {
-        var projection = SceneImagePovProjection.Resolve(
-            BriefWithShedMoment(), "Dean", Blocking(),
-            cameraHolderPartsMode: CameraHolderPartsMode.Custom,
-            cameraHolderPartsText: "his hands on her hips, his erect penis");
+        // B-167: `facing.toward` names the person the body faces. Naming the viewpoint's profile key means "faces the
+        // camera" with no prose scan at all; naming anything else means the back is toward this lens.
+        var brief = BriefWithShedMoment(V4FacingJson(subjectToward: "p1", viewpointToward: "p0"));
 
-        // The parts are carried on the projection, and the SHOT block hands them to the caption writer VERBATIM: the
-        // operator's own sentence has to be part of the MAIN prompt, not a block appended after it. As a trailing block
-        // the image model treated it as an addendum and drew the subject alone (operator report, 2026-10-23).
-        Assert.Equal("his hands on her hips, his erect penis", projection.CameraHolderParts);
+        var deanText = SceneImagePovProjection.Resolve(brief, "Dean", Blocking()).ToPromptText();
+        Assert.Contains("FACING — this person faces the camera: show their face.", deanText, StringComparison.Ordinal);
+
+        var beckyText = SceneImagePovProjection.Resolve(brief, "Becky", Blocking()).ToPromptText();
+        Assert.Contains("FACING — this person faces the camera: show their face.", beckyText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_V4FacingTarget_NamesTheCharacterDirectlyAhead()
+    {
+        // The holder's own facing target is the exact answer to "who is in front of this camera"; the v3 path had to
+        // substring-match a name out of a sightline sentence.
+        var brief = BriefWithShedMoment(V4FacingJson(subjectToward: "p1", viewpointToward: "p0"));
+
+        var projection = SceneImagePovProjection.Resolve(brief, "Dean", Blocking());
+
+        Assert.Equal(["Becky"], projection.DirectlyAhead);
+    }
+
+    [Fact]
+    public void Resolve_V4FacingTarget_WrappedInAPreposition_ResolvesTowardTheCamera()
+    {
+        // Live 2026-10-27 (prompt record 8655924e): the enrichment recorded `facing.toward` as "toward p0" instead of
+        // the bare key. Compared verbatim it matched nothing, so the geometry was inverted to "faces AWAY", and the
+        // phrase itself was printed into the frame block, where the caption writer copied "p0" into the image prompt.
+        var brief = BriefWithShedMoment(V4FacingJson(subjectToward: "toward p1", viewpointToward: "toward p0"));
+
+        var projection = SceneImagePovProjection.Resolve(brief, "Becky", Blocking());
+        var dean = Assert.Single(projection.InFrame);
+
+        Assert.Equal(SceneImagePovProjection.SubjectFacing.TowardCamera, dean.Facing!.Value);
+        Assert.Equal("toward the camera", dean.WorldFacing);
+
+        var text = projection.ToPromptText();
+        Assert.Contains("FACING — this person faces the camera: show their face.", text, StringComparison.Ordinal);
+        Assert.Contains("facing: \"toward the camera\"", text, StringComparison.Ordinal);
+        // A profile key is never a word of the prompt, and the camera holder is never named: they are the camera.
+        Assert.DoesNotContain("p0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("p1", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Becky", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_WorldBody_NeverNamesTheCameraHolder()
+    {
+        // The v4 world body ("posture at anchor") is recorded in world terms and can name the holder ("standing over
+        // Becky"). It was the one fact `ToProjected` did not anonymise, so it reached the compiler verbatim and the
+        // caption named the person who is the camera (live 2026-10-27, prompt record 8655924e).
+        var brief = BriefWithShedMoment(V4FacingJson(
+            subjectToward: "p1",
+            viewpointToward: "toward p0",
+            viewpointPosture: "standing over Becky"));
+
+        var text = SceneImagePovProjection.Resolve(brief, "Becky", Blocking()).ToPromptText();
+
+        Assert.Contains("body: \"standing over the camera at workbench\"", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Becky", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("p0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("p1", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DropViewpoint_RemovesTheEventAndContactsThatNameTheCameraHolder()
+    {
+        // The selected event line and the recorded contacts are the facts the caption now reads, so they obey the same
+        // rule the whole-event prose did: the camera holder is not in their own picture.
+        const string snapshot = """
+            {"frozenState":{
+              "characters":[{"profileKey":"p0","name":"Becky"},{"profileKey":"p1","name":"Dean"}],
+              "event":{"anchor":"workbench","line":"Dean bends Becky over the workbench."},
+              "contacts":[{"from":"p1","part":"hands","to":"p0","targetPart":"hips","manner":"grip"}]}}
+            """;
+
+        var scrubbed = System.Text.Json.Nodes.JsonNode
+            .Parse(SceneImagePovProjection.DropViewpoint(snapshot, "p1"))!.AsObject();
+
+        var eventNode = scrubbed["frozenState"]!["event"]!.AsObject();
+        // The sentence described the camera holder, so it is dropped rather than handed to the caption writer.
+        Assert.Null(eventNode["line"]);
+        // The camera holder's own contact is not a fact about the pictured cast anymore.
+        Assert.Empty(scrubbed["frozenState"]!["contacts"]!.AsArray());
+    }
+
+    private static string V4FacingJson(
+        string subjectToward,
+        string viewpointToward,
+        string subjectPosture = "kneeling",
+        string viewpointPosture = "standing") => $$$"""
+        {"frozenState":{"visualDescription":"Inside the shed, two people close","characters":[
+          {"profileKey":"p0","characterId":"c0","name":"Becky","involvement":"active","physicalLocation":"Inside the shed","position":"Kneeling before Dean","actionOrObservation":"Bracing on the boards","sightline":"Directed up toward Dean","visibleCharacterNames":["Dean"],"clothing":"Nude",
+           "at":{"anchor":"boards","posture":"{{{subjectPosture}}}"},"facing":{"toward":"{{{subjectToward}}}"}},
+          {"profileKey":"p1","characterId":"c1","name":"Dean","involvement":"active","physicalLocation":"Inside the shed","position":"Standing over Becky","actionOrObservation":"Holding the workbench edge","sightline":"Directed down toward Becky","visibleCharacterNames":["Becky"],"clothing":"clothed",
+           "at":{"anchor":"workbench","posture":"{{{viewpointPosture}}}"},"facing":{"toward":"{{{viewpointToward}}}"}}],
+          "location":"Shed behind the trailers","timeOfDay":"Morning","lighting":"Barred slat light","environment":"Grit on the boards","mood":"Charged","objects":["workbench"],
+          "event":{"anchor":"boards","line":"Becky kneels before Dean."},"contacts":[]}}
+        """;
+
+    [Fact]
+    public void Resolve_CameraHolderParts_ComeFromTheRecordedContacts()
+    {
+        // B-167: a contact is a fact ("from p1's hands to p0's hips"), so the holder's visible parts are a lookup.
+        // The holder is p1 (Dean), so his own `part` values are what can appear in his first-person frame.
+        var brief = BriefWithShedMoment("""
+            {"frozenState":{"visualDescription":"Inside the shed","characters":[
+              {"profileKey":"p0","characterId":"c0","name":"Becky","involvement":"active","physicalLocation":"Inside the shed","position":"Kneeling before Dean","actionOrObservation":"Bracing","sightline":"Directed up toward Dean","visibleCharacterNames":["Dean"],"clothing":"Nude"},
+              {"profileKey":"p1","characterId":"c1","name":"Dean","involvement":"active","physicalLocation":"Inside the shed","position":"Standing over Becky","actionOrObservation":"Holding her hair","sightline":"Directed down toward Becky","visibleCharacterNames":["Becky"],"clothing":"clothed"}],
+              "location":"Shed behind the trailers","timeOfDay":"Morning","lighting":"Barred slat light","environment":"Grit on the boards","mood":"Charged","objects":["workbench"],"continuityState":"stable",
+              "contacts":[{"from":"p1","part":"hands","to":"p0","targetPart":"hips","manner":"grip"}]}}
+            """);
+
+        var projection = SceneImagePovProjection.Resolve(
+            brief, "Dean", Blocking(),
+            cameraHolderPartsMode: CameraHolderPartsMode.Derived);
+
+        Assert.Equal("the camera holder's hands on Becky's hips (grip); the camera holder's wardrobe: clothed", projection.CameraHolderParts);
         var text = projection.ToPromptText();
         Assert.Contains("CAMERA HOLDER'S VISIBLE BODY", text, StringComparison.Ordinal);
-        Assert.Contains("his hands on her hips, his erect penis", text, StringComparison.Ordinal);
+        Assert.Contains("the camera holder's hands on Becky's hips (grip); the camera holder's wardrobe: clothed", text, StringComparison.Ordinal);
+        // The note becomes prompt text: it names people, never their profile key ("(p1)" is weight syntax in ComfyUI).
+        Assert.DoesNotContain("p0", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("p1", text, StringComparison.Ordinal);
         Assert.Contains("part of the caption, not an addendum", text, StringComparison.Ordinal);
-        // Never described as a trailing addition, and never inverted: the SUBJECT is not behind the camera.
         Assert.DoesNotContain("block appended AFTER your caption", text, StringComparison.Ordinal);
         Assert.Contains("never", text, StringComparison.OrdinalIgnoreCase);
 
-        // The system rule states the same obligation and forbids the impossible inversion in words.
         var rule = SceneImagePovProjection.PovSystemRule(projection);
         Assert.Contains("PART OF THE CAPTION, NOT AN ADDENDUM", rule, StringComparison.Ordinal);
         Assert.Contains("behind the camera", rule, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_CameraHolderParts_AreNullWhenTheRecordCarriesNoContacts()
+    {
+        // A v3 record has no contacts: "not recorded", so nothing is invented and no parts block is emitted.
+        var projection = SceneImagePovProjection.Resolve(
+            BriefWithShedMoment(), "Dean", Blocking(),
+            cameraHolderPartsMode: CameraHolderPartsMode.Derived);
+
+        Assert.Null(projection.CameraHolderParts);
+        Assert.DoesNotContain("CAMERA HOLDER'S VISIBLE BODY", projection.ToPromptText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_CameraHolderParts_DeriveFromASelfContactWithoutNamingTheHolderTwice()
+    {
+        // A SELF-contact (both ends are the holder) is one statement about their own body. Emitting both ends would
+        // describe the same limb twice, and naming the holder twice reads to a caption model as a second person.
+        var brief = BriefWithShedMoment("""
+            {"frozenState":{"visualDescription":"Inside the shed","characters":[
+              {"profileKey":"p0","characterId":"c0","name":"Becky","involvement":"active","physicalLocation":"Inside the shed","position":"Kneeling","actionOrObservation":"Bracing","sightline":"Directed up toward Dean","visibleCharacterNames":["Dean"],"clothing":"Nude"},
+              {"profileKey":"p1","characterId":"c1","name":"Dean","involvement":"active","physicalLocation":"Inside the shed","position":"Standing over Becky","actionOrObservation":"Watching her","sightline":"Directed down toward Becky","visibleCharacterNames":["Becky"],"clothing":"clothed"}],
+              "location":"Shed behind the trailers","timeOfDay":"Morning","lighting":"Barred slat light","environment":"Grit on the boards","mood":"Charged","objects":["workbench"],"continuityState":"stable",
+              "contacts":[{"from":"p1","part":"hand","to":"p1","targetPart":"thigh","manner":"press"}]}}
+            """);
+
+        var projection = SceneImagePovProjection.Resolve(
+            brief, "Dean", Blocking(),
+            cameraHolderPartsMode: CameraHolderPartsMode.Derived);
+
+        Assert.Equal("hand (press own thigh); the camera holder's wardrobe: clothed", projection.CameraHolderParts);
+        Assert.DoesNotContain("p1", projection.CameraHolderParts!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolve_RetiredCustomCameraHolderParts_IsRefusedByName()
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => SceneImagePovProjection.Resolve(
+            BriefWithShedMoment(), "Dean", Blocking(),
+            cameraHolderPartsMode: CameraHolderPartsMode.Custom,
+            cameraHolderPartsText: "his hands on her hips"));
+
+        Assert.Contains("retired", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("contacts", error.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -266,9 +422,13 @@ public sealed class SceneImagePovProjectionTests
         Assert.Contains("Camera aim:", text, StringComparison.Ordinal);
     }
 
-    /// <summary>A character the operator removed is not depicted, and their placement is dropped with them.</summary>
+    /// <summary>
+    /// A character the operator removed is not depicted — and the survivor is CENTRED, not left standing in the removed
+    /// person's two-shot slot: a picture with one person in it has no "to the left of" (operator 2026-10-25: "why left,
+    /// only one person, default should be center").
+    /// </summary>
     [Fact]
-    public void Resolve_WithARemovedCharacter_DropsThemFromTheFrame()
+    public void Resolve_WithARemovedCharacter_DropsThemFromTheFrameAndCentresTheSurvivor()
     {
         var suppression = new ScenePromptOverrides { RemovedCharacters = ["Becky"] };
 
@@ -277,7 +437,8 @@ public sealed class SceneImagePovProjectionTests
         Assert.Equal(new[] { "Dean" }, projection.InFrame.Select(character => character.Name));
         var text = projection.ToPromptText();
         Assert.DoesNotContain("Becky — CENTER", text, StringComparison.Ordinal);
-        Assert.Contains("Dean — LEFT", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Dean — LEFT", text, StringComparison.Ordinal);
+        Assert.Contains("Dean — Center Foreground, the only person in the picture.", text, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -644,6 +805,48 @@ public sealed class SceneImagePovProjectionTests
         Assert.Equal("p0", subject.SubjectKey);
         Assert.Equal(FrameHorizontal.Center, subject.Position.Horizontal);
         Assert.Contains("CENTER", subject.RoleText, StringComparison.Ordinal);
+
+        // The excluded person's NAME must never be printed, not even as "not in the active scene": a caption writer
+        // echoes it and the contract then refuses both the name and the out-of-frame statement (live 2026-10-27).
+        var text = projection.ToPromptText();
+        Assert.DoesNotContain("Ken", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Not in the active scene", text, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An "observer" is a narrative role, not a spatial one. Ken stands at the kitchen counter in the same open trailer
+    /// as Becky on the couch, so an Omniscient frame shows both — the compiled blocking already seats him in the
+    /// background. Reading the involvement as "outside the scene" dropped him from the projection while the frame still
+    /// named him, and the caption failed on both the name and an out-of-frame statement (live 2026-10-27, record
+    /// 1e4a0666).
+    /// </summary>
+    [Fact]
+    public void Resolve_Omniscient_KeepsAnObserverWhoStandsInTheSameRoom()
+    {
+        var brief = BriefWithShedMoment("""
+            {"frozenState":{"visualDescription":"Becky sits on the couch while Ken stands at the kitchen counter","characters":[
+              {"profileKey":"p0","characterId":"c0","name":"Becky","involvement":"active","physicalLocation":"on the living-room couch","position":"Sitting on the couch","actionOrObservation":"Shifts her legs against the fabric","sightline":"Forward toward Ken","visibleCharacterNames":["Ken"],"clothing":"Casual clothes","at":{"anchor":"couch","posture":"sitting"},"facing":{"toward":"p1"}},
+              {"profileKey":"p1","characterId":"c1","name":"Ken","involvement":"observer","physicalLocation":"by the kitchen counter","position":"Standing by the counter a few feet from Becky across the open floor","actionOrObservation":"Looks down at the counter","sightline":"Down at the counter","visibleCharacterNames":["Becky"],"clothing":"a t-shirt","at":{"anchor":"counter","posture":"standing"},"facing":{"toward":"p0"}}],
+              "location":"Husband and Wife Trailer — Shared Private Space - the living room couch","timeOfDay":"afternoon","lighting":"warm light","environment":"open-plan interior","mood":"quiet","objects":["couch"],"continuityState":"stable"}}
+            """);
+        var twoSeatBlocking = new SceneBlocking(
+            "1",
+            [
+                new SceneBlockingSubject("p0", new FramePosition(FrameHorizontal.Left, FrameDepth.Foreground), "the person on the LEFT in the foreground"),
+                new SceneBlockingSubject("p1", new FramePosition(FrameHorizontal.Right, FrameDepth.Background), "the person on the RIGHT in the background")
+            ],
+            new SceneBlockingCamera("eye level", "wide establishing shot", null),
+            ["p0", "p1"],
+            "Two figures in one open room");
+
+        var projection = SceneImagePovProjection.Resolve(brief, SceneImagePovFramer.Omniscient, twoSeatBlocking);
+
+        Assert.Equal(["Becky", "Ken"], projection.InFrame.Select(character => character.Name));
+        Assert.Empty(projection.OutOfFrame);
+        Assert.Equal(2, projection.Frame!.Subjects.Count);
+        var text = projection.ToPromptText();
+        Assert.Contains("Ken —", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Not in the active scene", text, StringComparison.Ordinal);
     }
 
     /// <summary>

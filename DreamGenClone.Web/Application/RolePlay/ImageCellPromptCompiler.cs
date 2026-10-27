@@ -93,7 +93,10 @@ public sealed class ImageCellPromptCompiler : IImageCellPromptCompiler
 
         var resolved = await ResolveCompilerModelAsync(input.Llm, cancellationToken);
         var userPrompt = BuildUserPrompt(input);
-        var systemPrompt = input.Profile.SystemPrompt;
+        // B-167: the instruction text carries the budget as a TOKEN, and this checkpoint's own profile value is the
+        // single owner of the number the model is told. Leaving the token unresolved would tell the model nothing about
+        // length while the evaluator still enforced profile.MaxChars.
+        var systemPrompt = SceneImageCompilerSystemPrompts.ApplyBudget(input.Profile.SystemPrompt, input.Profile.MaxChars);
 
         var (content, _) = await _completionClient.GenerateWithReasoningAsync(
             systemPrompt,
@@ -160,8 +163,7 @@ public sealed class ImageCellPromptCompiler : IImageCellPromptCompiler
         builder.AppendLine();
         builder.AppendLine($"TARGET CHECKPOINT: {profile.DisplayName} ({profile.CheckpointIdentifier})");
         builder.AppendLine(
-            $"PROMPT BUDGET: the result must be between {profile.MinChars} and {profile.MaxChars} characters "
-            + $"(target {SceneImageCompilerSystemPrompts.OutputTargetChars}).");
+            $"PROMPT BUDGET: the result must be between {profile.MinChars} and {profile.MaxChars} characters.");
 
         var textAxes = input.Bindings.Where(binding => binding.Mode == ImageBindingMode.Text).Select(binding => binding.Axis).ToList();
         var structuralAxes = input.Bindings

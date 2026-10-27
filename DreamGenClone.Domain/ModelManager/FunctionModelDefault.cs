@@ -18,6 +18,14 @@ public sealed class FunctionModelDefault
     public double TopP { get; set; } = 0.9;
     public int MaxTokens { get; set; } = 500;
     public ThinkingMode ThinkingMode { get; set; } = ThinkingMode.Default;
+
+    /// <summary>
+    /// Repetition penalty sent to the provider as <c>presence_penalty</c>, or null when this function configures none
+    /// (B-167). Range −2.0…2.0, the OpenAI-compatible range every supported provider accepts. It is a persisted,
+    /// UI-editable setting rather than a compiler constant: a prompt generated at a penalty nobody chose cannot be
+    /// compared with one generated at the penalty the comparison declared.
+    /// </summary>
+    public double? PresencePenalty { get; set; }
     public int? MaxConcurrentJobs { get; set; }
     public int? DurableJobLeaseSeconds { get; set; }
     public int? DurableJobPollIntervalMilliseconds { get; set; }
@@ -39,6 +47,8 @@ public sealed class FunctionModelDefault
             return "A model assignment is required.";
         if (Temperature is < 0 or > 2 || TopP is < 0 or > 1 || MaxTokens < 1)
             return "Temperature, Top P, and Max Tokens must be within their allowed ranges.";
+        if (PresencePenalty is < -2 or > 2)
+            return "Presence penalty must be between -2 and 2, or left blank.";
         if (!Enum.IsDefined(ThinkingMode))
             return "Thinking mode is invalid.";
 

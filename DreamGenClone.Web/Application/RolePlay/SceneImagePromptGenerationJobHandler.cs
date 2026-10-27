@@ -46,6 +46,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     private readonly ICompiledMediaBriefRepository _compiledMediaBriefs;
     private readonly ISceneMomentEnrichmentRepository _momentEnrichments;
     private readonly ISceneImageCharacterLoraResolver? _characterLoras;
+    private readonly IImageCompilerProfileResolver _compilerProfiles;
     private readonly ILogger<SceneImagePromptGenerationJobHandler> _logger;
 
     public SceneImagePromptGenerationJobHandler(
@@ -65,6 +66,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         ICompiledMediaBriefRepository compiledMediaBriefs,
         ISceneMomentEnrichmentRepository momentEnrichments,
         ISceneImageCharacterLoraResolver characterLoras,
+        IImageCompilerProfileResolver compilerProfiles,
         ILogger<SceneImagePromptGenerationJobHandler> logger)
     {
         _sessionService = sessionService;
@@ -83,6 +85,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         _compiledMediaBriefs = compiledMediaBriefs;
         _momentEnrichments = momentEnrichments;
         _characterLoras = characterLoras;
+        _compilerProfiles = compilerProfiles;
         _logger = logger;
     }
 
@@ -197,6 +200,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 characters,
                 selectedBeat,
                 record.Pov);
+            systemPrompt = await ResolvePromptBudgetAsync(systemPrompt, resolvedImageModel, cancellationToken);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", session.Id, interaction.Id, new
             {
@@ -343,16 +347,23 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // has no brief-backed scene, so no frame is projected for it.
             SceneImagePovProjection.Projection? povProjection = null;
             var compiledBlocking = SceneBlockingJson.TryRead(brief.SemanticInputSnapshotJson);
+            // Hoisted out of the branch below: the prompt plan records the frame the render will use, and that is the
+            // same value the projection was resolved from.
+            SceneBlocking? effectiveBlocking = compiledBlocking;
             if (record.PromptSource != SceneImagePromptSource.UserIntent)
             {
                 // B-166 D7: the Omniscient lean is the profile value snapshotted into the brief at compile time; a
                 // participant POV gets none and an explicit operator framing wins.
-                var omniscientLean = string.Equals(group.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
-                    ? compiledBlocking?.Camera.OmniscientShotSize
-                    : null;
-                var effectiveBlocking = compiledBlocking is null
+                var isOmniscient = string.Equals(group.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase);
+                var omniscientLean = isOmniscient ? compiledBlocking?.Camera.OmniscientShotSize : null;
+                // The Omniscient angle is the operator's own choice for a view that is nobody's eyes. It travels WITH
+                // the lean so the caption and the render cannot disagree about the camera. It is not gated on the lean:
+                // a brief with no snapshotted shot size still has a configured angle to honour.
+                var omniscientAngle = isOmniscient ? settings.OmniscientAngle : null;
+                effectiveBlocking = compiledBlocking is null
                     ? null
-                    : SceneBlockingResolver.ApplyForPrompt(compiledBlocking, settings.SceneBlockingOverride, omniscientLean);
+                    : SceneBlockingResolver.ApplyForPrompt(
+                        compiledBlocking, settings.SceneBlockingOverride, omniscientLean, omniscientAngle);
                 // Whether the room comes from a bound image is a fact about the references, not about the removal list:
                 // the same removal can be an operator edit, and the projection must say which one it is.
                 var sceneSuppliedByReference = referenceApplications?.Any(reference =>
@@ -371,6 +382,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                     record.UserIntent ?? string.Empty, group.Pov, settings, resolvedImageModel.ContentPolicy, referenceApplications)
                 : compiler.PromptBuilder.BuildMessages(
                     promptPayload.Brief, group.Pov, settings, resolvedImageModel.ContentPolicy, record.RefineInstruction, characters, promptPayload.AppearanceOverrides, canonicalAppearance, effectiveOverrides, referenceApplications, povProjection, promptPayload.AppearanceElementOverrides);
+            systemPrompt = await ResolvePromptBudgetAsync(systemPrompt, resolvedImageModel, cancellationToken);
 
             await WriteDebugEventAsync("SceneImagePromptProjected", record.SessionId, record.InteractionId, new
             {
@@ -384,6 +396,8 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 systemPrompt,
                 userPrompt
             }, cancellationToken);
+
+            await RecordPromptPlanAsync(record, group, brief, povProjection, effectiveBlocking, effectiveOverrides, cancellationToken);
 
             var (rawResponse, reasoning) = await _completionClient.GenerateWithReasoningAsync(
                 systemPrompt, userPrompt, resolvedTextModel, cancellationToken);
@@ -402,6 +416,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
                 reasoning,
                 povProjection,
                 referenceApplications,
+                resolvedImageModel.SceneImageModelFamily,
                 textDescribed,
                 cancellationToken,
                 record.PromptSource == SceneImagePromptSource.UserIntent ? record.UserIntent : null,
@@ -429,21 +444,41 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             //
             // Only a PARTICIPANT POV is appended here: the Omniscient path already gets this same line from
             // FinalImagePromptPlan at render, and appending both would state two cameras.
+            //
+            // A participant POV whose holder's parts are in frame passes its own inclusion sentence: "every person in
+            // frame is whole and uncropped" is true of an external frame and IMPOSSIBLE for the camera, and obeying it
+            // made the image model complete a second body out of the two hands the caption named (SceneImage 516cc462,
+            // 2026-10-27). The Omniscient path is untouched — it never reaches this branch.
+            var participantInclusion = povProjection is { IsOmniscient: false, CameraHolderParts: { Length: > 0 } holderParts }
+                ? FrameInclusion.ParticipantSentence(CameraHolderBodyStatement.PartsPhrase(holderParts))
+                : null;
+            // The HEIGHT is stated here too, not inherited from the scene's compiled camera: a standing holder framing a
+            // subject bent over the bench is ABOVE them, and "eye level" is the one geometry in which the holder's hands
+            // have nowhere to enter the picture from (SceneImages 5b6a1cdf / b5ea6fb4, 2026-10-27 — the render only
+            // worked when the operator forced Height=overhead). CameraHeightKey keeps the operator's pick on top and is
+            // empty for an Omniscient frame, which states its own camera.
             var framingLine = povProjection is { IsOmniscient: false } participant
-                ? SceneFramingClause.LineFor(participant.Camera is { } camera
-                    ? new SceneBlocking(
-                        "operator-framing",
-                        [],
-                        camera with { Angle = SceneImagePovProjection.CameraAngleText(participant) ?? camera.Angle },
-                        [],
-                        string.Empty)
-                    : null)
+                ? SceneCameraStatement.For(
+                    resolvedImageModel.SceneImageModelFamily,
+                    participant.Camera is { } camera
+                        ? new SceneBlocking(
+                            "operator-framing",
+                            [],
+                            camera with
+                            {
+                                Angle = SceneImagePovProjection.CameraAngleText(participant) ?? camera.Angle,
+                                Height = SceneImagePovProjection.CameraHeightKey(participant) ?? camera.Height
+                            },
+                            [],
+                            string.Empty)
+                        : null,
+                    participantInclusion)
                 : record.PromptSource == SceneImagePromptSource.UserIntent && settings.SceneBlockingOverride?.Camera is { } chosen
                     // A User Intent draft has no projection, so the operator's FRAMING would otherwise depend on the
                     // intent text mentioning it. The dropdown is a user override and is stated deterministically here
                     // (measured 2026-10-21: the same composition rendered "medium shot" while the control read
                     // "close shot").
-                    ? SceneFramingClause.LineFor(new SceneBlocking(
+                    ? SceneCameraStatement.For(resolvedImageModel.SceneImageModelFamily, new SceneBlocking(
                         "operator-framing",
                         [],
                         new SceneBlockingCamera(
@@ -463,9 +498,28 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // the dev DB as an append count of 2 on every native-reference render back to 2026-10-05 (B-157, fixed
             // 2026-10-11). It also made an EDIT inherit a render-shaped block on top of its own instruction block.
             // The plan's validation still runs, at the render, which is where the references are known.
-            record.OutputPrompt = framingLine.Length == 0
+            // The recorded GEOMETRY (who is where in the picture, which way they face, how the bodies are arranged, which
+            // parts touch) is appended as DATA for the same reason the camera is: a compile model drops it. Measured
+            // 2026-10-26 (SceneImages b829fa81 / 4b627c8a): the input stated LEFT/RIGHT placement, both facings and the
+            // pressed-together hips, the deployed contract demanded all of it, and the caption named none of it — two
+            // renders showed Dean beside her facing the lens with a gap between them.
+            var stagingLine = SceneStagingStatement.For(
+                povProjection,
+                ScenePromptOverridesApplier.ApplyOperatorProjectionEdits(brief.SemanticInputSnapshotJson, effectiveOverrides));
+
+            // Where the camera holder's own visible parts SIT, as data. The caption describes them in the third person
+            // ("their hands … they stand behind her"), which is right for the writer and ambiguous to an image model: to
+            // it, "someone behind her whose hands and hips are visible" is a half-drawn person, and it drew the rest of
+            // that person out of the subject (SceneImage 516cc462). Stated last, beside the staging block, and only for a
+            // participant POV whose contacts put parts in frame — an Omniscient prompt is byte-identical.
+            var holderBodyLine = CameraHolderBodyStatement.For(povProjection);
+
+            var appended = new[] { framingLine, stagingLine, holderBodyLine }
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
+            record.OutputPrompt = appended.Count == 0
                 ? parsed.Prompt
-                : $"{parsed.Prompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{framingLine}";
+                : $"{parsed.Prompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{string.Join(Environment.NewLine + Environment.NewLine, appended)}";
             record.ModelIdentifier = resolvedTextModel.ModelIdentifier;
             record.Status = SceneImagePromptStatus.Complete;
             record.ErrorMessage = null;
@@ -601,6 +655,7 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         string? reasoning,
         SceneImagePovProjection.Projection? projection,
         IReadOnlyList<ReferenceApplicationSelection>? bindings,
+        SceneImageModelFamily family,
         IReadOnlySet<string>? textDescribed,
         CancellationToken cancellationToken,
         string? operatorIntent = null,
@@ -612,8 +667,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         var result = parsed.Parsed;
 
         var violations = SceneImagePromptContractValidator.Validate(result.Prompt, projection, bindings, textDescribed)
+            .Concat(SceneImagePromptContractValidator.ValidateReferenceTags(result.Prompt, bindings, family))
             .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(result.Prompt))
             .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(result.Prompt, projection?.CameraHolderParts))
+            .Concat(SceneImagePromptContractValidator.ValidateThirdPerson(result.Prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateNoFrameExclusions(result.Prompt))
             .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(result.Prompt, operatorIntent))
             .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(result.Prompt, povOfRecord))
             .ToList();
@@ -632,8 +690,11 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
 
         var retryParsed = retryLength.Parsed;
         var remaining = SceneImagePromptContractValidator.Validate(retryParsed.Prompt, projection, bindings, textDescribed)
+            .Concat(SceneImagePromptContractValidator.ValidateReferenceTags(retryParsed.Prompt, bindings, family))
             .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(retryParsed.Prompt))
             .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(retryParsed.Prompt, projection?.CameraHolderParts))
+            .Concat(SceneImagePromptContractValidator.ValidateThirdPerson(retryParsed.Prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateNoFrameExclusions(retryParsed.Prompt))
             .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(retryParsed.Prompt, operatorIntent))
             .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(retryParsed.Prompt, povOfRecord))
             .ToList();
@@ -707,6 +768,31 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             promptStyle,
             requestedImageModelId,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves the prompt-length budget a compiler instruction states, from the checkpoint's OWN profile.
+    /// </summary>
+    /// <remarks>
+    /// B-167: the family instruction texts carry <see cref="SceneImageCompilerSystemPrompts.BudgetToken"/> instead of a
+    /// number, because a budget written into the text and a budget enforced by the profile disagree for every
+    /// checkpoint whose profile is not 800 (Qwen-Image-2.1 declares 3400). This is the ONE place the text is resolved
+    /// against <c>ImageCompilerProfile.MaxChars</c>, immediately before it is handed to the model. A text with no token
+    /// is returned untouched; a text WITH a token and no profile is refused by name rather than reaching the model with
+    /// a placeholder in it.
+    /// </remarks>
+    private async Task<string> ResolvePromptBudgetAsync(
+        string systemPrompt,
+        ResolvedImageModel resolvedImageModel,
+        CancellationToken cancellationToken)
+    {
+        if (!SceneImageCompilerSystemPrompts.HasBudget(systemPrompt))
+        {
+            return systemPrompt;
+        }
+
+        var profile = await _compilerProfiles.ResolveAsync(resolvedImageModel, cancellationToken);
+        return SceneImageCompilerSystemPrompts.ApplyBudget(systemPrompt, profile.MaxChars);
     }
 
     /// <summary>
@@ -866,6 +952,65 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         }
 
         return resolved.Count == 0 ? NoCanonicalAppearance : resolved;
+    }
+
+    /// <summary>
+    /// Builds the typed <see cref="PromptPlan"/> and records it BESIDE the prose path (P1 of the holistic pipeline).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Shadow mode on purpose: nothing downstream consumes the plan yet, so this cannot change a render. Its job is to
+    /// make the plan visible on live generations — the composer's inputs, the frame, and every fact the prompt is
+    /// supposed to carry — while the family renderers (P3) are still being written.
+    /// </para>
+    /// <para>
+    /// A plan that cannot be built is recorded as its OWN event with the reason rather than thrown: a diagnostic must not
+    /// be able to fail a render, and a silent skip would hide the defect the plan exists to find.
+    /// </para>
+    /// </remarks>
+    private async Task RecordPromptPlanAsync(
+        SceneImagePromptRecord record,
+        SceneImageProductionGroup group,
+        CompiledMediaBrief brief,
+        SceneImagePovProjection.Projection? projection,
+        SceneBlocking? blocking,
+        ScenePromptOverrides? overrides,
+        CancellationToken cancellationToken)
+    {
+        if (projection is null)
+        {
+            // A User Intent draft has no projection: there is no frame to plan from.
+            return;
+        }
+
+        try
+        {
+            var plan = PromptPlanBuilder.Build(
+                ScenePromptOverridesApplier.ApplyOperatorProjectionEdits(
+                    brief.SemanticInputSnapshotJson, overrides),
+                projection,
+                blocking,
+                overrides);
+
+            await WriteDebugEventAsync("SceneImagePromptPlanBuilt", record.SessionId, record.InteractionId, new
+            {
+                promptRecordId = record.Id,
+                productionGroupId = group.Id,
+                pov = group.Pov,
+                empty = plan.IsEmpty,
+                plan = PromptPlanBuilder.Summarise(plan)
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.Text.Json.JsonException)
+        {
+            await WriteDebugEventAsync("SceneImagePromptPlanFailed", record.SessionId, record.InteractionId, new
+            {
+                promptRecordId = record.Id,
+                productionGroupId = group.Id,
+                pov = group.Pov,
+                error = exception.Message
+            }, cancellationToken);
+        }
     }
 
     private async Task WriteDebugEventAsync<T>(string kind, string sessionId, string interactionId, T metadata, CancellationToken cancellationToken)

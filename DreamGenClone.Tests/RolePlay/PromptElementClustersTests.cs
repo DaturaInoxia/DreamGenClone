@@ -5,25 +5,24 @@ using DreamGenClone.Web.Application.RolePlay.Models;
 namespace DreamGenClone.Tests.RolePlay;
 
 /// <summary>
-/// The editor-side concept clusters, the snapshot de-duplicator, and the explicitness setting that turns a
-/// "fix this in the prompt" into a deterministic change with visible coverage.
+/// The editor-side concept clusters and the explicitness setting that turn a "fix this in the prompt" into a
+/// deterministic change with visible coverage. B-167: the image payload carries one owner per fact, so the cluster
+/// table and <see cref="StillBriefElements"/> are the two halves of the same contract.
 /// </summary>
 public sealed class PromptElementClustersTests
 {
     private const string SnapshotWithDuplicates = """
         {
-          "moment": { "momentId": "m1", "frozenState": "Becky is bent over the workbench in the shaded shed.", "visibleAction": "Dean bends Becky over the workbench." },
+          "moment": { "momentId": "m1", "temporalAnchor": "t1", "compositionRationale": "wide" },
           "frozenState": {
             "location": "Shed behind the trailers",
             "environment": "Shaded shed interior with grit in the air.",
             "lighting": "Bars of slat light; shaded shed interior.",
             "timeOfDay": "Morning",
             "mood": "Hushed",
-            "continuityState": "Becky is bent over the workbench in the shaded shed."
-          },
-          "continuity": {
-            "start": { "location": "Shed behind the trailers", "lighting": "Bars of slat light; shaded shed interior." },
-            "end":   { "location": "Shed behind the trailers", "lighting": "Bars of slat light; shaded shed interior." }
+            "event": { "anchor": "workbench", "line": "Dean bends Becky over the workbench." },
+            "contacts": [ { "from": "p1", "part": "hands", "to": "p0", "targetPart": "hips", "manner": "grip" } ],
+            "characters": [ { "profileKey": "p0", "name": "Becky", "at": { "anchor": "workbench", "posture": "bent forward" }, "facing": { "toward": "the boards" } } ]
           }
         }
         """;
@@ -31,25 +30,21 @@ public sealed class PromptElementClustersTests
     // ---------- clusters ----------
 
     [Fact]
-    public void LightingCluster_EditsAllThreeLightingLeaves()
+    public void LightingCluster_EditsTheSingleSelectedLeaf()
     {
         var cluster = PromptElementClusters.SceneCluster("lighting")!;
 
-        Assert.Equal(
-            ["frozenState.lighting", "continuity.start.lighting", "continuity.end.lighting"],
-            cluster.EditScopes);
+        Assert.Equal(["frozenState.lighting"], cluster.EditScopes);
     }
 
     [Fact]
-    public void LocationCluster_EditsThreeLeavesButRemovesTheWholeRoom()
+    public void LocationCluster_EditsThePlaceAndRemovesTheRoomScopes()
     {
         var cluster = PromptElementClusters.SceneCluster("location")!;
 
-        Assert.Equal(
-            ["frozenState.location", "continuity.start.location", "continuity.end.location"],
-            cluster.EditScopes);
-        // "remove the room" must mean the SAME 18 elements a bound location reference removes.
+        Assert.Equal(["frozenState.location"], cluster.EditScopes);
         Assert.Equal(StepPromptElementPlan.LocationScopes, cluster.EffectiveRemoveScopes);
+        Assert.Contains("frozenState.location", cluster.EffectiveRemoveScopes);
     }
 
     [Fact]
@@ -61,14 +56,32 @@ public sealed class PromptElementClustersTests
     }
 
     [Fact]
-    public void VisualDescriptionCluster_AddressesTheFrozenStateLeaf()
+    public void WorldFactClusters_AddressTheV4Leaves()
     {
-        // The whole-event prose lives at frozenState.visualDescription, NOT moment.visualDescription — keying it wrong
-        // once produced a box that was always empty and wrote a property nothing read (reported 2026-10-22).
-        var cluster = PromptElementClusters.SceneCluster("visualDescription")!;
+        Assert.Equal(["frozenState.event.line"], PromptElementClusters.SceneCluster("eventLine")!.EditScopes);
+        Assert.Equal(["frozenState.contacts"], PromptElementClusters.SceneCluster("contacts")!.EditScopes);
+        Assert.Equal(["character:p0.at.anchor"], PromptElementClusters.ScopesFor(PromptElementClusters.CharacterCluster("atAnchor")!, "p0"));
+        Assert.Equal(["character:p0.at.posture"], PromptElementClusters.ScopesFor(PromptElementClusters.CharacterCluster("atPosture")!, "p0"));
+        Assert.Equal(["character:p0.facing.toward"], PromptElementClusters.ScopesFor(PromptElementClusters.CharacterCluster("facing")!, "p0"));
+    }
 
-        Assert.Equal(["frozenState.visualDescription"], cluster.EditScopes);
-        Assert.DoesNotContain(cluster.EditScopes, scope => scope.Contains("moment.visualDescription", StringComparison.Ordinal));
+    [Fact]
+    public void DroppedRestatements_HaveNoCluster()
+    {
+        // B-167 D2: the four duplicate prose rows are gone, and their element keys are not selectable at all.
+        foreach (var key in (string[])["visualDescription", "momentProse", "visibleAction", "continuityState"])
+        {
+            Assert.Null(PromptElementClusters.SceneCluster(key));
+        }
+
+        foreach (var key in (string[])
+        [
+            "moment.frozenState", "moment.visibleAction", "frozenState.visualDescription",
+            "frozenState.continuityState", "continuity.start.stateSummary"
+        ])
+        {
+            Assert.Throws<InvalidOperationException>(() => StillBriefElements.RequireSelectable(key));
+        }
     }
 
     [Fact]
@@ -78,12 +91,6 @@ public sealed class PromptElementClustersTests
 
         Assert.Equal(["scene.objects"], cluster.EditScopes);
         Assert.Equal("frozenState.objects", cluster.ReadPath);
-    }
-
-    [Fact]
-    public void MomentProseCluster_AddressesMomentFrozenState()
-    {
-        Assert.Equal(["moment.frozenState"], PromptElementClusters.SceneCluster("momentProse")!.EditScopes);
     }
 
     [Fact]
@@ -102,53 +109,59 @@ public sealed class PromptElementClustersTests
         Assert.Equal(PromptElementConsumer.DeterministicFrame, cluster.Consumer);
     }
 
-    // ---------- de-duplication ----------
+    // ---------- element selection ----------
 
     [Fact]
-    public void DeDuplicate_CollapsesTheMomentContinuityCopy()
+    public void EveryClusterScope_IsSelectableInTheImageBrief()
     {
-        var result = SemanticSnapshotDeDuplicator.DeDuplicate(SnapshotWithDuplicates);
+        foreach (var cluster in PromptElementClusters.Scene)
+            foreach (var scope in cluster.EditScopes)
+                StillBriefElements.RequireSelectable(scope);
 
-        var root = System.Text.Json.Nodes.JsonNode.Parse(result)!.AsObject();
-        // The byte-identical global continuity-state copy is dropped; the moment's own prose (the owner) survives.
-        Assert.Null(root["frozenState"]!["continuityState"]);
-        Assert.Equal("Becky is bent over the workbench in the shaded shed.", root["moment"]!["frozenState"]!.GetValue<string>());
-        // The frozen location/lighting survive once, and their byte-identical continuity copies are removed.
-        var continuity = root["continuity"]!.AsObject();
-        Assert.Null(continuity["start"]!["location"]);
-        Assert.Null(continuity["start"]!["lighting"]);
-        Assert.Null(continuity["end"]!["location"]);
-        Assert.Null(continuity["end"]!["lighting"]);
-        // The owners stay.
-        Assert.Equal("Shed behind the trailers", root["frozenState"]!["location"]!.GetValue<string>());
-        Assert.Equal("Bars of slat light; shaded shed interior.", root["frozenState"]!["lighting"]!.GetValue<string>());
-        // The whole-event prose stays — it is not byte-identical to anything.
-        Assert.Equal("Shaded shed interior with grit in the air.", root["frozenState"]!["environment"]!.GetValue<string>());
+        foreach (var cluster in PromptElementClusters.Character)
+            foreach (var scope in PromptElementClusters.ScopesFor(cluster, "p0"))
+                StillBriefElements.RequireSelectable(scope);
     }
 
     [Fact]
-    public void DeDuplicate_KeepsADivergedCopy()
+    public void ContactsEdit_IsWrittenBackInTheSameFormatItIsShown()
     {
-        // When the operator made one copy differ, only still-identical copies collapse.
-        var root = System.Text.Json.Nodes.JsonNode.Parse(SnapshotWithDuplicates)!.AsObject();
-        root["continuity"]!["start"]!["lighting"] = "Bars of slat light; shaded shed interior."; // identical -> collapses
-        root["continuity"]!["end"]!["lighting"] = "Full darkness."; // diverged -> survives
+        var payload = ScenePromptOverridesApplier.ApplySnapshot(
+            SnapshotWithDuplicates,
+            new ScenePromptOverrides
+            {
+                Fields =
+                [
+                    new ScenePromptFieldOverride
+                    {
+                        ElementKey = "frozenState.contacts",
+                        Value = "p1|hands|p0|waist|press\np0|back|p1|chest|lean"
+                    }
+                ]
+            });
 
-        var result = System.Text.Json.Nodes.JsonNode.Parse(
-            SemanticSnapshotDeDuplicator.DeDuplicate(root.ToJsonString()))!.AsObject();
-
-        Assert.Null(result["continuity"]!["start"]!["lighting"]);
-        Assert.Equal("Full darkness.", result["continuity"]!["end"]!["lighting"]!.GetValue<string>());
-        // The owner and its still-identical continuity copies behave as before.
-        Assert.Equal("Bars of slat light; shaded shed interior.", result["frozenState"]!["lighting"]!.GetValue<string>());
-        Assert.Null(result["continuity"]!["start"]!["location"]);
+        var root = System.Text.Json.Nodes.JsonNode.Parse(payload.SnapshotJson)!.AsObject();
+        var contacts = root["frozenState"]!["contacts"]!.AsArray();
+        Assert.Equal(2, contacts.Count);
+        Assert.Equal("waist", contacts[0]!["targetPart"]!.GetValue<string>());
+        Assert.Equal("press", contacts[0]!["manner"]!.GetValue<string>());
     }
 
     [Fact]
-    public void DeDuplicate_UnreadableJsonReturnsInputUnchanged()
+    public void WorldFactEdit_CreatesANestedLeafOnAV3Brief()
     {
-        const string broken = "{ not json";
-        Assert.Equal(broken, SemanticSnapshotDeDuplicator.DeDuplicate(broken));
+        var payload = ScenePromptOverridesApplier.ApplySnapshot(
+            SnapshotWithDuplicates,
+            new ScenePromptOverrides
+            {
+                Fields =
+                [
+                    new ScenePromptFieldOverride { ElementKey = "character:p0.facing.toward", Value = "p1" }
+                ]
+            });
+
+        var root = System.Text.Json.Nodes.JsonNode.Parse(payload.SnapshotJson)!.AsObject();
+        Assert.Equal("p1", root["frozenState"]!["characters"]![0]!["facing"]!["toward"]!.GetValue<string>());
     }
 
     // ---------- explicitness ----------

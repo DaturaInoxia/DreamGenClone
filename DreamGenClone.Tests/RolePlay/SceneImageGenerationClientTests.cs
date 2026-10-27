@@ -138,15 +138,18 @@ public sealed class SceneImageGenerationClientTests
     }
 
     [Fact]
-    public async Task CheckImageModelHealthAsync_Success_ProbesImagePath()
+    public async Task CheckImageModelHealthAsync_ListsModel_AndNeverGenerates()
     {
-        var captured = new List<JsonElement>();
+        var requests = new List<HttpRequestMessage>();
         var client = BuildClient(req =>
         {
-            captured.Add(JsonSerializer.Deserialize<JsonElement>(req.Content!.ReadAsStringAsync().GetAwaiter().GetResult()));
+            requests.Add(req);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(JsonSerializer.Serialize(new { data = new[] { new { b64_json = Convert.ToBase64String(new byte[] { 1 }) } } }))
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    data = new[] { new { id = "ByteDance-Seed/Seedream-4.0" }, new { id = "black-forest-labs/FLUX.1.1-pro" } }
+                }))
             };
         });
 
@@ -155,23 +158,25 @@ public sealed class SceneImageGenerationClientTests
             "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
 
         Assert.True(success);
-        Assert.Equal(3, captured.Count);
-        Assert.Equal("ByteDance-Seed/Seedream-4.0", captured[0].GetProperty("model").GetString());
-        Assert.Equal("base64", captured[0].GetProperty("response_format").GetString());
-        Assert.False(captured[0].TryGetProperty("negative_prompt", out _));
-        Assert.False(captured[0].TryGetProperty("disable_safety_checker", out _));
-        Assert.Equal("blurry, distorted, extra fingers", captured[1].GetProperty("negative_prompt").GetString());
-        Assert.False(captured[1].TryGetProperty("disable_safety_checker", out _));
-        Assert.True(captured[2].GetProperty("disable_safety_checker").GetBoolean());
-        Assert.False(captured[2].TryGetProperty("negative_prompt", out _));
+        Assert.Contains("No image was generated", message);
+        Assert.All(requests, r => Assert.Equal(HttpMethod.Get, r.Method));
+        Assert.Single(requests);
+        Assert.Equal("https://api.together.ai/v1/models", requests[0].RequestUri!.ToString());
+        Assert.Equal("Bearer", requests[0].Headers.Authorization?.Scheme);
+        Assert.Equal("sekret", requests[0].Headers.Authorization?.Parameter);
     }
 
     [Fact]
-    public async Task CheckImageModelHealthAsync_HttpError_ReturnsFailure()
+    public async Task CheckImageModelHealthAsync_KeyRejected_ReturnsFailureWithoutGenerating()
     {
-        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        var requests = new List<HttpRequestMessage>();
+        var client = BuildClient(req =>
         {
-            Content = new StringContent("{\"error\":\"bad\"}")
+            requests.Add(req);
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("{\"error\":\"invalid key\"}")
+            };
         });
 
         var (success, message) = await client.CheckImageModelHealthAsync(
@@ -179,6 +184,38 @@ public sealed class SceneImageGenerationClientTests
             "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
 
         Assert.False(success);
-        Assert.Contains("400", message);
+        Assert.Contains("rejected", message, StringComparison.OrdinalIgnoreCase);
+        Assert.All(requests, r => Assert.Equal(HttpMethod.Get, r.Method));
+    }
+
+    [Fact]
+    public async Task CheckImageModelHealthAsync_ModelNotListed_ReturnsFailure()
+    {
+        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(new { data = new[] { new { id = "black-forest-labs/FLUX.1.1-pro" } } }))
+        });
+
+        var (success, message) = await client.CheckImageModelHealthAsync(
+            "https://api.together.ai", "/v1/images/generations", 30, "sekret",
+            "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
+
+        Assert.False(success);
+        Assert.Contains("not in the provider's model list", message);
+    }
+
+    [Fact]
+    public async Task CheckImageModelHealthAsync_NoListingEndpoint_ReportsReachableButUnverified()
+    {
+        var client = BuildClient(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+
+        var (success, message) = await client.CheckImageModelHealthAsync(
+            "https://api.together.ai", "/v1/images/generations", 30, "sekret",
+            "ByteDance-Seed/Seedream-4.0", ImageContentPolicy.AdultAllowed, CancellationToken.None);
+
+        // Reachable, but the key cannot be proven without generating, so the check says so instead of billing.
+        Assert.True(success);
+        Assert.Contains("No image was generated", message);
+        Assert.Contains("unverified", message);
     }
 }

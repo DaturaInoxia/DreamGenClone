@@ -72,8 +72,12 @@ public sealed class ImageCellPromptCompilerTests
 
         var result = await compiler.CompileAsync(Input(profile: profile));
 
-        Assert.Equal(profile.SystemPrompt, result.SystemPrompt);
-        Assert.Equal(profile.SystemPrompt, client.SystemPrompt);
+        // B-167: the profile's instruction text carries the budget as a token, and the compiler resolves it from THAT
+        // profile's MaxChars. Equality with the raw profile text would now assert an unresolved placeholder reached the
+        // model, which is the defect the token exists to make impossible.
+        var expected = SceneImageCompilerSystemPrompts.ApplyBudget(profile.SystemPrompt, profile.MaxChars);
+        Assert.Equal(expected, result.SystemPrompt);
+        Assert.Equal(expected, client.SystemPrompt);
     }
 
     [Fact]

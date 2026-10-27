@@ -33,9 +33,6 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
     /// </summary>
     public const int OutputPromptMaxChars = 4000;
 
-    /// <summary>Kept as the builder's name for the shared target so no caller has to know where it lives (B-135).</summary>
-    public const int OutputPromptTargetChars = SceneImageCompilerSystemPrompts.OutputTargetChars;
-
     /// <summary>
     /// The standing rules appended to every natural-language family's canonical system prompt.
     ///
@@ -93,8 +90,15 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
     /// <summary>The beat-path system prompt for this builder's family (story prose in).</summary>
     protected abstract string BuildSystemPrompt();
 
-    /// <summary>The canonical-brief-path system prompt for this builder's family (immutable Still brief in).</summary>
-    protected abstract string BuildCanonicalSystemPrompt();
+    /// <summary>
+    /// The canonical-brief-path system prompt for this builder's family (immutable Still brief in).
+    /// </summary>
+    /// <param name="coverage">
+    /// The element classes the bound images already supply. A family whose documented contract demands a full
+    /// description must switch to its anchored form when images carry part of the picture, or it invents the rest
+    /// (measured 2026-10-25, SceneImage 3ade4908).
+    /// </param>
+    protected abstract string BuildCanonicalSystemPrompt(IntentReferenceCoverage coverage);
 
     public (string SystemPrompt, string UserPrompt) BuildMessages(
         CompiledMediaBrief brief,
@@ -124,7 +128,8 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         if (string.IsNullOrWhiteSpace(pov))
             throw new InvalidOperationException("Canonical scene-image prompt generation requires the production group POV.");
 
-        var systemPrompt = BuildCanonicalSystemPrompt() + CanonicalAuthorityRules
+        var systemPrompt = BuildCanonicalSystemPrompt(
+            CoverageOf(referenceBindings, ReferenceBindingPromptRemoval.Derive(referenceBindings))) + CanonicalAuthorityRules
             + SceneImagePovProjection.PovSystemRule(povProjection)
             + (povProjection?.SceneSuppliedByReference == true ? SceneImagePovProjection.ReferenceSuppliedRoomRule : string.Empty);
         var userPrompt = BuildCanonicalUserPrompt(brief, pov, settings, resolvedPolicy, refineInstruction, characters, appearanceOverrides, canonicalAppearance, effectiveOverrides, referenceBindings, povProjection, appearanceElementOverrides);
@@ -256,7 +261,10 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
 
             switch (name)
             {
-                case "location" or "environment" or "lighting":
+                // The ROOM's own structure is what a location reference supplies; environment and lighting are not
+                // removed for it any more (operator decision 2026-10-25), so they must not mark the class supplied
+                // either — a class this reports as covered is a class the intent contract forbids the operator to state.
+                case "location":
                     setting = true;
                     break;
                 case "appearance":
@@ -295,7 +303,7 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
     /// characters) forces the compiler to write the room, the outfit and the objects no matter what else it is told —
     /// measured on SceneImage f74058d3, 2026-10-18.
     /// </remarks>
-    protected virtual string BuildIntentSystemPrompt(IntentReferenceCoverage coverage) => BuildCanonicalSystemPrompt();
+    protected virtual string BuildIntentSystemPrompt(IntentReferenceCoverage coverage) => BuildCanonicalSystemPrompt(coverage);
 
     /// <summary>
     /// States which elements the reference images OWN, so the compiler does not write them.
@@ -522,6 +530,13 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
 
         prompt = SceneImagePromptRefusal.EnsureIsPrompt(prompt);
 
+        // B-167: a caption is ONE paragraph. A model that hard-wraps its answer, or answers one sentence per line, is
+        // producing the right content in a shape the image model does not care about — newlines carry no meaning in an
+        // image prompt — so the shape is normalised here rather than refused. A genuine LIST (bullets, numbering) or a
+        // per-person element recap is still detected and refused by ValidateCaptionShape, because those are content
+        // defects, not wrapping.
+        prompt = CollapseToSingleParagraph(prompt);
+
         if (prompt.Length > OutputPromptMaxChars)
         {
             throw new InvalidOperationException(
@@ -530,6 +545,17 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
 
         return new SceneImagePreprocessorResult(prompt, excerpt);
     }
+
+    /// <summary>
+    /// Collapses a produced caption to a single paragraph: every newline becomes a space and whitespace runs are
+    /// squeezed. Lossless — an image prompt's meaning does not include its line breaks — and it is what makes a
+    /// hard-wrapped answer acceptable instead of a refused render.
+    /// </summary>
+    internal static string CollapseToSingleParagraph(string prompt)
+        => System.Text.RegularExpressions.Regex.Replace(
+            prompt.Replace("\r\n", " ", StringComparison.Ordinal).Replace('\r', ' ').Replace('\n', ' '),
+            @"\s{2,}",
+            " ").Trim();
 
     private static string BuildCanonicalUserPrompt(
         CompiledMediaBrief brief,
@@ -561,16 +587,19 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         var omniscientLean = string.Equals(pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
             ? blocking?.Camera.OmniscientShotSize
             : null;
+        var omniscientAngle = string.Equals(pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase)
+            ? settings.OmniscientAngle
+            : null;
         var effectiveBlocking = blocking is null
             ? null
-            : SceneBlockingResolver.ApplyForPrompt(blocking, settings.SceneBlockingOverride, omniscientLean);
+            : SceneBlockingResolver.ApplyForPrompt(blocking, settings.SceneBlockingOverride, omniscientLean, omniscientAngle);
         // POV is a FRAMING dimension (CR-006 P5): the brief stays POV-independent and this projection states the frame
         // this POV actually sees. The caller resolves it from the COMPILED brief (this `brief` may already have had
         // elements removed by overrides/bindings); a direct caller with no compiled brief gets it resolved here.
         var projection = povProjection ?? SceneImagePovProjection.Resolve(
             brief, pov, effectiveBlocking, operatorCamera: settings.SceneBlockingOverride?.Camera,
             cameraHolderPartsMode: settings.CameraHolderParts, cameraHolderPartsText: settings.CameraHolderPartsText);
-        sb.AppendLine("CANONICAL STILL BRIEF (the complete semantic source for this request):");
+        sb.AppendLine("CANONICAL STILL BRIEF (the selected facts this request must realize):");
         // A reference-supplied room also drops the frame rationale: it is prose ABOUT the room ("barred slat light and
         // the workbench giving a gritty still composition") and the compiler echoes it as room description. The frame
         // itself — camera and placements — is untouched.
@@ -593,11 +622,13 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
             briefJson = SceneImagePovProjection.DropViewpoint(
                 briefJson, projection.UnseenViewpointProfileKey, OperatorEditedMembers(effectiveOverrides));
         }
-        // The snapshot restates the same sentence across several leaves (the moment's frozen-state line IS the global
-        // continuity state; the frozen location/lighting are copied into both continuity blocks). Collapsing the
-        // verbatim copies here is what keeps the compiler from expanding one fact three ways — an operator override
-        // that made the copies differ is already applied, so only still-identical copies are collapsed.
-        sb.AppendLine(SemanticSnapshotDeDuplicator.DeDuplicate(briefJson));
+        // B-167 Part B: the compiler is handed LABELLED FACTS, not the raw snapshot. A fact sheet states each fact once
+        // and marks an operator-edited value as intent to translate, which is what stops it being copied back.
+        sb.AppendLine(StillBriefFactSheet.Render(
+            briefJson,
+            effectiveOverrides,
+            projection.UnseenViewpointProfileKey,
+            ParticipantNames.FromProjection(projection)));
         var appearanceBlock = BuildCanonicalCharacterAppearanceBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance, appearanceElementOverrides);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
@@ -607,8 +638,9 @@ public abstract class NaturalLanguageSceneImagePromptBuilder : ISceneImageLLMPro
         // A participant POV is a CAMERA, so its name is never put in front of the compiler. It used to read
         // "PRODUCTION POV: Becky", and the model copied that name straight into the caption ("as seen by Becky"),
         // failing the contract twice in a row (record f5a2a9df, 2026-10-22). The SHOT block below already states the
-        // frame; a name adds nothing a render can use.
-        sb.AppendLine(povProjection is { IsOmniscient: false }
+        // frame; a name adds nothing a render can use. The locally resolved projection decides this, not the optional
+        // parameter: a caller that lets this method resolve the frame gets the same name-free line.
+        sb.AppendLine(projection is { IsOmniscient: false }
             ? "PRODUCTION POV: a participant standing in the scene — that person IS the camera and is never in the picture."
             : $"PRODUCTION POV: {pov}");
         sb.AppendLine(projection.ToPromptText());

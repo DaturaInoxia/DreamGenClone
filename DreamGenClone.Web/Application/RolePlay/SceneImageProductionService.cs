@@ -330,7 +330,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
                 // frame at all, so nothing downstream can name a reference by position; leaving the version at 1 would
                 // make IsExactStillBrief keep returning that old brief forever and the whole feature would stay inert
                 // for every production group created before it. Bumping the version is what retires them.
-                "canonical-still", "2", MediaProductionKind.StillImage,
+                "canonical-still", "3", MediaProductionKind.StillImage,
                 "canonical", "deterministic", "1", capabilities, "canonical-request-v1"),
             null,
             [],
@@ -346,7 +346,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         return brief.MediaKind == MediaProductionKind.StillImage
             && brief.Status == MediaCompilerStatus.Complete
             && string.Equals(brief.TargetProfileId, "canonical-still", StringComparison.Ordinal)
-            && string.Equals(brief.TargetProfileVersion, "2", StringComparison.Ordinal)
+            && string.Equals(brief.TargetProfileVersion, "3", StringComparison.Ordinal)
             && string.Equals(brief.FamilyKey, "canonical", StringComparison.Ordinal)
             && string.Equals(brief.CompilerKey, "deterministic", StringComparison.Ordinal)
             && string.Equals(brief.CompilerVersion, "1", StringComparison.Ordinal)
@@ -471,10 +471,16 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             cancellationToken);
     }
 
-    public Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(
+    public async Task<IReadOnlyList<SceneImageRecord>> ListAttemptsAsync(
         string groupId,
         CancellationToken cancellationToken = default)
-        => _imageRepository.ListImagesByProductionGroupAsync(groupId, cancellationToken);    public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(
+    {
+        var group = await _productionRepository.GetAsync(groupId, cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
+        return await _imageRepository.ListImagesByProductionGroupAsync(group, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<ApprovedSceneFrameDecision>> ListApprovalDecisionsAsync(
         string groupId,
         CancellationToken cancellationToken = default)
         => _productionRepository.ListApprovalDecisionsAsync(groupId, cancellationToken);
@@ -490,7 +496,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
             ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
         await _sessionGuard.RequireCurrentAsync(group.SessionId, cancellationToken);
         var changed = await _imageRepository.TrySetDispositionAsync(
-            imageId, groupId, expectedDisposition, nextDisposition, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+            group, imageId, expectedDisposition, nextDisposition, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
         if (!changed)
         {
             throw new InvalidOperationException(
@@ -610,7 +616,7 @@ public sealed class SceneImageProductionService : ISceneImageProductionService
         var image = await _imageRepository.GetImageAsync(decision.SceneImageId, cancellationToken)
             ?? throw new InvalidOperationException($"Approved scene image '{decision.SceneImageId}' was not found.");
         if (image.Status != SceneImageStatus.Complete
-            || !string.Equals(image.ProductionGroupId, group.Id, StringComparison.Ordinal)
+            || !SceneImageGroupMembership.Contains(group, image)
             || string.IsNullOrWhiteSpace(image.FileRelativePath)
             || string.IsNullOrWhiteSpace(image.Sha256)
             || !string.Equals(image.Sha256, decision.Sha256, StringComparison.Ordinal))

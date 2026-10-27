@@ -80,7 +80,7 @@ public sealed class IntentPromptReferenceOwnershipTests
             StringComparison.Ordinal);
         Assert.Contains("- <image2> supplies p0's clothing.", userPrompt, StringComparison.Ordinal);
         Assert.Contains(
-            "- <image3> supplies the setting — its structure, surfaces and objects; the surroundings; the lighting; the objects and props; the visual description; the global continuity state; the moment continuity line; the composition rationale; the continuity character states; the continuity summary.",
+            "- <image3> supplies the setting — its structure, surfaces and objects; the objects and props; the composition rationale.",
             userPrompt,
             StringComparison.Ordinal);
     }
@@ -123,7 +123,7 @@ public sealed class IntentPromptReferenceOwnershipTests
 
         Assert.Contains("Do NOT describe these in words", userPrompt, StringComparison.Ordinal);
         Assert.Contains(
-            "- <image3> supplies the setting — its structure, surfaces and objects; the surroundings; the lighting; the objects and props; the visual description; the global continuity state; the moment continuity line; the composition rationale; the continuity character states; the continuity summary.",
+            "- <image3> supplies the setting — its structure, surfaces and objects; the objects and props; the composition rationale.",
             userPrompt,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -141,7 +141,7 @@ public sealed class IntentPromptReferenceOwnershipTests
         var (systemPrompt, _) = Build(FailingRenderBindings());
 
         Assert.Contains("ACTION ONLY", systemPrompt, StringComparison.Ordinal);
-        Assert.Contains("DO NOT DESCRIBE THE SETTING", systemPrompt, StringComparison.Ordinal);
+        Assert.Contains("DO NOT DESCRIBE THE ROOM'S STRUCTURE", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("DO NOT DESCRIBE CLOTHING OR NUDITY", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("40 to 120 words", systemPrompt, StringComparison.Ordinal);
 
@@ -173,7 +173,7 @@ public sealed class IntentPromptReferenceOwnershipTests
         var (systemPrompt, userPrompt) = Build([]);
 
         Assert.DoesNotContain("ACTION ONLY", systemPrompt, StringComparison.Ordinal);
-        Assert.Contains("canonical Still brief", systemPrompt, StringComparison.Ordinal);
+        Assert.Contains("ONE continuous paragraph", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("400-500 words", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("Reference images: none. This render is text-only.", userPrompt, StringComparison.Ordinal);
     }
@@ -292,7 +292,7 @@ public sealed class IntentPromptReferenceOwnershipTests
         Assert.DoesNotContain("DO NOT DESCRIBE CLOTHING OR NUDITY", systemPrompt, StringComparison.Ordinal);
 
         // The classes that ARE supplied keep their rules.
-        Assert.Contains("DO NOT DESCRIBE THE SETTING", systemPrompt, StringComparison.Ordinal);
+        Assert.Contains("DO NOT DESCRIBE THE ROOM'S STRUCTURE", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("DO NOT DESCRIBE APPEARANCE", systemPrompt, StringComparison.Ordinal);
     }
 
@@ -325,7 +325,7 @@ public sealed class IntentPromptReferenceOwnershipTests
 
         var (systemPrompt, _) = Build(bindings);
 
-        Assert.Contains("DO NOT DESCRIBE THE SETTING", systemPrompt, StringComparison.Ordinal);
+        Assert.Contains("DO NOT DESCRIBE THE ROOM'S STRUCTURE", systemPrompt, StringComparison.Ordinal);
         Assert.DoesNotContain("DO NOT DESCRIBE APPEARANCE", systemPrompt, StringComparison.Ordinal);
         Assert.DoesNotContain("DO NOT DESCRIBE CLOTHING OR NUDITY", systemPrompt, StringComparison.Ordinal);
         Assert.Contains("STATE THE CLOTHING STATE", systemPrompt, StringComparison.Ordinal);

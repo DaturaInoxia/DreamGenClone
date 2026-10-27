@@ -1,0 +1,247 @@
+/* ─── Function Defaults table ──────────────────────────────────────────────
+   Nine columns of controls cannot share a narrow card at their natural widths:
+   Bootstrap's auto table layout lets every control claim its intrinsic width,
+   which pushes the Save column past the right edge of the card. A fixed layout
+   makes the columns share the available width, so Save is always on screen.
+   Below the XL breakpoint the table reflows into stacked, labelled rows; the
+   table never scrolls horizontally and every control stays reachable. */
+
+.model-defaults-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+}
+
+.model-defaults-table .col-function { width: 16%; }
+.model-defaults-table .col-model { width: 17%; }
+.model-defaults-table .col-temperature { width: 11%; }
+.model-defaults-table .col-top-p { width: 8%; }
+.model-defaults-table .col-max-tokens { width: 10%; }
+.model-defaults-table .col-thinking { width: 12%; }
+.model-defaults-table .col-repetition { width: 9%; }
+.model-defaults-table .col-parallel { width: 8%; }
+.model-defaults-table .col-actions { width: 9%; }
+
+.model-defaults-table th,
+.model-defaults-table .col-function strong {
+    overflow-wrap: anywhere;
+}
+
+/* Fixed layout ignores intrinsic control widths, so let controls fill their
+   column instead of forcing the table wider than the card. */
+.model-defaults-table .form-control,
+.model-defaults-table .form-select {
+    width: 100%;
+    min-width: 0;
+}
+
+.model-defaults-table .col-actions .btn {
+    white-space: nowrap;
+}
+
+/* The durable-job detail cell draws a Bootstrap grid inside a table cell; its
+   negative gutter margin pushes past the cell and creates a phantom scrollbar. */
+.model-defaults-table td.col-details .row {
+    margin-right: 0;
+}
+
+/* ─── Model picker ─────────────────────────────────────────────────────────
+   A native <select> shows its selected option on one clipped line. This
+   picker keeps the same one-click disclosure behaviour (native <details>) but
+   renders the selected model name as wrapping text, so the full name is
+   readable however long it is. */
+
+.model-picker {
+    min-width: 0;
+}
+
+.model-picker > summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    min-height: calc(1.5em + 0.5rem + 2px);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--bs-body-color);
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius-sm);
+    cursor: pointer;
+    list-style: none;
+    overflow-wrap: anywhere;
+}
+
+.model-picker > summary::-webkit-details-marker,
+.model-picker > summary::marker {
+    display: none;
+    content: "";
+}
+
+.model-picker > summary:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem var(--dgc-accent-dim);
+}
+
+.model-picker[open] > summary {
+    border-color: var(--dgc-accent);
+}
+
+.model-picker-name {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.model-picker > summary .bi {
+    flex: none;
+    margin-top: 0.15rem;
+    transition: transform 0.15s ease;
+}
+
+.model-picker[open] > summary .bi {
+    transform: rotate(180deg);
+}
+
+.model-picker-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    max-height: 18rem;
+    margin-top: 0.25rem;
+    padding: 0.25rem;
+    overflow-y: auto;
+    background: var(--dgc-bg-elevated);
+    border: 1px solid var(--dgc-border);
+    border-radius: 0.35rem;
+}
+
+.model-picker-group {
+    padding: 0.3rem 0.4rem 0.1rem;
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dgc-text-muted);
+}
+
+.model-picker-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    text-align: left;
+    color: var(--dgc-text);
+    overflow-wrap: anywhere;
+    background: none;
+    border: 0;
+    border-radius: 0.25rem;
+}
+
+.model-picker-option:hover,
+.model-picker-option:focus-visible {
+    color: #fff;
+    background: var(--dgc-accent-dim);
+}
+
+.model-picker-option.is-selected {
+    color: var(--dgc-accent);
+}
+
+.model-picker-option .bi {
+    flex: none;
+    margin-top: 0.1rem;
+    margin-left: auto;
+}
+
+@media (max-width: 1199.98px) {
+    .model-defaults-table {
+        table-layout: auto;
+    }
+
+    .model-defaults-table .col-function,
+    .model-defaults-table .col-model,
+    .model-defaults-table .col-temperature,
+    .model-defaults-table .col-top-p,
+    .model-defaults-table .col-max-tokens,
+    .model-defaults-table .col-thinking,
+    .model-defaults-table .col-repetition,
+    .model-defaults-table .col-parallel,
+    .model-defaults-table .col-actions {
+        width: auto;
+    }
+
+    .model-defaults-table thead {
+        display: none;
+    }
+
+    .model-defaults-table tbody tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.15rem 1rem;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid var(--dgc-border);
+    }
+
+    .model-defaults-table tbody tr:last-child {
+        border-bottom: 0;
+    }
+
+    .model-defaults-table tbody td {
+        display: grid;
+        grid-template-columns: 7rem minmax(0, 1fr);
+        align-items: center;
+        gap: 0.5rem;
+        border: 0;
+        padding: 0.2rem 0;
+    }
+
+    .model-defaults-table tbody td.col-function,
+    .model-defaults-table tbody td.col-model,
+    .model-defaults-table tbody td.col-actions,
+    .model-defaults-table tbody td.col-details {
+        grid-column: 1 / -1;
+    }
+
+    .model-defaults-table tbody td::before {
+        content: attr(data-label);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--dgc-text-muted);
+    }
+
+    .model-defaults-table tbody td.col-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.35rem;
+        padding-top: 0.4rem;
+    }
+
+    .model-defaults-table tbody td.col-actions::before,
+    .model-defaults-table tbody td.col-details::before {
+        content: none;
+    }
+
+    .model-defaults-table tbody td.col-actions .form-text {
+        flex-basis: 100%;
+        text-align: right;
+    }
+
+    .model-defaults-table tbody td.col-details {
+        display: block;
+        padding-bottom: 0.25rem;
+    }
+}
+
+@media (max-width: 799.98px) {
+    .model-defaults-table tbody tr {
+        display: block;
+    }
+
+    .model-defaults-table tbody td {
+        grid-template-columns: 8.5rem minmax(0, 1fr);
+    }
+}

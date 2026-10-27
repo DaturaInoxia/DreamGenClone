@@ -85,6 +85,20 @@ When working on pacing, scene tempo, beat advancement, or encounter pacing, read
 - The **phase-default table is all Medium** (`SceneDirectionResolver`) — Climax is NOT Fast; the reference doc's old table was wrong.
 - The `rp-prompt-injection-reference.instructions.md` doc describes the pre-redesign injector architecture and has been corrected (see its warning banner).
 
+## Hosted Model Behaviour and Configuration
+
+When changing model resolution, thinking control, Prompt Tester, Model Manager defaults, or anything that decides
+which hosted model runs, read [`.github/instructions/model-evaluation.instructions.md`](instructions/model-evaluation.instructions.md).
+It records the verified 2026-10 sweep across Together AI and DeepSeek direct: which models write explicit prose and
+which refuse or sanitise, per-model context/output ceilings, the three different thinking-control shapes, and the
+peak/off-peak cost comparison. Full evidence (prompts, samples, runner scripts) is in
+[`specs/model-evaluation/`](../specs/model-evaluation/README.md).
+
+- Thinking control is **provider-specific**: `chat_template_kwargs.thinking` (Together), `thinking: {type}`
+  (DeepSeek direct), `reasoning_effort` (gpt-oss). An ignored parameter looks identical to a working one.
+- `max_tokens`, context and output ceilings are **per model** — a shared default starves reasoning models into
+  empty answers that look like refusals.
+
 
 ## DB Query Tool
 

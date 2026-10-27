@@ -4414,9 +4414,12 @@
         await LoadProductionGroupAsync();
     }
 
+    /// <summary>The group's OWN Studio URL: its session and the interaction that owns it, never the current route's.</summary>
+    private string ProductionGroupUrl(SceneImageProductionGroup group)
+        => $"/roleplay/studio/{group.SessionId}/{group.InteractionId}/production/{group.Id}";
+
     private void ClearProductionState()
-    {
-        _productionGroup = null;
+    {        _productionGroup = null;
         _compiledMediaBrief = null;
         _productionAttempts = [];
         _approvalDecisions = [];
@@ -4493,12 +4496,13 @@
             return;
         }
 
-        _productionGroup = string.IsNullOrWhiteSpace(ActiveProductionGroupId)
+        var group = string.IsNullOrWhiteSpace(ActiveProductionGroupId)
             ? await ProductionService.GetCurrentGroupAsync(_momentEnrichment!.Id, _productionPov)
             : await ProductionService.GetGroupAsync(ActiveProductionGroupId)
                 ?? throw new InvalidOperationException($"Production group '{ActiveProductionGroupId}' was not found.");
-        if (_productionGroup is null)
+        if (group is null)
         {
+            _productionGroup = null;
             _compiledMediaBrief = null;
             _productionAttempts = [];
             _approvalDecisions = [];
@@ -4508,7 +4512,36 @@
             return;
         }
 
-        EnsureProductionGroupMatchesSelection(_productionGroup);
+        // A production group is anchored to the interaction that CREATED it (there is one group per Moment + POV).
+        // The Studio can be opened on any interaction of the same turn, so a group found for this Moment may belong to
+        // a sibling interaction. Binding it here rendered its stage links with THIS route's interaction and the group's
+        // id, and the Composition then refused the pair ("The requested production group does not belong to this Studio
+        // context", reported 2026-10-27). Take the operator to the group's own Studio instead.
+        if (!string.Equals(group.SessionId, sessionId, StringComparison.Ordinal))
+        {
+            ClearProductionState();
+            throw new InvalidOperationException($"Production group '{group.Id}' belongs to another session.");
+        }
+
+        if (!string.Equals(group.InteractionId, interactionId, StringComparison.Ordinal))
+        {
+            ClearProductionState();
+            Nav.NavigateTo(ProductionGroupUrl(group), replace: true);
+            return;
+        }
+
+        _productionGroup = group;
+        try
+        {
+            EnsureProductionGroupMatchesSelection(_productionGroup);
+        }
+        catch
+        {
+            // The guard refused this group for THIS selection: leave nothing behind that could render a stage link
+            // pointing at it, or the page shows a group its own caption says is not selectable.
+            ClearProductionState();
+            throw;
+        }
     _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
     await LoadProductionPromptAsync();
         await LoadProductionIdentityReadinessAsync();
@@ -4526,10 +4559,18 @@
     {
         var group = await ProductionService.GetGroupAsync(groupId)
             ?? throw new InvalidOperationException($"Production group '{groupId}' was not found.");
-        if (!string.Equals(group.SessionId, sessionId, StringComparison.Ordinal)
-            || !string.Equals(group.InteractionId, interactionId, StringComparison.Ordinal))
+        if (!string.Equals(group.SessionId, sessionId, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Production group '{groupId}' does not belong to this RolePlay Studio interaction.");
+            throw new InvalidOperationException($"Production group '{groupId}' does not belong to this RolePlay session.");
+        }
+
+        if (!string.Equals(group.InteractionId, interactionId, StringComparison.Ordinal))
+        {
+            // A pinned-group URL opened under a sibling interaction: the group itself is valid, so send the operator to
+            // the URL where its stage links and renders are consistent instead of refusing the page.
+            ClearProductionState();
+            Nav.NavigateTo(ProductionGroupUrl(group), replace: true);
+            return;
         }
 
         _catalogue = await BeatPipelineService.GetAsync(group.CatalogueId)

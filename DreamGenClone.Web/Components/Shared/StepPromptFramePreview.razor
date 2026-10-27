@@ -1,3 +1,4 @@
+@using DreamGenClone.Domain.ModelManager
 @using DreamGenClone.Domain.RolePlay
 @using DreamGenClone.Web.Application.RolePlay
 @using DreamGenClone.Web.Application.RolePlay.ImageStep
@@ -22,7 +23,7 @@
         roles, blocking: _effectiveBlocking);
     var tagIssues = FinalImagePromptPlanBuilder.PromptTagIssues(Prompt, roles, leadingImages);
     var finalPlan = planIssues.Count == 0 && string.IsNullOrWhiteSpace(_overrideIssue)
-        ? FinalImagePromptPlanBuilder.Build(Prompt, roles, blocking: _effectiveBlocking)
+        ? FinalImagePromptPlanBuilder.Build(Prompt, roles, Family, blocking: _effectiveBlocking)
         : null;
 }
 
@@ -197,6 +198,19 @@ else if (finalPlan is not null && finalPlan.References.Count > 0)
     /// <summary>The prompt the render will start from, before the reference block is appended.</summary>
     [Parameter]
     public string Prompt { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The FAMILY this step will render on, which decides how the trailing camera statement is WORDED.
+    ///
+    /// <para>
+    /// It matters because the families do not read a camera the same way: SDXL/Flux/Qwen are given the shot-size terms
+    /// their vendors document, while Krea 2 was measured to render a framing demand badly and is given a description of
+    /// the viewpoint instead. The preview must use the same wording the render will, or it stops being a preview of
+    /// what is sent. <see cref="SceneImageModelFamily.Unknown"/> (no model chosen yet) takes the documented-terms form.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public SceneImageModelFamily Family { get; set; } = SceneImageModelFamily.Unknown;
 
     /// <summary>
     /// How many images this surface puts BEFORE the references, which decides the first tag (B-159).

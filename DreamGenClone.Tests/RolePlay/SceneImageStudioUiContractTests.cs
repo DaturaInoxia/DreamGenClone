@@ -100,6 +100,21 @@ public sealed class SceneImageStudioUiContractTests
     }
 
     [Fact]
+    public void ProductionStudio_RedirectsAProductionGroupToItsOwnInteraction()
+    {
+        // A group belongs to the interaction that created it; opening the Studio on a sibling interaction must not pair
+        // the group with this route's interaction. That pair 500'd in the Composition Composer (reported 2026-10-27).
+        Assert.Contains("private string ProductionGroupUrl(SceneImageProductionGroup group)", Source, StringComparison.Ordinal);
+        Assert.Contains("Nav.NavigateTo(ProductionGroupUrl(group), replace: true);", Source, StringComparison.Ordinal);
+        Assert.Contains("private string? _canonicalRedirectUrl;", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains("Nav.NavigateTo(url, replace: true);", CompositionComposerSource, StringComparison.Ordinal);
+        Assert.Contains(
+            "$\"/roleplay/studio/{group.SessionId}/{group.InteractionId}/production/{group.Id}/composition\"",
+            CompositionComposerSource,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompletedMomentEnrichment_OpensProductionStudioBeforePovSelection()
     {
         Assert.Contains("@page \"/roleplay/studio/{sessionId}/{interactionId}/production/moment/{momentEnrichmentId}\"", Source, StringComparison.Ordinal);

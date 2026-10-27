@@ -1,3 +1,4 @@
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
 
 namespace DreamGenClone.Web.Application.RolePlay.ImageStep;
@@ -53,6 +54,11 @@ public static class FinalImagePromptPlanBuilder
     /// N = 1 rule): it is described without a number when something is stated about it, and the map shows it under
     /// <see cref="ReferenceRoleClauses.UntaggedImageLabel"/>.
     /// </param>
+    /// <param name="family">
+    /// The family the render will run on. Required, never defaulted: it decides how the camera is WORDED (a demand for
+    /// the families that document shot-size terms, a description of the viewpoint for Krea 2), and a default would
+    /// silently give one family another family's wording.
+    /// </param>
     /// <param name="leadingImages">Source images the model receives before these; 1 for an edit.</param>
     /// <param name="blocking">The brief's frame-space blocking, or null when none was derived.</param>
     /// <param name="maxReferences">
@@ -63,6 +69,7 @@ public static class FinalImagePromptPlanBuilder
     public static FinalImagePromptPlan Build(
         string prompt,
         IReadOnlyList<ReferenceRoleClauses.ReferenceRole>? rolesInSendOrder,
+        SceneImageModelFamily family,
         int leadingImages = ReferenceRoleClauses.LeadingImageCount.Generate,
         SceneBlocking? blocking = null,
         int? maxReferences = null,
@@ -84,7 +91,8 @@ public static class FinalImagePromptPlanBuilder
         // The frame's camera is stated LAST, after the reference block. It used to reach the model only as a JSON field
         // the prompt-writing model might echo, which is how a render framed at one distance came back with everyone at
         // close range (B-161). Stating it here gives the configured framing the same authority the reference roles
-        // already have, and gives depth words a scale to mean something against.
+        // already have, and gives depth words a scale to mean something against. WHICH WORDS it uses is the family's:
+        // SceneCameraStatement owns that, because Krea 2 renders a framing demand badly.
         //
         // ONE camera statement per prompt: a compiled prompt may already carry it (the POV projection states the camera
         // for a participant POV, and the operator's framing is appended deterministically). Appending a second, from the
@@ -92,7 +100,7 @@ public static class FinalImagePromptPlanBuilder
         // bottom line was always the profile's "medium shot" while the control read "close shot".
         var framing = text.Contains(FramingMarker, StringComparison.Ordinal)
             ? string.Empty
-            : SceneFramingClause.LineFor(blocking);
+            : SceneCameraStatement.For(family, blocking);
         if (framing.Length > 0)
         {
             text = $"{text.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{framing}";

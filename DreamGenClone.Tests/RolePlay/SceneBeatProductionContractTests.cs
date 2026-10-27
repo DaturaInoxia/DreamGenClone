@@ -57,6 +57,57 @@ public sealed class SceneBeatProductionContractTests
             .GetProperty("enum").EnumerateArray().Select(item => item.ValueKind == JsonValueKind.Null ? null : item.GetString()).ToArray());
     }
 
+    [Fact]
+    public void CreateResponseSchema_RestrictsEveryParticipantReferenceToProfileKeys()
+    {
+        var properties = SceneBeatProductionContract.CreateResponseSchema(["p0", "p1"]).GetProperty("properties");
+        var dialogue = properties.GetProperty("dialogue").GetProperty("items").GetProperty("properties");
+        var narration = properties.GetProperty("narration").GetProperty("items").GetProperty("properties");
+        var sound = properties.GetProperty("soundEvents").GetProperty("items").GetProperty("properties");
+        var start = properties.GetProperty("startContinuity").GetProperty("properties");
+        var end = properties.GetProperty("endContinuity").GetProperty("properties");
+        var reference = properties.GetProperty("typedReferences").GetProperty("items").GetProperty("properties");
+
+        AssertEnum(dialogue.GetProperty("speakerKey"), ["p0", "p1", null]);
+        AssertEnum(dialogue.GetProperty("performance").GetProperty("properties").GetProperty("speakerKey"), ["p0", "p1", null]);
+        AssertEnum(dialogue.GetProperty("addresseeKeys").GetProperty("items"), ["p0", "p1"]);
+        AssertEnum(narration.GetProperty("speakerKey"), ["p0", "p1", null]);
+        AssertEnum(sound.GetProperty("subjectKey"), ["p0", "p1", null]);
+        AssertEnum(reference.GetProperty("subjectKey"), ["p0", "p1", null]);
+        AssertEnum(start.GetProperty("characterStates").GetProperty("items").GetProperty("properties").GetProperty("key"), ["p0", "p1"]);
+        AssertEnum(start.GetProperty("wardrobeStates").GetProperty("items").GetProperty("properties").GetProperty("key"), ["p0", "p1"]);
+        AssertEnum(end.GetProperty("characterStates").GetProperty("items").GetProperty("properties").GetProperty("key"), ["p0", "p1"]);
+        AssertEnum(end.GetProperty("wardrobeStates").GetProperty("items").GetProperty("properties").GetProperty("key"), ["p0", "p1"]);
+        Assert.Equal("string", start.GetProperty("objectStates").GetProperty("items").GetProperty("properties")
+            .GetProperty("key").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public void PassSchemas_RestrictSpokenSpeakersAndContinuityCharactersToProfileKeys()
+    {
+        var contract = new SceneBeatProductionContract();
+        var snapshot = CreateSnapshot();
+
+        var spoken = contract.BuildSpokenPass(snapshot, "{\"events\":[]}").ResponseSchema.GetProperty("properties");
+        AssertEnum(spoken.GetProperty("dialogue").GetProperty("items").GetProperty("properties").GetProperty("speakerKey"),
+            ["p0", null]);
+        AssertEnum(spoken.GetProperty("narration").GetProperty("items").GetProperty("properties").GetProperty("speakerKey"),
+            ["p0", null]);
+
+        var continuity = contract.BuildContinuityPass(snapshot, "{\"events\":[]}").ResponseSchema.GetProperty("properties")
+            .GetProperty("startContinuity").GetProperty("properties");
+        AssertEnum(continuity.GetProperty("characterStates").GetProperty("items").GetProperty("properties").GetProperty("key"),
+            ["p0"]);
+
+        var soundscape = contract.BuildSoundscapePass(snapshot, "{\"events\":[]}").ResponseSchema.GetProperty("properties");
+        AssertEnum(soundscape.GetProperty("soundEvents").GetProperty("items").GetProperty("properties").GetProperty("subjectKey"),
+            ["p0", null]);
+    }
+
+    private static void AssertEnum(JsonElement schema, string?[] expected)
+        => Assert.Equal(expected, schema.GetProperty("enum").EnumerateArray()
+            .Select(item => item.ValueKind == JsonValueKind.Null ? null : item.GetString()).ToArray());
+
     private static void AssertAllObjectsAreClosed(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)

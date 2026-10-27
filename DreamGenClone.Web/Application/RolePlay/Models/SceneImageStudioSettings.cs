@@ -31,10 +31,13 @@ public enum CameraHolderPartsMode
     /// <summary>Today's behaviour: the camera holder is never depicted.</summary>
     None = 0,
 
-    /// <summary>Derive the visible parts from the moment's recorded facts and the operator's own prose.</summary>
+    /// <summary>Derive the visible parts from the moment's recorded contacts.</summary>
     Derived = 1,
 
-    /// <summary>Use the operator's own text in <c>CameraHolderPartsText</c>.</summary>
+    /// <summary>
+    /// Retired. The parts now come from the moment's recorded <c>contacts</c>; a persisted draft that still selects
+    /// this mode is refused by name rather than silently outranking the recorded facts (B-167 D3).
+    /// </summary>
     Custom = 2
 }
 
@@ -81,15 +84,14 @@ public sealed class SceneImageStudioSettings
 
     /// <summary>
     /// Whether a participant POV shows parts of the camera holder's body in the frame. Defaults to
-    /// <see cref="CameraHolderPartsMode.None"/> (never depicted); Derived extracts the parts from the moment data, and
-    /// Custom uses <see cref="CameraHolderPartsText"/>.
+    /// <see cref="CameraHolderPartsMode.None"/> (never depicted); <see cref="CameraHolderPartsMode.Derived"/> reads the
+    /// parts from the moment's recorded contacts.
     /// </summary>
     public CameraHolderPartsMode CameraHolderParts { get; set; } = CameraHolderPartsMode.None;
 
     /// <summary>
-    /// The operator's own description of the camera holder's visible parts, used when
-    /// <see cref="CameraHolderParts"/> is <see cref="CameraHolderPartsMode.Custom"/> (e.g. "his hands grip her hips,
-    /// his erect penis presses between her thighs"). Required when Custom is chosen.
+    /// Retired with <see cref="CameraHolderPartsMode.Custom"/> (B-167). A non-empty value is refused at projection time
+    /// with a diagnostic naming the retirement, so a persisted draft cannot silently outrank the recorded contacts.
     /// </summary>
     public string? CameraHolderPartsText { get; set; }
 

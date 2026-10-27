@@ -83,7 +83,8 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             resolved = resolved with
             {
                 SupportsThinkingControl = sessionModel.SupportsThinkingControl,
-                ThinkingMode = functionDefault?.ThinkingMode ?? ThinkingMode.Default
+                ThinkingMode = functionDefault?.ThinkingMode ?? ThinkingMode.Default,
+                PresencePenalty = functionDefault?.PresencePenalty
             };
 
             totalStopwatch.Stop();
@@ -142,7 +143,8 @@ public sealed class ModelResolutionService : IModelResolutionService, IMultimoda
             IsSessionOverride: false) with
         {
             SupportsThinkingControl = model.SupportsThinkingControl,
-            ThinkingMode = funcDefault.ThinkingMode
+            ThinkingMode = funcDefault.ThinkingMode,
+            PresencePenalty = funcDefault.PresencePenalty
         };
 
         totalStopwatch.Stop();

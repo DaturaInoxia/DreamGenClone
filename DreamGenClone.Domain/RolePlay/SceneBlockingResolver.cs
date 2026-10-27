@@ -419,7 +419,8 @@ public static class SceneBlockingResolver
     public static SceneBlocking ApplyForPrompt(
         SceneBlocking blocking,
         SceneBlockingOverride? overrides,
-        string? omniscientShotSize = null)
+        string? omniscientShotSize = null,
+        string? omniscientAngle = null)
     {
         ArgumentNullException.ThrowIfNull(blocking);
 
@@ -435,6 +436,19 @@ public static class SceneBlockingResolver
             effective = effective with
             {
                 Camera = effective.Camera with { ShotSize = omniscientShotSize.Trim() }
+            };
+        }
+
+        // The Omniscient view has an ANGLE of its own too (operator 2026-10-26: "Omniscient POV needs its own camera
+        // angle; it is not Dean's view or Becky's view"). The operator's choice was applied at RENDER time only, so the
+        // caption was written from the compiled angle ("medium shot at eye level") while the render used the chosen one
+        // — two cameras in one request, which is the defect class B-161 removed for shot size.
+        if (!string.IsNullOrWhiteSpace(omniscientAngle)
+            && string.IsNullOrWhiteSpace(overrides?.Camera?.Angle))
+        {
+            effective = effective with
+            {
+                Camera = effective.Camera with { Angle = omniscientAngle.Trim() }
             };
         }
 

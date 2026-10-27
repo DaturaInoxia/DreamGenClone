@@ -36,6 +36,18 @@
     {
         <div class="alert alert-warning small mb-0 mt-1">@_error</div>
     }
+    else if (_clearedForModel.Count > 0)
+    {
+        @* Reported, never silent: the operator picked a model whose checkpoint cannot load these LoRAs, so the
+           selection could not survive the switch. The render refuses such a LoRA by name anyway (and still does), but
+           an error after queueing one is a worse place to learn it than here. *@
+        <div class="alert alert-warning small mb-0 mt-1">
+            <strong>Cleared @(_clearedForModel.Count == 1 ? "1 LoRA" : $"{_clearedForModel.Count} LoRAs")</strong>
+            selected for the previous model, because @(_clearedForModel.Count == 1 ? "it does" : "they do") not load under
+            <span class="font-monospace">@ModelIdentifier</span>: @string.Join(", ", _clearedForModel).
+            Apply a LoRA trained for this model, or switch back.
+        </div>
+    }
     else if (!_loading && _available.Count == 0)
     {
         <div class="form-text mt-1">
@@ -163,6 +175,7 @@
     private static readonly double[] StrengthOptions = [0.6, 0.7, 0.8, 0.9, 1.0];
 
     private readonly List<CharacterLoraArtifact> _available = [];
+    private readonly List<string> _clearedForModel = [];
     private string _loadedFor = string.Empty;
     private string _addArtifactId = string.Empty;
     private double _addStrength = 0.8;
@@ -187,6 +200,7 @@
 
         _loadedFor = ModelIdentifier ?? string.Empty;
         _available.Clear();
+        _clearedForModel.Clear();
         _error = null;
         _addArtifactId = string.Empty;
         if (string.IsNullOrWhiteSpace(ModelIdentifier))
@@ -208,6 +222,71 @@
         finally
         {
             _loading = false;
+        }
+
+        // Only when the list actually loaded: a failed read must never look like "nothing qualifies".
+        if (_error is null)
+        {
+            await ClearSelectionsThatDoNotLoadHereAsync();
+        }
+    }
+
+    /// <summary>
+    /// Removes selections the NEW model cannot load, and records their names so the removal is shown rather than done
+    /// behind the operator's back.
+    /// </summary>
+    /// <remarks>
+    /// The model decides which LoRAs may be applied, so a selection made for the previous checkpoint is not a value
+    /// this control can hold: switching Composition from Krea 2 to Qwen-Image-2.1 kept the Krea-trained artifact
+    /// selected and the render then refused it ("trained on base model 'krea2_raw_bf16.safetensors' … not declared
+    /// loadable under 'qwen_image_2.1_int8_convrot.safetensors'", reported 2026-10-25) — after the operator had already
+    /// pressed render. The render's own refusal is untouched: this only stops the control from carrying a value it can
+    /// no longer express, and it says which value it dropped.
+    /// </remarks>
+    private async Task ClearSelectionsThatDoNotLoadHereAsync()
+    {
+        var selected = Selected;
+        if (selected.Count == 0 || !SelectionsChanged.HasDelegate)
+        {
+            return;
+        }
+
+        var qualified = _available.Select(artifact => artifact.Id).ToHashSet(StringComparer.Ordinal);
+        var stale = selected
+            .Where(selection => !qualified.Contains(selection.ArtifactId ?? string.Empty))
+            .ToList();
+        if (stale.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var selection in stale)
+        {
+            _clearedForModel.Add(await DescribeClearedAsync(selection.ArtifactId));
+        }
+
+        await SelectionsChanged.InvokeAsync(
+            selected.Where(selection => qualified.Contains(selection.ArtifactId ?? string.Empty)).ToList());
+    }
+
+    /// <summary>The LoRA's own name when it can still be read, its artifact id when it cannot.</summary>
+    private async Task<string> DescribeClearedAsync(string? artifactId)
+    {
+        if (string.IsNullOrWhiteSpace(artifactId))
+        {
+            return "an unnamed artifact";
+        }
+
+        try
+        {
+            var artifact = await LoraRepository.GetArtifactAsync(artifactId);
+            return artifact is null
+                ? artifactId
+                : $"{artifact.TriggerToken} (v{artifact.Version}, trained on {artifact.BaseModelId})";
+        }
+        catch (Exception)
+        {
+            return artifactId;
         }
     }
 

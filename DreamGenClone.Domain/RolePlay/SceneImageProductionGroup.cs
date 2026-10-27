@@ -207,6 +207,55 @@ public static class SceneImageLocationBindGate
     }
 }
 
+/// <summary>
+/// The ONE rule for whether an attempt is part of a production group — the answer every surface asks before it lists,
+/// dispositions, edits, regenerates or approves a take.
+/// </summary>
+/// <remarks>
+/// <para>
+/// A group is the operator's composition of <b>one moment at one point of view</b>. Re-enriching that moment does not
+/// create a different composition — it restates the facts behind the same moment — so an attempt made before the
+/// re-enrichment still depicts the thing the group is composing and must keep behaving exactly like an attempt made
+/// after it: it is listed in the same deck, carries the same disposition controls, can be edited, regenerated and
+/// approved. Membership is therefore established by the moment lineage both records carry
+/// (<see cref="SceneImageProductionGroup.MomentSetId"/>, <see cref="SceneImageProductionGroup.MomentId"/>, and POV),
+/// with the owning group id as the fast path for rows that predate the denormalized lineage columns.
+/// </para>
+///
+/// <para>
+/// <b>What this deliberately does NOT relax</b>: a different moment set, a different moment, or a different POV is a
+/// different composition and is never a member — even at the same enrichment revision. Anything that needs the
+/// group's <i>current</i> enrichment facts (compiling a new prompt, validating a brief, drafting) still reads
+/// <see cref="SceneImageProductionGroup.MomentEnrichmentId"/> directly; membership answers "is this take part of this
+/// composition", not "was this take rendered from the current facts".
+/// </para>
+/// </remarks>
+public static class SceneImageGroupMembership
+{
+    /// <summary>Whether <paramref name="image"/> is an attempt of <paramref name="group"/>.</summary>
+    /// <param name="group">The production group.</param>
+    /// <param name="image">The attempt.</param>
+    public static bool Contains(SceneImageProductionGroup group, SceneImageRecord image)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (string.Equals(image.ProductionGroupId, group.Id, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(group.MomentSetId) || string.IsNullOrWhiteSpace(group.MomentId))
+        {
+            return false;
+        }
+
+        return string.Equals(image.MomentSetId, group.MomentSetId, StringComparison.Ordinal)
+            && string.Equals(image.MomentId, group.MomentId, StringComparison.Ordinal)
+            && string.Equals(image.Pov ?? string.Empty, group.Pov ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
 /// <summary>Why one attempt cannot become a production group's approved frame.</summary>
 public enum SceneImageFrameApprovalBlockerCode
 {
@@ -262,7 +311,7 @@ public static class SceneImageFrameApprovalGate
         ArgumentNullException.ThrowIfNull(group);
         ArgumentNullException.ThrowIfNull(image);
 
-        if (!string.Equals(image.ProductionGroupId, group.Id, StringComparison.Ordinal))
+        if (!SceneImageGroupMembership.Contains(group, image))
         {
             return new SceneImageFrameApprovalBlocker(
                 SceneImageFrameApprovalBlockerCode.NotInGroup,

@@ -787,7 +787,8 @@ public sealed class SceneImageRepositoryTests
             Assert.Equal("abc123", loaded.Sha256);
             Assert.Equal(purgedUtc, loaded.BytesPurgedUtc);
 
-            var byGroup = await repo.ListImagesByProductionGroupAsync("production-group-1");
+            var byGroup = await repo.ListImagesByProductionGroupAsync(
+                new SceneImageProductionGroup { Id = "production-group-1", Pov = "Director" });
             Assert.Single(byGroup);
             Assert.Equal(image.Id, byGroup[0].Id);
 
@@ -852,9 +853,11 @@ public sealed class SceneImageRepositoryTests
             };
             await repo.InsertImageAsync(image);
 
+            var group = new SceneImageProductionGroup { Id = "group-1", Pov = "Director" };
+            var otherGroup = new SceneImageProductionGroup { Id = "other-group", Pov = "Director" };
             var shortlistedUtc = DateTime.UtcNow.AddMinutes(-1);
             Assert.True(await repo.TrySetDispositionAsync(
-                image.Id, "group-1", SceneImageAttemptDisposition.Active,
+                group, image.Id, SceneImageAttemptDisposition.Active,
                 SceneImageAttemptDisposition.Shortlisted, shortlistedUtc));
             var shortlisted = await repo.GetImageAsync(image.Id);
             Assert.Equal(SceneImageAttemptDisposition.Shortlisted, shortlisted!.Disposition);
@@ -862,23 +865,23 @@ public sealed class SceneImageRepositoryTests
             Assert.Equal(SceneImageStatus.Complete, shortlisted.Status);
 
             Assert.False(await repo.TrySetDispositionAsync(
-                image.Id, "other-group", SceneImageAttemptDisposition.Shortlisted,
+                otherGroup, image.Id, SceneImageAttemptDisposition.Shortlisted,
                 SceneImageAttemptDisposition.Rejected, DateTime.UtcNow));
             await Assert.ThrowsAsync<InvalidOperationException>(() => repo.TrySetDispositionAsync(
-                image.Id, "group-1", SceneImageAttemptDisposition.Shortlisted,
+                group, image.Id, SceneImageAttemptDisposition.Shortlisted,
                 SceneImageAttemptDisposition.Archived, DateTime.UtcNow));
 
             var rejectedUtc = DateTime.UtcNow;
             Assert.True(await repo.TrySetDispositionAsync(
-                image.Id, "group-1", SceneImageAttemptDisposition.Shortlisted,
+                group, image.Id, SceneImageAttemptDisposition.Shortlisted,
                 SceneImageAttemptDisposition.Rejected, rejectedUtc));
             var rejected = await repo.GetImageAsync(image.Id);
             Assert.Equal(rejectedUtc, rejected!.DispositionUpdatedUtc);
             Assert.True(await repo.TrySetDispositionAsync(
-                image.Id, "group-1", SceneImageAttemptDisposition.Rejected,
+                group, image.Id, SceneImageAttemptDisposition.Rejected,
                 SceneImageAttemptDisposition.Archived, DateTime.UtcNow));
             await Assert.ThrowsAsync<InvalidOperationException>(() => repo.TrySetDispositionAsync(
-                image.Id, "group-1", SceneImageAttemptDisposition.Archived,
+                group, image.Id, SceneImageAttemptDisposition.Archived,
                 SceneImageAttemptDisposition.Active, DateTime.UtcNow));
 
             var archived = await repo.GetImageAsync(image.Id);

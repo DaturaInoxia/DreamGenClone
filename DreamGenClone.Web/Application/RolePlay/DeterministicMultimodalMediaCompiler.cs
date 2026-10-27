@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using DreamGenClone.Application.RolePlay;
 using DreamGenClone.Domain.RolePlay;
@@ -83,28 +84,65 @@ public sealed class DeterministicMultimodalMediaCompiler : IMultimodalMediaCompi
             {
                 request.Moment.MomentId,
                 request.Moment.TemporalAnchor,
-                request.Moment.FrozenState,
-                request.Moment.VisibleAction,
                 participantSummary = ParseJson(request.Moment.ParticipantSummaryJson, "Moment participant summary"),
                 request.Moment.CompositionRationale,
                 productionRoles = ParseJson(request.Moment.ProductionRolesJson, "Moment production roles")
             },
-            frozenState = ParseJson(request.MomentEnrichment.FrozenStateContractJson, "Frozen state contract"),
-            continuity = new
-            {
-                start = ParseJson(request.BeatProductionPlan.StartContinuityJson, "Start continuity"),
-                end = ParseJson(request.BeatProductionPlan.EndContinuityJson, "End continuity")
-            },
+            // B-167: the Still brief carries ONE owner per fact. The enrichment record still holds every restatement
+            // (video and history read them), but the image compiler is handed only the selected facts, so it cannot
+            // read the same instant six ways. See StillBriefElements for the selected and dropped element keys.
+            frozenState = SelectStillFrozenState(request),
             typedReferences = ParseJson(request.BeatProductionPlan.TypedReferencesJson, "Typed references"),
             // B-157: the frame, snapshotted beside the references so a later staging-profile edit cannot rewrite how
             // this render was framed. Null for a caller that supplied none (a non-still never has one).
-            blocking = request.SceneBlocking,
-            videoKeyState = ParseJson(request.MomentEnrichment.VideoKeyStateJson, "Video key state")
+            blocking = request.SceneBlocking
         }, new HashSet<MediaCompilerCapability>
         {
             MediaCompilerCapability.FrozenVisualState,
             MediaCompilerCapability.TypedMediaReferences
         });
+    }
+
+    /// <summary>
+    /// Projects the enrichment's frozen-state contract into the facts the image path owns.
+    ///
+    /// <para>
+    /// The enrichment record is additive and never rewritten (B-167 decision 4), so this is a SELECTION, not a
+    /// transformation of the record: the two whole-event restatements (<c>visualDescription</c>,
+    /// <c>continuityState</c>) are not selected, and neither are the Moment's duplicate prose copies or the beat
+    /// continuity blocks (which live outside the contract). Every fact keeps exactly one owner:
+    /// <c>location</c> (place), <c>characters[]</c> (cast geometry, <c>at</c>/<c>facing</c>), <c>event.line</c>
+    /// (what happens), <c>contacts</c> (body-to-body contact), and conditions/objects for the rest.
+    /// </para>
+    ///
+    /// <para>
+    /// A v3 record has no <c>event</c>, so the Moment's own <c>visibleAction</c> becomes the event line here. That is
+    /// the single owner decision, not a second description: the sentence is copied verbatim and the Moment copy is
+    /// not selected at all. The anchor stays empty because a v3 record does not name one — nothing is invented.
+    /// <c>contacts</c> is left ABSENT for a v3 record, so consumers read "not recorded" and state nothing (decision 5).
+    /// </para>
+    /// </summary>
+    private static JsonNode SelectStillFrozenState(CompileMediaBriefRequest request)
+    {
+        if (JsonNode.Parse(request.MomentEnrichment.FrozenStateContractJson) is not JsonObject frozen)
+        {
+            throw new InvalidOperationException(
+                "The Moment enrichment's frozen-state contract is not a JSON object, so a still brief cannot be compiled.");
+        }
+
+        frozen.Remove("visualDescription");
+        frozen.Remove("continuityState");
+
+        if (frozen["event"] is not JsonObject)
+        {
+            frozen["event"] = new JsonObject
+            {
+                ["anchor"] = string.Empty,
+                ["line"] = request.Moment.VisibleAction
+            };
+        }
+
+        return frozen;
     }
 
     private static Projection BuildSpeech(CompileMediaBriefRequest request)

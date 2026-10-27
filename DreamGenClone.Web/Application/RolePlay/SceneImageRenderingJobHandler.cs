@@ -526,7 +526,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         // past render was framed.
         var blocking = await ReadBlockingAsync(image, cancellationToken);
         var promptWithRoles = FinalImagePromptPlanBuilder.Build(
-            prompt, roles, ReferenceRoleClauses.LeadingImageCount.Generate, blocking).Prompt;
+            prompt, roles, resolved.SceneImageModelFamily, ReferenceRoleClauses.LeadingImageCount.Generate, blocking).Prompt;
 
         // The camera holder's visible body is NOT appended here any more. It is stated to the caption writer verbatim
         // (SceneImagePovProjection's shot block) and required inside the compiled caption by the contract validator, so
@@ -960,7 +960,7 @@ public sealed class SceneImageRenderingJobHandler : IBackgroundJobHandler, IDura
         // references keep their scene-level sentence: the route is ported for the single assembly owner and its
         // validation, not yet for positional naming. Giving them a key is a data-model change, not a port.
         var promptWithRoles = FinalImagePromptPlanBuilder.Build(
-            prompt, roles, blocking: await ReadBlockingAsync(image, cancellationToken)).Prompt;
+            prompt, roles, resolved.SceneImageModelFamily, blocking: await ReadBlockingAsync(image, cancellationToken)).Prompt;
 
         await WriteDebugEventAsync("IdentityNativeReferenceRenderSubmitted", payload.SessionId, payload.InteractionId, new
         {

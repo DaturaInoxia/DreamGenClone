@@ -31,18 +31,20 @@ public sealed class StepPromptElementPlanTests
 
         Assert.Equal(
             [
-                "frozenState.location", "frozenState.environment", "frozenState.lighting",
-                "frozenState.objects", "frozenState.visualDescription", "frozenState.continuityState",
-                "moment.frozenState", "moment.compositionRationale",
-                "continuity.start.location", "continuity.start.objectStates", "continuity.start.lighting", "continuity.start.characterStates", "continuity.start.stateSummary",
-                "continuity.end.location", "continuity.end.objectStates", "continuity.end.lighting", "continuity.end.characterStates", "continuity.end.stateSummary"
+                "frozenState.location",
+                "frozenState.objects", "moment.compositionRationale"
             ],
             scopes);
         Assert.DoesNotContain("frozenState.timeOfDay", scopes);
         Assert.DoesNotContain("frozenState.mood", scopes);
         // The PEOPLE are never taken from the text: only the room is the image's.
-        Assert.DoesNotContain("moment.visibleAction", scopes);
+        Assert.DoesNotContain("frozenState.event.line", scopes);
         Assert.DoesNotContain("frozenState.characters", scopes);
+        // B-167 D2: the duplicate prose restatements and the beat continuity blocks are not selected into a Still
+        // brief at all, so "remove the room" addresses only leaves the brief carries.
+        Assert.DoesNotContain(scopes, scope => scope.StartsWith("continuity.", StringComparison.Ordinal));
+        Assert.DoesNotContain("frozenState.visualDescription", scopes);
+        Assert.DoesNotContain("frozenState.continuityState", scopes);
     }
 
     [Fact]
@@ -83,16 +85,16 @@ public sealed class StepPromptElementPlanTests
     }
 
     /// <summary>
-    /// A frame-wide pose has no character whose position could be cleared, so it addresses the Moment's visible
-    /// action instead. Without this the scope would be the literal <c>character:.position</c> - a key that names
+    /// A frame-wide pose has no character whose position could be cleared, so it addresses the Moment's single event
+    /// sentence instead. Without this the scope would be the literal <c>character:.position</c> - a key that names
     /// nobody and would silently remove nothing.
     /// </summary>
     [Fact]
-    public void ScopesFor_PoseWithoutACharacter_RemovesTheMomentsVisibleAction()
+    public void ScopesFor_PoseWithoutACharacter_RemovesTheEventLine()
     {
         var scopes = StepPromptElementPlan.ScopesFor(ImageStepSlotKind.Pose, null);
 
-        Assert.Equal(["moment.visibleAction"], scopes);
+        Assert.Equal(["frozenState.event.line"], scopes);
     }
 
     [Fact]
@@ -162,23 +164,8 @@ public sealed class StepPromptElementPlanTests
                 "character:p-becky.clothing",
                 "character:p-becky.position",
                 "frozenState.location",
-                "frozenState.environment",
-                "frozenState.lighting",
                 "frozenState.objects",
-                "frozenState.visualDescription",
-                "frozenState.continuityState",
-                "moment.frozenState",
                 "moment.compositionRationale",
-                "continuity.start.location",
-                "continuity.start.objectStates",
-                "continuity.start.lighting",
-                "continuity.start.characterStates",
-                "continuity.start.stateSummary",
-                "continuity.end.location",
-                "continuity.end.objectStates",
-                "continuity.end.lighting",
-                "continuity.end.characterStates",
-                "continuity.end.stateSummary",
                 "character:p-dean.clothing"
             ],
             scopes);
@@ -260,7 +247,9 @@ public sealed class StepPromptElementPlanTests
 
         // A scene-level scope belongs to nobody, so it carries no owner prefix.
         Assert.Contains("the setting — its structure, surfaces and objects", described);
-        Assert.Contains("the lighting", described);
+        // LIGHTING is no longer removed for a location reference (operator decision 2026-10-25), so it is not one of the
+        // scopes the plan can emit — it stays an editable Prompt Input row.
+        Assert.DoesNotContain("the lighting", described);
     }
 
     [Fact]

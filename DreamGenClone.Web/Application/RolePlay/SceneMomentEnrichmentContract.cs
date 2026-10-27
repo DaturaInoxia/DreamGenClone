@@ -85,8 +85,8 @@ public sealed record SceneMomentEnrichmentMomentSnapshot(
 
 public sealed class SceneMomentEnrichmentContract
 {
-    public const int CurrentSchemaVersion = 1;
-    public const string ContractVersion = "scene-moment-enrichment-v3";
+    public const int CurrentSchemaVersion = 2;
+    public const string ContractVersion = "scene-moment-enrichment-v4";
     public const string ResponseSchemaName = "scene_moment_enrichment";
 
     /// <summary>Returns the subset of a Moment's production roles that are video key-state roles.</summary>
@@ -169,6 +169,10 @@ public sealed class SceneMomentEnrichmentContract
             ("environment", String()),
             ("mood", String()),
             ("objects", UniqueStringArray()),
+            ("event", Object(
+                ("anchor", String()),
+                ("line", String()))),
+            ("contacts", Array(Contact(selectedProfileKeys))),
             ("instantaneousSoundCueKeys", UniqueStringArray()),
             ("videoKeyState", Object(
                 ("roles", ExactUniqueEnumArray(selectedVideoRoles)),
@@ -183,7 +187,23 @@ public sealed class SceneMomentEnrichmentContract
         ("actionOrObservation", String()),
         ("sightline", String()),
         ("visibleCharacterNames", UniqueStringArray()),
-        ("clothing", String()));
+        ("clothing", String()),
+        ("at", Object(
+            ("anchor", String()),
+            ("posture", String()))),
+        ("facing", Object(
+            ("toward", String()))));
+
+    /// <summary>
+    /// One body-to-body contact. <c>from</c>/<c>to</c> are constrained to the selected cast's profile keys, so a
+    /// contact can never name someone the instant does not contain.
+    /// </summary>
+    private static JsonObject Contact(IReadOnlyList<string> selectedProfileKeys) => Object(
+        ("from", Enum(selectedProfileKeys.ToArray())),
+        ("part", String()),
+        ("to", Enum(selectedProfileKeys.ToArray())),
+        ("targetPart", String()),
+        ("manner", String()));
 
     private const string SystemPrompt = """
         You are a frozen-state production planner. Enrich exactly one selected Moment into one canonical, provider-neutral visual state, its instantaneous sound anchors, and its selected video key-state roles.
@@ -191,6 +211,12 @@ public sealed class SceneMomentEnrichmentContract
         Describe exactly one instant. Do not write a sequence, transition, before-and-after state, montage, shot list, or action progression. Include exactly and only the selected Moment cast, using each supplied profile key and exact profile name once; never add a participant or profile key from the wider Beat cast who is not listed in SELECTED CAST. Use visibleCharacterNames only for supplied cast members visible to that character.
 
         Record the spatial geometry exactly, because these strings are the only geometry a camera can be projected from. character.position must state the stance (standing, kneeling, sitting, lying, bent over), the exact placement relative to the other cast in the scene (directly in front of, directly behind, to the left of, to the right of, beside, over, under, facing away from), the facing direction, the relative height, and the approximate distance; never write only "near", "above", or "beside". character.sightline must state the exact gaze direction (forward, up, down, left, right, or eyes closed) together with the exact cast member or body area it points at; never write only "toward" a person without a direction.
+
+        location is the PLACE ONLY. Write the setting as a place a camera could stand in; never name a cast member, their clothing, their action or their body state in location, and never restate the event there.
+
+        character.clothing must state the wardrobe AFFIRMATIVELY: what the body IS wearing, or that it is nude/bare and where ("nude", "bare from the waist up, jeans round the ankles", "open blue shirt"). Never name a garment the person is NOT wearing, in any form - not "no tank or cutoffs", not "without her shorts", not "not wearing shoes", not "no longer dressed". An image model renders whatever the text names, so a negated garment puts that garment in the picture. When the evidence shows something was removed or is absent, record the RESULTING state instead ("nude", "barefoot", "topless"); never record the removal or the absent item.
+
+        Record the same instant as world facts, because these are the only values a frame can be projected from without re-reading prose. character.at.anchor names the place feature or object the body occupies (for example "workbench", "doorway", "mattress"), and character.at.posture states the stance and what supports the body. character.facing.toward names what the body faces in WORLD terms: a cast member's profile key, a place feature, a body area, or a compass-like direction ("toward the door"); it is never camera-relative and never "toward the viewer". event.anchor names the place feature the event happens at, and event.line is the ONE event sentence for this instant — the single irreducible thing that happens. contacts lists every contact between a body and a body as a fact: from and to are cast profile keys, part and targetPart name the touching bodies or body areas, and manner is how they meet ("grip", "rest", "press", "stroke"). A contact MAY name the same profile key in both from and to when a character's own body is touching itself (a hand on their own thigh, their own hands clasped, a hand on their own body); record it that way rather than omitting it or attributing it to somebody else. Use an empty contacts array when no two bodies touch, and list each contact once. Never infer a facing or a contact that the evidence does not state.
 
         Use only supplied evidence, profile facts, Beat continuity, sound cue keys, and selected production roles. instantaneousSoundCueKeys must be empty unless the selected Moment's productionRoles includes SoundEventAnchor; when it does include SoundEventAnchor, list at least one instantaneous cue, and never list cues otherwise. videoKeyState.roles must equal exactly the selected Moment's video roles listed in the VIDEO KEY-STATE CONSTRAINT, with no additions and no omissions; never put SoundEventAnchor in videoKeyState.roles because it belongs only in instantaneousSoundCueKeys. stateChangeAllowed must be false.
 

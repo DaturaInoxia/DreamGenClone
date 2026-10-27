@@ -65,8 +65,15 @@ public sealed class MultimodalMediaCompilerTests
             .GetProperty("characterId").GetString());
         Assert.Equal("blue coat", still.RootElement.GetProperty("frozenState").GetProperty("characters")[0]
             .GetProperty("clothing").GetString());
-        Assert.Equal("speaking", still.RootElement.GetProperty("moment").GetProperty("visibleAction").GetString());
-        Assert.Equal("entry hall", still.RootElement.GetProperty("continuity").GetProperty("start").GetProperty("location").GetString());
+        // B-167 D2: the Still brief carries one owner per fact. The event sentence is selected once (frozenState.event),
+        // and the beat continuity blocks / duplicate prose restatements are not selected at all.
+        Assert.Equal("speaking", still.RootElement.GetProperty("frozenState").GetProperty("event").GetProperty("line").GetString());
+        Assert.False(still.RootElement.TryGetProperty("moment", out var stillMoment)
+            && stillMoment.TryGetProperty("visibleAction", out _));
+        Assert.False(still.RootElement.TryGetProperty("continuity", out _));
+        Assert.False(still.RootElement.GetProperty("frozenState").TryGetProperty("visualDescription", out _));
+        Assert.False(still.RootElement.GetProperty("frozenState").TryGetProperty("continuityState", out _));
+        Assert.Equal("entry hall", still.RootElement.GetProperty("frozenState").GetProperty("location").GetString());
 
         var speechCue = speech.RootElement.GetProperty("cues")[0];
         Assert.Equal("Dr. Vale says 12 km.", speechCue.GetProperty("exactSourceText").GetString());

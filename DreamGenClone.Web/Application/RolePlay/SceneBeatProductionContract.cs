@@ -88,6 +88,7 @@ public sealed class SceneBeatProductionContract
         string establishedEventsJson)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        var profileKeys = ParticipantProfileKeys(snapshot);
         return new SceneBeatProductionPassMessages(
             "spoken",
             SpokenSystemPrompt,
@@ -96,8 +97,8 @@ public sealed class SceneBeatProductionContract
             JsonSerializer.SerializeToElement(Object(
                 ("schemaVersion", VersionConst()),
                 ("catalogueBeatId", String()),
-                ("narration", Array(SpokenCue())),
-                ("dialogue", Array(SpokenCue())))));
+                ("narration", Array(SpokenCue(profileKeys))),
+                ("dialogue", Array(SpokenCue(profileKeys))))));
     }
 
     public SceneBeatProductionPassMessages BuildSoundscapePass(
@@ -105,6 +106,7 @@ public sealed class SceneBeatProductionContract
         string establishedEventsJson)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        var profileKeys = ParticipantProfileKeys(snapshot);
         return new SceneBeatProductionPassMessages(
             "soundscape",
             SoundscapeSystemPrompt,
@@ -114,7 +116,7 @@ public sealed class SceneBeatProductionContract
                 ("schemaVersion", VersionConst()),
                 ("catalogueBeatId", String()),
                 ("ambience", Ambience()),
-                ("soundEvents", Array(SoundCue())),
+                ("soundEvents", Array(SoundCue(profileKeys))),
                 ("music", Array(MusicSection())))));
     }
 
@@ -123,6 +125,7 @@ public sealed class SceneBeatProductionContract
         string establishedEventsJson)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        var profileKeys = ParticipantProfileKeys(snapshot);
         return new SceneBeatProductionPassMessages(
             "continuity",
             ContinuitySystemPrompt,
@@ -131,34 +134,37 @@ public sealed class SceneBeatProductionContract
             JsonSerializer.SerializeToElement(Object(
                 ("schemaVersion", VersionConst()),
                 ("catalogueBeatId", String()),
-                ("startContinuity", Continuity()),
-                ("endContinuity", Continuity()))));
+                ("startContinuity", Continuity(profileKeys)),
+                ("endContinuity", Continuity(profileKeys)))));
     }
 
     private static JsonObject VersionConst()
         => new() { ["const"] = SceneBeatProductionSnapshotBuilder.CurrentSchemaVersion };
 
     public static JsonElement CreateResponseSchema(IEnumerable<string> profileKeys)
-        => JsonSerializer.SerializeToElement(Object(
+    {
+        var keys = RequireProfileKeys(profileKeys);
+        return JsonSerializer.SerializeToElement(Object(
             ("schemaVersion", new JsonObject { ["const"] = SceneBeatProductionSnapshotBuilder.CurrentSchemaVersion }),
             ("catalogueBeatId", String()),
             ("events", Array(Event(), 1)),
             ("timeline", Timeline()),
-            ("narration", Array(DialogueCue())),
-            ("dialogue", Array(DialogueCue())),
+            ("narration", Array(DialogueCue(keys))),
+            ("dialogue", Array(DialogueCue(keys))),
             ("ambience", Ambience()),
-            ("soundEvents", Array(SoundCue())),
+            ("soundEvents", Array(SoundCue(keys))),
             ("music", Array(MusicSection())),
-            ("actionArc", Array(ActionStep(profileKeys))),
-            ("startContinuity", Continuity()),
-            ("endContinuity", Continuity()),
-            ("typedReferences", Array(TypedReference())),
+            ("actionArc", Array(ActionStep(keys))),
+            ("startContinuity", Continuity(keys)),
+            ("endContinuity", Continuity(keys)),
+            ("typedReferences", Array(TypedReference(keys))),
             ("videoCoverage", Array(VideoCoverage()))));
+    }
 
     private const string SystemPrompt = """
         You are a multimodal narrative production analyst. Expand exactly one selected narrative Beat into canonical, provider-neutral temporal production data for downstream speech, sound, music, image-key-state, and video planning.
 
-        Use only the selected Beat and supplied immutable evidence. Keep chronology source-supported. Use only supplied evidence keys and profile keys. Never invent UUIDs, speakers, addressees, quotations, source text, character facts, or Moment IDs. In actionArc, subjectKey and targetKey are participant profile keys (e.g. p0 or p1) only; doors, mirrors, towels, faucets, and other objects belong in targetObject and must never be used as profile keys. In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light); typedReferences.subjectKey is a participant profile key.
+        Use only the selected Beat and supplied immutable evidence. Keep chronology source-supported. Use only supplied evidence keys and profile keys. Never invent UUIDs, speakers, addressees, quotations, source text, character facts, or Moment IDs. Participant references are always the supplied profile keys (e.g. p0 or p1), never character names: dialogue speakerKey, addresseeKeys, performance.speakerKey, sound subjectKey, continuity characterStates/wardrobeStates keys, typedReferences.subjectKey, and actionArc subjectKey/targetKey must all be profile keys. In actionArc, doors, mirrors, towels, faucets, and other objects belong in targetObject and must never be used as profile keys. In startContinuity and endContinuity, characterStates and wardrobeStates keys are the participant profile keys (e.g. p0) - never suffix them (e.g. p0-wardrobe is invalid); objectStates keys are free-form object identifiers (e.g. porch-light).
 
         Dialogue and narration must preserve exact source text drawn from one supplied evidence item. For every cue, set sourceKey to that evidence key and set exactSourceText to a character-for-character contiguous substring of that evidence content, including any newlines and internal whitespace; never trim, reflow, re-case, paraphrase, or stitch together non-contiguous fragments. The application locates each cue by searching its evidence for exactSourceText, so it must appear verbatim. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated.
 
@@ -182,7 +188,7 @@ public sealed class SceneBeatProductionContract
     private const string SpokenSystemPrompt = """
         You are a multimodal narrative production analyst. Produce the spoken track (narration and dialogue cues) for one selected Beat, anchored to the already-established events supplied in the prompt.
 
-        Dialogue and narration must preserve exact source text drawn from one supplied evidence item. For every cue, set sourceKey to that evidence key and set exactSourceText to a character-for-character contiguous substring of that evidence content, including any newlines and internal whitespace; never trim, reflow, re-case, paraphrase, or stitch together non-contiguous fragments. The application locates each cue by searching its evidence for exactSourceText, so it must appear verbatim. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated. Cue order is one global chronological sequence across the narration and dialogue arrays together: assign order 1, 2, 3, ... over every cue in both arrays in the order they occur, so a dialogue line may sit between narration cues; never restart numbering per array and never duplicate or skip an order. Each cue's eventKey must be one of the established eventKeys.
+        Dialogue and narration must preserve exact source text drawn from one supplied evidence item. For every cue, set sourceKey to that evidence key and set exactSourceText to a character-for-character contiguous substring of that evidence content, including any newlines and internal whitespace; never trim, reflow, re-case, paraphrase, or stitch together non-contiguous fragments. The application locates each cue by searching its evidence for exactSourceText, so it must appear verbatim. Set speakerKey to a supplied participant profile key (e.g. p0 or p1), never a character name. Keep immutable display text separate from normalized spoken text and record normalization method/version. If attribution is ambiguous, set reviewStatus to ReviewRequired, leave speakerKey null, and explain reviewReason. Narration cues have no speaker: leave speakerKey null and set reviewStatus to Validated. Cue order is one global chronological sequence across the narration and dialogue arrays together: assign order 1, 2, 3, ... over every cue in both arrays in the order they occur, so a dialogue line may sit between narration cues; never restart numbering per array and never duplicate or skip an order. Each cue's eventKey must be one of the established eventKeys.
 
         Return only JSON matching the supplied schema. Do not use markdown fences, explanatory text, or inferred missing fields.
         """;
@@ -210,18 +216,18 @@ public sealed class SceneBeatProductionContract
     private static JsonObject Timeline() => Object(
         ("durationIntent", String()), ("beatWindow", Window()));
 
-    private static JsonObject SpokenCue() => Object(
+    private static JsonObject SpokenCue(IEnumerable<string> profileKeys) => Object(
         ("cueKey", String()),
         ("order", PositiveInteger()),
         ("kind", Enum("Dialogue", "Narration", "Thought")),
         ("eventKey", String()),
         ("exactSourceText", String()),
         ("sourceKey", String()),
-        ("speakerKey", NullableString()),
+        ("speakerKey", NullableEnum(RequireProfileKeys(profileKeys))),
         ("reviewStatus", Enum("Validated", "ReviewRequired")),
         ("reviewReason", NullableString()));
 
-    private static JsonObject DialogueCue() => Object(
+    private static JsonObject DialogueCue(IEnumerable<string> profileKeys) => Object(
         ("cueKey", String()),
         ("order", PositiveInteger()),
         ("kind", Enum("Dialogue", "Narration", "Thought")),
@@ -232,16 +238,16 @@ public sealed class SceneBeatProductionContract
         ("normalizationMethod", String()),
         ("normalizationVersion", String()),
         ("sourceKey", String()),
-        ("speakerKey", NullableString()),
-        ("addresseeKeys", UniqueStringArray()),
-        ("performance", Performance()),
+        ("speakerKey", NullableEnum(RequireProfileKeys(profileKeys))),
+        ("addresseeKeys", UniqueProfileKeyArray(profileKeys)),
+        ("performance", Performance(profileKeys)),
         ("window", Window()),
         ("lipSyncRelevant", Boolean()),
         ("reviewStatus", Enum("Validated", "ReviewRequired")),
         ("reviewReason", NullableString()));
 
-    private static JsonObject Performance() => Object(
-        ("speakerKey", NullableString()),
+    private static JsonObject Performance(IEnumerable<string> profileKeys) => Object(
+        ("speakerKey", NullableEnum(RequireProfileKeys(profileKeys))),
         ("languageCode", String()),
         ("locale", NullableString()),
         ("emotion", String()),
@@ -264,13 +270,13 @@ public sealed class SceneBeatProductionContract
         ("continuityIntent", String()),
         ("window", Window()));
 
-    private static JsonObject SoundCue() => Object(
+    private static JsonObject SoundCue(IEnumerable<string> profileKeys) => Object(
         ("cueKey", String()),
         ("order", PositiveInteger()),
         ("kind", Enum("Ambience", "SoundEffect")),
         ("eventKey", NullableString()),
         ("locationSource", NullableString()),
-        ("subjectKey", NullableString()),
+        ("subjectKey", NullableEnum(RequireProfileKeys(profileKeys))),
         ("objectReference", NullableString()),
         ("description", String()),
         ("intensityEnvelope", String()),
@@ -297,13 +303,7 @@ public sealed class SceneBeatProductionContract
 
     private static JsonObject ActionStep(IEnumerable<string> profileKeys)
     {
-        var keys = profileKeys
-            .Where(key => !string.IsNullOrWhiteSpace(key))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        if (keys.Length == 0)
-            throw new InvalidOperationException("Beat Production actionArc schema requires at least one participant profile key.");
-
+        var keys = RequireProfileKeys(profileKeys);
         return Object(
             ("order", PositiveInteger()),
             ("eventKey", String()),
@@ -314,17 +314,20 @@ public sealed class SceneBeatProductionContract
             ("resultingState", String()));
     }
 
-    private static JsonObject Continuity() => Object(
+    private static JsonObject Continuity(IEnumerable<string> profileKeys) => Object(
         ("location", String()),
-        ("characterStates", KeyValueArray()),
-        ("wardrobeStates", KeyValueArray()),
+        ("characterStates", ProfileKeyValueArray(profileKeys)),
+        ("wardrobeStates", ProfileKeyValueArray(profileKeys)),
         ("objectStates", KeyValueArray()),
         ("lighting", String()),
         ("stateSummary", String()));
 
     private static JsonObject KeyValueArray() => Array(Object(("key", String()), ("value", String())));
 
-    private static JsonObject TypedReference() => Object(
+    private static JsonObject ProfileKeyValueArray(IEnumerable<string> profileKeys)
+        => Array(Object(("key", Enum(RequireProfileKeys(profileKeys))), ("value", String())));
+
+    private static JsonObject TypedReference(IEnumerable<string> profileKeys) => Object(
         ("referenceKey", String()),
         ("role", Enum(
             "CharacterIdentity", "VoiceIdentity", "WardrobeContinuity", "LocationContinuity",
@@ -333,7 +336,7 @@ public sealed class SceneBeatProductionContract
         ("mediaKind", String()),
         ("sourceRecordId", NullableString()),
         ("assetId", NullableString()),
-        ("subjectKey", NullableString()),
+        ("subjectKey", NullableEnum(RequireProfileKeys(profileKeys))),
         ("window", Nullable(Window())),
         ("required", Boolean()));
 
@@ -420,6 +423,25 @@ public sealed class SceneBeatProductionContract
         var schema = Array(String(), minimum);
         schema["uniqueItems"] = true;
         return schema;
+    }
+    private static JsonObject UniqueProfileKeyArray(IEnumerable<string> profileKeys)
+    {
+        var schema = Array(Enum(RequireProfileKeys(profileKeys)));
+        schema["uniqueItems"] = true;
+        return schema;
+    }
+    private static string[] ParticipantProfileKeys(SceneBeatProductionSourceSnapshot snapshot)
+        => RequireProfileKeys(snapshot.Profiles.Select(profile => profile.Key));
+    private static string[] RequireProfileKeys(IEnumerable<string> profileKeys)
+    {
+        ArgumentNullException.ThrowIfNull(profileKeys);
+        var keys = profileKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (keys.Length == 0)
+            throw new InvalidOperationException("Beat Production participant reference schema requires at least one profile key.");
+        return keys;
     }
     private static JsonObject Nullable(JsonObject schema)
     {

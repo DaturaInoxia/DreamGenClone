@@ -806,6 +806,7 @@ public sealed class SqlitePersistence : ISqlitePersistence
                 TransientRetryDelaysSecondsJson TEXT NULL,
                 DiagnosticsRetentionDays INTEGER NULL,
                 MaximumCatalogueEntries INTEGER NULL,
+                PresencePenalty REAL NULL,
                 UpdatedUtc TEXT NOT NULL,
                 FOREIGN KEY (ModelId) REFERENCES RegisteredModels(Id)
             );
@@ -2540,6 +2541,20 @@ public sealed class SqlitePersistence : ISqlitePersistence
             addThinkingMode.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN ThinkingMode INTEGER NOT NULL DEFAULT 0";
             await addThinkingMode.ExecuteNonQueryAsync(cancellationToken);
             _logger.LogInformation("Migrated FunctionModelDefaults: added ThinkingMode column");
+        }
+
+        // B-167: the repetition penalty a function's completions are generated with. NULL means "this function declares
+        // none", which is what every pre-existing row gets — no default is written, because a penalty nobody chose would
+        // silently change every prompt already in the database.
+        var checkPresencePenalty = connection.CreateCommand();
+        checkPresencePenalty.CommandText = "SELECT COUNT(*) FROM pragma_table_info('FunctionModelDefaults') WHERE name='PresencePenalty'";
+        var hasPresencePenalty = Convert.ToInt64(await checkPresencePenalty.ExecuteScalarAsync(cancellationToken)) > 0;
+        if (!hasPresencePenalty)
+        {
+            var addPresencePenalty = connection.CreateCommand();
+            addPresencePenalty.CommandText = "ALTER TABLE FunctionModelDefaults ADD COLUMN PresencePenalty REAL NULL";
+            await addPresencePenalty.ExecuteNonQueryAsync(cancellationToken);
+            _logger.LogInformation("Migrated FunctionModelDefaults: added PresencePenalty column");
         }
 
         // B-078 follow-up: config-backed event-catalog descriptions for semantic inference clarity.

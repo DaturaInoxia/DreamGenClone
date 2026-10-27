@@ -1,6 +1,7 @@
 # .NET build artifacts
 bin/
 obj/
+.acl-recovery/
 artifacts/
 **/bin/
 **/obj/

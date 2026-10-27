@@ -334,7 +334,7 @@ public sealed class SceneImageService : ISceneImageService
         var parent = await _repository.GetImageAsync(request.SourceImageId.Trim(), cancellationToken)
             ?? throw new InvalidOperationException($"Source scene image '{request.SourceImageId}' was not found.");
         if (parent.Status != SceneImageStatus.Complete
-            || !string.Equals(parent.ProductionGroupId, group.Id, StringComparison.Ordinal))
+            || !SceneImageGroupMembership.Contains(group, parent))
             throw new InvalidOperationException("Identity requires a completed attempt in the same production group.");
         if (string.IsNullOrWhiteSpace(parent.FileRelativePath) || string.IsNullOrWhiteSpace(parent.Sha256))
             throw new InvalidOperationException("The completed Identity source must have stored bytes and a checksum.");
@@ -701,7 +701,7 @@ public sealed class SceneImageService : ISceneImageService
                     ?? throw new InvalidOperationException($"Regeneration source scene image '{request.RegenerateOfId}' was not found.");
                 if (parent.Status != SceneImageStatus.Complete
                     || parent.ProductionStage != SceneImageProductionStage.Composition
-                    || !string.Equals(parent.ProductionGroupId, productionGroup.Id, StringComparison.Ordinal))
+                    || !SceneImageGroupMembership.Contains(productionGroup, parent))
                 {
                     throw new InvalidOperationException("A production regeneration source must be a completed Composition attempt in the same production group.");
                 }
@@ -1593,9 +1593,17 @@ public sealed class SceneImageService : ISceneImageService
     public Task<IReadOnlyList<SceneImageRecord>> ListImagesBySessionAsync(string sessionId, CancellationToken cancellationToken = default)
         => _repository.ListImagesBySessionAsync(sessionId, cancellationToken);
 
-    public Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
+    public async Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
         string productionGroupId, CancellationToken cancellationToken = default)
-        => _repository.ListImagesByProductionGroupAsync(productionGroupId, cancellationToken);
+    {
+        // Read through the group, not the raw id: the deck must show every take of this composition, and a take made
+        // under an earlier enrichment of the same moment and POV is still a take of it.
+        var groupRepository = _productionGroupRepository
+            ?? throw new InvalidOperationException("Listing production attempts requires the production group repository.");
+        var group = await groupRepository.GetAsync(productionGroupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
+        return await _repository.ListImagesByProductionGroupAsync(group, cancellationToken);
+    }
 
     public Task<bool> TryCancelImageAsync(
         string sessionId,
@@ -1613,8 +1621,12 @@ public sealed class SceneImageService : ISceneImageService
     {
         if (!IsAllowedDispositionTransition(expectedDisposition, nextDisposition))
             throw new InvalidOperationException($"Scene image disposition transition from {expectedDisposition} to {nextDisposition} is not allowed.");
+        var groupRepository = _productionGroupRepository
+            ?? throw new InvalidOperationException("Setting a disposition requires the production group repository.");
+        var group = await groupRepository.GetAsync(productionGroupId.Trim(), cancellationToken)
+            ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
         var updated = await _repository.TrySetDispositionAsync(
-            imageId, productionGroupId, expectedDisposition, nextDisposition, DateTime.UtcNow, cancellationToken);
+            group, imageId, expectedDisposition, nextDisposition, DateTime.UtcNow, cancellationToken);
         if (!updated)
             throw new InvalidOperationException("Scene image disposition changed concurrently or the image does not belong to the production group.");
     }

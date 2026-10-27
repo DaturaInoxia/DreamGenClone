@@ -651,10 +651,12 @@ public static class ReferenceRoleClauses
                 + "invent a different outfit, and do not leave them with nothing on.",
             ImageStepSlotKind.Location => severalPlaces
                 ? "is one of the PLACES in this frame: it supplies that place. Name each place only by its KIND (a "
-                    + "trailer, a shed, a yard) and do NOT describe their structure, surfaces, fixtures, objects or "
-                    + "lighting. Do not merge them into one and do not leave one out."
+                    + "trailer, a shed, a yard) and do NOT describe their structure, surfaces, fixtures or objects. "
+                    + "Lighting is not supplied by it: state a lighting or atmosphere value the request records. Do not "
+                    + "merge them into one and do not leave one out."
                 : "is the LOCATION reference: it supplies the setting. Name the place only by its KIND (a shed, a yard, "
-                    + "a beach) and do NOT describe its structure, surfaces, fixtures, objects or lighting.",
+                    + "a beach) and do NOT describe its structure, surfaces, fixtures or objects. Lighting is not "
+                    + "supplied by it: state a lighting or atmosphere value the request records.",
             ImageStepSlotKind.Pose =>
                 $"is the POSE reference{owner}: it supplies the stance. Do NOT describe limb positions or body angles.",
             ImageStepSlotKind.CharacterPose =>

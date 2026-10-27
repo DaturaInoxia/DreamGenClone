@@ -48,7 +48,9 @@ public sealed class SceneImagePromptPreprocessorTests
         Assert.Contains("COMMA-SEPARATED TAGS", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("never a metadata block", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("count tag", system, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("under 800 characters", system, StringComparison.OrdinalIgnoreCase);
+        // B-167: the budget is a TOKEN in the instruction text; the render resolves it from the checkpoint profile's MaxChars.
+        Assert.Contains(SceneImageCompilerSystemPrompts.BudgetToken, system, StringComparison.Ordinal);
+        Assert.Contains("under 800 characters", SceneImageCompilerSystemPrompts.ApplyBudget(system, 800), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("from what the scene depicts", system, StringComparison.OrdinalIgnoreCase);
     }
 

@@ -807,21 +807,8 @@ using (var scope = app.Services.CreateScope())
     await characterProfileService.EnsureDefaultsAsync();
 }
 
-// Run startup health checks for all configured providers and models
-_ = Task.Run(async () =>
-{
-    try
-    {
-        using var healthScope = app.Services.CreateScope();
-        var healthCheckService = healthScope.ServiceProvider.GetRequiredService<IHealthCheckService>();
-        await healthCheckService.RunAllHealthChecksAsync();
-    }
-    catch (Exception ex)
-    {
-        var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-        logger.LogWarning(ex, "Startup health checks failed — results may be stale");
-    }
-});
+// Health checks are manual only: Model Manager → "Re-check All" or a row's "Test" button.
+// Never run them on startup — a health check must never issue billable inference (see ProviderModelsProbe).
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

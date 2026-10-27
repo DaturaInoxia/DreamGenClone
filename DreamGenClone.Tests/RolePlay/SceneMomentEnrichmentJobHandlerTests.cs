@@ -17,7 +17,7 @@ public sealed class SceneMomentEnrichmentJobHandlerTests
 {
     internal const string ValidResponse = """
         {
-          "schemaVersion": 1,
+          "schemaVersion": 2,
           "catalogueBeatId": "b1",
           "momentId": "m2",
           "visualDescription": "Becky and Dean hold one shared look in the entry hall.",
@@ -26,21 +26,27 @@ public sealed class SceneMomentEnrichmentJobHandlerTests
               "name": "Becky", "profileKey": "p0", "involvement": "active",
               "physicalLocation": "entry hall", "position": "just inside the doorway",
               "actionOrObservation": "holds Dean's gaze", "sightline": "toward Dean",
-              "visibleCharacterNames": ["Dean"], "clothing": "blue shirt"
+              "visibleCharacterNames": ["Dean"], "clothing": "blue shirt",
+              "at": { "anchor": "doorway", "posture": "standing just inside" },
+              "facing": { "toward": "p1" }
             },
             {
               "name": "Dean", "profileKey": "p1", "involvement": "observer",
               "physicalLocation": "entry hall", "position": "seated across the hall",
               "actionOrObservation": "looks up at Becky", "sightline": "toward Becky",
-              "visibleCharacterNames": ["Becky"], "clothing": "dark lounge clothes"
+              "visibleCharacterNames": ["Becky"], "clothing": "dark lounge clothes",
+              "at": { "anchor": "armchair", "posture": "seated" },
+              "facing": { "toward": "p0" }
             }
           ],
           "location": "entry hall",
           "timeOfDay": "evening",
           "lighting": "warm ceiling light",
-          "environment": "narrow entry hall with the open door behind Becky",
+          "environment": "narrow entry hall with the open door behind the doorway",
           "mood": "expectant",
           "objects": ["open door"],
+          "event": { "anchor": "doorway", "line": "Becky holds Dean's gaze across the entry hall." },
+          "contacts": [],
           "instantaneousSoundCueKeys": ["s1"],
           "videoKeyState": { "roles": ["VideoEnd"], "stateChangeAllowed": false }
         }

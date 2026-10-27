@@ -144,6 +144,7 @@
                                 <StepPromptFramePreview Prompt="@PromptTextFor(RenderStyle)"
                                                         Bindings="_referenceBindings"
                                                         Blocking="@CompositionBlocking"
+                                                        Family="@SelectedCompositionModelFamily"
                                                         Override="_blockingOverride"
                                                         FramingChoices="_framingChoices"
                                                         CompiledFramingLabel="@CompiledFramingLabel"
@@ -260,15 +261,9 @@
                                 <label class="form-label small fw-semibold mb-1 mt-2" for="compose-camera-holder-parts">Camera holder body parts (participant POV)</label>
                                 <select id="compose-camera-holder-parts" class="form-select form-select-sm" @bind="_cameraHolderParts" @bind:after="QueuePromptDraftSave">
                                     <option value="@CameraHolderPartsMode.None">Off — never show the camera holder</option>
-                                    <option value="@CameraHolderPartsMode.Derived">Derive from the scene — show the parts the moment records</option>
-                                    <option value="@CameraHolderPartsMode.Custom">Custom — I type which parts are visible</option>
+                                    <option value="@CameraHolderPartsMode.Derived">Show the parts the moment records</option>
                                 </select>
-                                <div class="form-text">For a participant POV the camera holder is normally never in the picture. Show their hands / arms / penis / feet in frame instead.</div>
-                                @if (_cameraHolderParts == CameraHolderPartsMode.Custom)
-                                {
-                                    <textarea class="form-control form-control-sm font-monospace mt-1" rows="2" @bind="_cameraHolderPartsText" @bind:event="oninput" @bind:after="QueuePromptDraftSave"
-                                              placeholder="e.g. his hands grip her hips, his erect penis presses between her thighs"></textarea>
-                                }
+                                <div class="form-text">For a participant POV the camera holder is normally never in the picture. Show the body parts the moment's recorded contacts put in frame — edit the Contacts row under Prompt Input to change which parts those are.</div>
                             }
 
                             <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
@@ -626,6 +621,12 @@
     private List<SceneImageRecord> _compositionAttempts = [];
 
     /// <summary>
+    /// Set when the route pairs this group with a sibling interaction; the interactive render navigates there once.
+    /// Prerendering cannot navigate, so the redirect is deferred to <see cref="OnAfterRender"/>.
+    /// </summary>
+    private string? _canonicalRedirectUrl;
+
+    /// <summary>
     /// Every image this production group owns, newest first — the Compositions AND everything derived from them.
     ///
     /// <para>
@@ -694,7 +695,10 @@
     /// </summary>
     private CameraHolderPartsMode _cameraHolderParts = CameraHolderPartsMode.None;
 
-    /// <summary>The operator's own description of the camera holder's visible parts, used when the mode is Custom.</summary>
+    /// <summary>
+    /// The retired custom camera-holder parts text. Kept so an older draft's value is surfaced and cleared rather than
+    /// silently carried into a render (B-167: the parts come from the moment's recorded contacts).
+    /// </summary>
     private string _cameraHolderPartsText = string.Empty;
 
     /// <summary>
@@ -727,6 +731,7 @@
             return FinalImagePromptPlanBuilder.Build(
                 PromptTextFor(RenderStyle),
                 ReferenceRoleClauses.RolesFor(_referenceBindings),
+                SelectedCompositionModelFamily,
                 ReferenceRoleClauses.LeadingImageCount.Generate,
                 EffectiveCompositionBlocking).Prompt;
         }
@@ -1391,7 +1396,7 @@
         _userIntentText = draft.UserIntent;
         _explicitness = draft.Explicitness;
         _cameraHolderParts = draft.CameraHolderParts;
-        _cameraHolderPartsText = draft.CameraHolderPartsText ?? string.Empty;
+        _cameraHolderPartsText = string.Empty;
         _promptInputTab = string.IsNullOrWhiteSpace(draft.UserIntent)
             ? draft.Source
             : SceneImagePromptSource.UserIntent;
@@ -1480,9 +1485,32 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+        if (!string.IsNullOrWhiteSpace(_canonicalRedirectUrl))
+        {
+            return;
+        }
+
         await ApplyRequestedLocationReferenceAsync();
         await ApplyRequestedReloadAsync();
         EnsurePollingWhenNeeded();
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        // A production group is anchored to the interaction that created it (one group per Moment + POV). The Studio can
+        // be opened on a sibling interaction of the same turn and build a Composition link from the current route, so a
+        // hand-edited or stale URL can pair the group with the wrong interaction. That used to throw an unhandled
+        // InvalidOperationException (500, reported 2026-10-27); the pair is recoverable, so send the operator to the URL
+        // where the group and its renders are consistent. Done AFTER render because navigation is not available during
+        // prerendering.
+        if (string.IsNullOrWhiteSpace(_canonicalRedirectUrl))
+        {
+            return;
+        }
+
+        var url = _canonicalRedirectUrl;
+        _canonicalRedirectUrl = null;
+        Nav.NavigateTo(url, replace: true);
     }
 
     /// <summary>
@@ -1564,11 +1592,21 @@
 
     private async Task LoadAsync()
     {
-        _productionGroup = await ProductionService.GetGroupAsync(productionGroupId)
+        var group = await ProductionService.GetGroupAsync(productionGroupId)
             ?? throw new InvalidOperationException($"Production group '{productionGroupId}' was not found.");
-        if (!string.Equals(_productionGroup.SessionId, sessionId, StringComparison.Ordinal)
-            || !string.Equals(_productionGroup.InteractionId, interactionId, StringComparison.Ordinal))
+        if (!string.Equals(group.SessionId, sessionId, StringComparison.Ordinal))
+        {
             throw new InvalidOperationException("The requested production group does not belong to this Studio context.");
+        }
+
+        if (!string.Equals(group.InteractionId, interactionId, StringComparison.Ordinal))
+        {
+            _canonicalRedirectUrl =
+                $"/roleplay/studio/{group.SessionId}/{group.InteractionId}/production/{group.Id}/composition";
+            return;
+        }
+
+        _productionGroup = group;
 
         _compiledMediaBrief = await ProductionService.GetOrCreateStillBriefAsync(_productionGroup.Id);
 
@@ -1857,9 +1895,8 @@
                     SceneBlockingOverride = _blockingOverride,
                     Explicitness = _explicitness,
                     CameraHolderParts = _cameraHolderParts,
-                    CameraHolderPartsText = _cameraHolderParts == CameraHolderPartsMode.Custom
-                        ? string.IsNullOrWhiteSpace(_cameraHolderPartsText) ? null : _cameraHolderPartsText.Trim()
-                        : null
+                    // B-167: the parts come from the moment's recorded contacts, so no custom text travels with the prompt.
+                    CameraHolderPartsText = null
                 },
                 ProductionGroupId = _productionGroup!.Id,
                 CompiledMediaBriefId = _compiledMediaBrief!.Id,
@@ -2028,13 +2065,12 @@
                 };
             }
             // Camera-holder body parts travel with the render so the handler can append them VERBATIM after the compiled
-            // caption (the caption writer would scramble "behind" into "in front" if it wrote them itself).
+            // caption (the caption writer would scramble "behind" into "in front" if it wrote them itself). The parts
+            // are derived from the moment's recorded contacts; B-167 retired the free-text override.
             if (_cameraHolderParts != CameraHolderPartsMode.None)
             {
                 renderSettings.CameraHolderParts = _cameraHolderParts;
-                renderSettings.CameraHolderPartsText = _cameraHolderParts == CameraHolderPartsMode.Custom
-                    ? _cameraHolderPartsText.Trim()
-                    : null;
+                renderSettings.CameraHolderPartsText = null;
             }
             await ImageService.EnqueueRenderAsync(new SceneRenderRequest
             {
@@ -2379,7 +2415,7 @@
 
     /// <summary>The inspector group a scene concept belongs to (Scene vs Moment).</summary>
     private static string ClusterGroupFor(string clusterKey)
-        => clusterKey is "momentProse" or "visibleAction" or "continuityState" ? "moment" : "scene";
+        => clusterKey is "eventLine" or "eventAnchor" or "contacts" ? "moment" : "scene";
 
     /// <summary>The snapshot property a per-character concept names, without the <c>character:</c> prefix.</summary>
     private static string LeafName(string clusterKey) => clusterKey switch
@@ -2389,6 +2425,9 @@
         "actionOrObservation" => "actionOrObservation",
         "sightline" => "sightline",
         "clothing" => "clothing",
+        "atAnchor" => "at.anchor",
+        "atPosture" => "at.posture",
+        "facing" => "facing.toward",
         _ => throw new InvalidOperationException(
             $"Character prompt concept '{clusterKey}' has no snapshot property. Add one deliberately: a concept " +
             "that reads nothing would show an empty row that writes a property nothing addresses.")
@@ -2426,28 +2465,44 @@
             ? (string.Equals(group.Key, "scene", StringComparison.Ordinal) ? "Scene" : "Moment")
             : $"Character — {group.CharacterKey}";
 
-    private static string StringValue(JsonObject? obj, string property)
+    private static string StringValue(JsonObject? obj, string path) => StringValuePath(obj, path);
+
+    /// <summary>
+    /// Reads a dotted path (<c>frozenState.location</c>, <c>frozenState.event.line</c>,
+    /// <c>character:{key}.at.posture</c>) to a scalar, a joined array, or a contacts list rendered one per line as
+    /// <c>from|part|to|targetPart|manner</c> — the same format the editor writes back.
+    /// </summary>
+    private static string StringValuePath(JsonObject? root, string path)
     {
-        if (obj?[property] is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
-        if (obj?[property] is JsonArray array)
-            return string.Join(Environment.NewLine, array.Select(item => item?.GetValue<string>() ?? string.Empty).Where(item => item.Length > 0));
-        return string.Empty;
+        JsonNode? current = root;
+        foreach (var segment in path.Split('.'))
+        {
+            if (current is not JsonObject obj) return string.Empty;
+            var match = obj.FirstOrDefault(pair => string.Equals(pair.Key, segment, StringComparison.OrdinalIgnoreCase));
+            if (match.Value is null) return string.Empty;
+            current = match.Value;
+        }
+
+        return RenderNode(current);
     }
 
-    /// <summary>Reads a dotted path (<c>frozenState.location</c>, <c>moment.frozenState</c>) to a scalar or joined array.</summary>
-    private static string StringValuePath(JsonObject root, string path)
+    private static string RenderNode(JsonNode? node) => node switch
     {
-        var segments = path.Split('.');
-        JsonNode? current = root;
-        foreach (var segment in segments)
-        {
-            if (current is not JsonObject obj || obj[segment] is not { } next) return string.Empty;
-            current = next;
-        }
-        if (current is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
-        if (current is JsonArray array)
-            return string.Join(Environment.NewLine, array.Select(item => item?.GetValue<string>() ?? string.Empty).Where(item => item.Length > 0));
-        return string.Empty;
+        JsonValue value when value.TryGetValue<string>(out var text) => text ?? string.Empty,
+        JsonArray array => string.Join(
+            Environment.NewLine,
+            array.Select(RenderArrayItem).Where(line => line.Length > 0)),
+        _ => string.Empty
+    };
+
+    private static string RenderArrayItem(JsonNode? item)
+    {
+        if (item is JsonValue value && value.TryGetValue<string>(out var text)) return text ?? string.Empty;
+        if (item is not JsonObject contact) return string.Empty;
+        return string.Join(
+            '|',
+            new[] { "from", "part", "to", "targetPart", "manner" }
+                .Select(property => StringValue(contact, property)));
     }
 
     private static string FirstNonEmpty(params string?[] values)

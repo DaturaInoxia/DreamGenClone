@@ -21,5 +21,5 @@ public sealed class Krea2SceneImagePromptBuilder : NaturalLanguageSceneImageProm
     protected override string BuildSystemPrompt() => SceneImageCompilerSystemPrompts.Krea2Beat;
 
     /// <summary>Krea 2 photographic-brief system prompt for the canonical-brief path (immutable Still brief in).</summary>
-    protected override string BuildCanonicalSystemPrompt() => SceneImageCompilerSystemPrompts.Krea2Canonical;
+    protected override string BuildCanonicalSystemPrompt(IntentReferenceCoverage coverage) => SceneImageCompilerSystemPrompts.Krea2Canonical;
 }

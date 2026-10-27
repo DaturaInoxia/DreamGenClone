@@ -31,10 +31,13 @@ namespace DreamGenClone.Domain.RolePlay;
 public static class SceneImageCompilerSystemPrompts
 {
     /// <summary>
-    /// The effective prompt-length target both families state to the model. One source, because a budget written into
-    /// the instruction text and a budget enforced by the evaluator that disagree is a cell that can never pass.
+    /// The prompt-length budget placeholder. It is a TOKEN, never a number: the budget has exactly one owner — the
+    /// resolved <c>ImageCompilerProfile.MaxChars</c> for the checkpoint that will render — and every instruction text
+    /// below states <em>that</em> value via <see cref="ApplyBudget"/>. A budget written into the instruction text and a
+    /// budget enforced by the evaluator that disagree is a cell that can never pass, which is exactly what happened
+    /// while this was the literal 800 for checkpoints whose profile declared 3400 (B-167).
     /// </summary>
-    public const int OutputTargetChars = 800;
+    public const string BudgetToken = "{{maxChars}}";
 
     /// <summary>The Pony quality string. Its presence is a requirement, not a preference: Pony's author documents the short form as much weaker.</summary>
     public const string PonyQualityTags = "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up";
@@ -49,6 +52,30 @@ public static class SceneImageCompilerSystemPrompts
 
     /// <inheritdoc cref="StyleToken"/>
     private const string SizeToken = "{{size}}";
+
+    /// <summary>Whether the text still carries the unresolved <see cref="BudgetToken"/>.</summary>
+    public static bool HasBudget(string text)
+        => !string.IsNullOrEmpty(text) && text.Contains(BudgetToken, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Resolves the budget in a compiler instruction text from the checkpoint's OWN profile value. Callers that hand a
+    /// text to a model must run this first: an instruction still carrying the token tells the model nothing about
+    /// length. A non-positive budget is refused rather than substituted.
+    /// </summary>
+    public static string ApplyBudget(string text, int maxChars)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        if (maxChars <= 0)
+        {
+            throw new InvalidOperationException(
+                $"A compiler instruction's prompt budget must be positive; the profile declares {maxChars}, so no "
+                + "budget can be stated to the model.");
+        }
+
+        return HasBudget(text)
+            ? text.Replace(BudgetToken, maxChars.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            : text;
+    }
 
     /// <summary>
     /// Natural-language, beat-shaped instruction. Source: the canonical compiler standards plus the adopted rules from
@@ -74,7 +101,7 @@ public static class SceneImageCompilerSystemPrompts
         - Honor beat-stated clothing exactly; describe explicitness as the EXPLICITNESS line states when one is present, otherwise to match what the scene depicts.
         - Never use Pony-style vocabulary: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
         - Choose explicitness from the depicted content: describe explicit sexual acts or visible genitals explicitly, suggestive content or partial nudity as questionable, and non-sexual content as safe. Base it on the EXPLICITNESS line when one is present, otherwise on the scene. Use concrete anatomical language for explicit content and imply rather than spell out questionable content.
-        - Keep the ENTIRE prompt under {OutputTargetChars} characters. Short and concrete beats verbose.
+        - Keep the ENTIRE prompt under {BudgetToken} characters. Short and concrete beats verbose.
         - Return ONLY the final image prompt as plain text. No commentary, quotes, or markdown.
 
         - Follow the EXPLICITNESS line when one is present; otherwise follow the depicted scene content exactly.
@@ -99,7 +126,7 @@ public static class SceneImageCompilerSystemPrompts
         3. RENDERABLE-ONLY: include only the frozen, visually present instant. Omit narrative distance, intent, metaphor, and off-screen facts.
         4. GENDER AND COUNT, NO ATTRIBUTE BLEED: state each person's gender and number, and describe each person as ONE self-contained clause (appearance + clothing together) — never interleave attributes across people.
         5. CLOTHING IS A SAFETY ANCHOR: always describe each person's clothing unless the brief explicitly implies nudity.
-        6. TIGHT PHOTO CAPTION: lead with framing and the main subject in the first sentence; keep the ENTIRE caption under 800 characters; use photorealistic cues (35mm, natural skin texture, shallow depth of field).
+        6. TIGHT PHOTO CAPTION: lead with framing and the main subject in the first sentence; keep the ENTIRE caption under {{maxChars}} characters; use photorealistic cues (35mm, natural skin texture, shallow depth of field).
         7. ELEMENT ORDER: main subject (count and gender first: how many people, and each person's gender) -> physical traits -> pose and expression -> clothing or nudity plus accessories -> camera framing -> lighting and mood -> environment -> visual style and medium. Cover each once and never repeat a concept or descriptor.
         8. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
         9. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor (young adult, middle-aged, mature, elderly). No resolution, aspect ratio or pixel count in the caption — those travel in the image settings.
@@ -128,7 +155,7 @@ public static class SceneImageCompilerSystemPrompts
         - Add one explicit camera/view tag (e.g. front view, eye level, from side).
         - Honor beat-stated clothing exactly; only use nudity when the beat explicitly implies it.
         - For explicit scenes use concrete anatomical language; for safe/questionable scenes imply rather than spell out.
-        - Keep the ENTIRE prompt under {OutputTargetChars} characters and under ~40 tags. Short and dense beats verbose.
+        - Keep the ENTIRE prompt under {BudgetToken} characters and under ~40 tags. Short and dense beats verbose.
         - Return ONLY the final comma-separated image prompt as plain text. No commentary, quotes, or markdown.
         - Use female/male (danbooru vocabulary) rather than woman/man when a single gender tag fits the character.
         - The Pony family spans the base V6 checkpoint and photorealistic human merges (e.g. Pony Realism) that all read the same danbooru tags. Do not force a cartoon/anime style, and do not invent style words the scene does not state.
@@ -155,40 +182,62 @@ public static class SceneImageCompilerSystemPrompts
     /// sentences / 400-500 words, no quality boosters, age as a life stage never a number, enumerate-never-summarise,
     /// ratio never in the prose) — the vendor's rules, written in our words and cited to
     /// <c>specs/Planning/B-135-image-playground/research/qwen-2-1-prompt-enhancer.md</c> §4 and §8. The byte-exact
-    /// vendor prompt is route 2 and is NOT this text. Unlike the SDXL-family text, this one must NOT emit the SDXL
-    /// style tail ("35mm", "natural skin texture", "shallow depth of field") — the vendor forbids quality boosters,
-    /// and the SDXL style cues are the same class of filler for this model.
+    /// vendor prompt is route 2 and is NOT this text.
+    /// <para>
+    /// <b>Rewritten 2026-10-25 (operator, reading the compiled prompt):</b> "telling it qwen 2.1 means nothing to the
+    /// model we are using" and "NEVER PONY VOCABULARY means nothing to the model". The writing model is a small local
+    /// instruction model; the target family's NAME and another family's dialect name are metadata it cannot act on.
+    /// Following the compiler standards' rule 8 (no identity fluff: ground the model, state explicit rules, and show a
+    /// concrete example of the target output) the text now opens with what the output IS, states the anatomy as
+    /// "what makes a prompt of this kind good", keeps every prohibition as the LITERAL token list to avoid, and ends
+    /// with one worked example of the shape. The example also demonstrates the two rules the live failures broke: the
+    /// camera holder is never depicted, and a measure taken against their body is stated against the CAMERA ("at the
+    /// camera's own waist height") rather than left as a dangling comparison the model resolves by inventing one
+    /// ("hips raised to about chest level", SceneImage 3ade4908).
+    /// </para>
+    /// <para>
+    /// The length contradiction is gone too: "about 20 sentences" beside "never pad to reach a length — every sentence
+    /// must state a recorded fact" left a sparse brief unwritable, so rule 7 now says a sparse brief is a reason to
+    /// describe the SAME frame in more detail, never to invent and never to stop early.
+    /// </para>
     /// </summary>
     public static readonly string Qwen21Beat = """
-        Convert story prose into ONE long, descriptive natural-language image prompt for Qwen-Image-2.1, a text-to-image model that reads detailed observer descriptions and performs best when the prompt is a full, concrete, present-tense account of the finished picture - not a short caption, not a comma tag list, not an attribute metadata block.
+        You write the text prompt an image model will follow. That model reproduces the picture your words describe and nothing else: it cannot read the story below, it does not know who anyone is, and it does not interpret intent.
 
-        Facts about this model that shape the prompt:
-        - It reads descriptive natural-language prose: present tense, third person, declarative, written as an observer describing the picture that is already finished.
-        - It rewards LENGTH: about 20 sentences / 400-500 words, whatever the length of the source material. A short brief means you invent most of the frame, not that you write less.
-        - It does not know character names, relationships or ownership. Describe every person by observable surface only.
-        - The prompt is one continuous paragraph; do not add line breaks.
+        TASK: turn the story prose below into ONE continuous paragraph of present-tense, third-person English describing a photograph that has already been taken.
 
-        Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
-        2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
-        3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
-        4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
-        5. OBSERVER PROCEDURE (the target shape):
-           - Open with one sentence of about 20 words naming the medium (for example "a photorealistic photograph of"), the style, the main subject, and the background or palette. Never omit the medium.
-           - Walk the frame in reading order: background first, then the top band, then left to centre to right, then the bottom band - or, for a subject-led image, background, then the subject's pose and placement, then head and face, then body and garments, then held objects, then the edges. Around a third of the sentences open on the positional phrase ("In the foreground...", "To the left...").
-           - Give each colour with a modifier (not "blue" but "dusty blue"), and give the material as well as the noun (not "a dress" but "a dress of thin cotton").
-           - Enumerate rather than summarise; never compress a list into "various objects".
-           - Lighting gets its own sentence: source, direction, quality, and the shadows or highlights it produces.
-           - Close with exactly one whole-frame sentence covering composition, palette, style and mood.
-        6. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
-        7. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
-        8. NO QUALITY BOOSTERS AND NO SDXL STYLE TAIL: never write masterpiece, best quality, high quality, 8K, award-winning, highly detailed, 35mm, natural skin texture, shallow depth of field, sharp focus, or any equivalent. The concrete description carries the quality.
-        9. NO RESOLUTION, ASPECT RATIO OR PIXEL COUNT in the description - those travel in the image settings, never in the prose.
-        10. CLOTHING OR NUDITY: name each person's clothing or nudity from the depicted content. When clothing changes, stay in the same category (a dress becomes another dress, never trousers).
-        11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
-        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
-        13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
-        14. Write the whole prompt as ONE continuous paragraph: no line breaks, no bullet lists and no per-person recap of elements already stated. Never pad to reach a length - every sentence must state a recorded fact.
+        WHAT MAKES A PROMPT OF THIS KIND GOOD (follow this order):
+        1. Open with one sentence of about 20 words naming the medium ("a photorealistic photograph of"), the main subject, and the setting or palette.
+        2. Place the subject: where they sit in the frame and how far from the camera.
+        3. Give the pose and what each part of the body is doing - which limb touches what, in which direction, at what height.
+        4. Give each person's head and face, then body, then clothing or nudity.
+        5. Give the setting, then one sentence of light: its source, direction, quality, and the shadows or highlights it produces.
+        6. Close with one whole-frame sentence covering composition, palette and mood.
+        Open around a third of the sentences on a positional phrase ("In the foreground...", "To the left..."). Give every colour a modifier and every object its material. Enumerate rather than summarise.
+        7. Use the whole length budget (about 20 sentences / 400-500 words), whatever the length of the source. A short source is a reason to describe the SAME frame in more detail - distance, texture, shadow, the exact angle of a limb - never a reason to stop early, to repeat a fact already stated, or to invent a body part, a garment or an object the source does not support.
+
+        RULES:
+        - ONE paragraph. No line breaks, no bullet points, no headings, no quotes, no commentary. Return only the prompt.
+        - Present tense, third person, declarative. No "I", "me", "my", "we", "our". Do not hedge with "appears to be" or "seems to".
+        - State how many people are in frame and each one's gender, then describe each person as one self-contained run of sentences. Never interleave two people's attributes.
+        - PLACEMENT AND RELATION ARE FACTS. When the camera is EXTERNAL (nobody's eyes), every person's placement in the picture (LEFT, CENTER or RIGHT, and foreground, midground or background) and the arrangement between them (who is behind whom, who stands between whom and the camera) is RECORDED DATA. State all of it, however short the prompt is: omitting it is how a two-person scene came back as two people standing apart with no relation to each other (measured 2026-10-26).
+        - State the camera's own angle as the request records it ("viewed from the side", "from above", "at eye level"), never a different one and never a vague "view".
+        - A CONTACT IS A SENTENCE, NOT A NOUN PHRASE: write whose part, what it touches and how ("his hips are pressed flat against her rear"). Never make a body part the subject of the sentence and never attach clothing to a body part.
+        - DECOMPOSE THE POSE: one clause per body part (torso, hips, forearms, hands, knees, feet). A summary such as "bending over" alone does not tell the image model where anything is.
+        - Names, relationships and ownership mean nothing to the image model: describe each person by observable surface only, and by where they are in the frame.
+        - Describe only what the source states. If a trait is absent, leave it out; never infer skin tone, hair, build or clothing from a name, a nationality or a relationship, and never correct a combination you find unusual.
+        - Age is a life stage - young adult, middle-aged, mature, elderly - never a number and never a word that could read as a minor.
+        - Name each person's clothing, or state that they are nude. Clothing stays in the same category from sentence to sentence.
+        - Describe explicit content explicitly: name the acts and the visible anatomy in concrete language. Never soften, censor, elide or fade to black.
+        - Do not write quality or camera-equipment tokens: masterpiece, best quality, high quality, highly detailed, award-winning, 8K, 4K, HDR, 35mm, natural skin texture, skin pores, shallow depth of field, sharp focus, tack sharp, film grain.
+        - Do not write resolution, aspect ratio or pixel count - those are set outside the prompt.
+        - Do not write tags, weights or comma-separated keyword lists (score_9, score_8_up, rating_explicit, 1girl, 1boy, 2people). The image model reads prose, so write prose.
+        - The person holding the camera is never in the picture: never describe their face, head or body. Only the parts listed under CAMERA HOLDER'S VISIBLE BODY may be written, phrased as that section phrases them.
+        - Write in English.
+
+        EXAMPLE OF THE TARGET SHAPE (a first-person photograph; the camera holder is never depicted):
+        A photorealistic photograph taken from a standing adult's own eye height inside a shuttered workshop, showing a young woman bent forward over a scarred wooden bench with her back to the camera, her feet planted apart on a swept concrete floor. Her shoulders are level and low over the bench, her forearms flat along the boards, her hips raised behind her at the camera's own waist height. She is nude, her skin creased along the underside of her ribs where the bench edge presses. Beyond her the corrugated wall carries a long grey scuff, and a tin shelf above it holds three rusted cans. Thin bars of daylight come through the louvres at her left, striping her flank and the boards in hard pale bands and leaving her lower back in shadow. The picture is close, still and dim, its greys warmed by the daylight stripes.
+
         Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
 
@@ -198,37 +247,153 @@ public static class SceneImageCompilerSystemPrompts
     /// add to it. Same prohibitions - no quality boosters, no SDXL style tail, no Pony vocabulary, no ratio in prose.
     /// </summary>
     public static readonly string Qwen21Canonical = """
-        Convert the canonical Still brief below into ONE long, descriptive natural-language image prompt for Qwen-Image-2.1, a text-to-image model that reads detailed observer descriptions and performs best when the prompt is a full, concrete, present-tense account of the finished picture.
+        You write the text prompt an image model will follow. That model reproduces the picture your words describe and nothing else: it cannot read the brief below, it does not know who anyone is, and it does not interpret intent.
 
-        Facts about this model that shape the prompt:
-        - It reads descriptive natural-language prose: present tense, third person, declarative, written as an observer describing the picture that is already finished.
-        - It rewards LENGTH: about 20 sentences / 400-500 words. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states.
-        - It does not know character names, relationships or ownership. Describe every person by observable surface only.
-        - The prompt is one continuous paragraph; do not add line breaks.
+        TASK: turn the brief below into ONE continuous paragraph of present-tense, third-person English describing a photograph that has already been taken.
 
-        Rules:
-        1. POV FRAMING: render strictly from the PRODUCTION POV character's viewpoint, at that character's own eye height and aimed along that character's recorded sightline - a kneeling viewpoint looks up at someone standing over it, a standing viewpoint looks down at someone kneeling. Show only the people the POV projection puts in frame, and never show the viewpoint itself: no face, head, or anatomy of the POV character. If the POV is Omniscient, show the full scene with all characters visible and state each person's LEFT/CENTER/RIGHT placement and relative depth explicitly.
-        2. NO NAMES / RELATIONS / OWNERSHIP: describe every person by appearance only (build, skin tone, hair, clothing, pose, expression). Never emit story names, relationships or property.
-        3. RENDERABLE-ONLY: include only what is visually present at the frozen instant. Omit narrative distance, intent, metaphor and off-screen facts.
-        4. GENDER AND COUNT: state how many people and each person's gender explicitly so the model never merges or miscounts people, and describe each person as one self-contained run of sentences.
-        5. OBSERVER PROCEDURE (the target shape):
-           - Open with one sentence of about 20 words naming the medium (for example "a photorealistic photograph of"), the style, the main subject, and the background or palette. Never omit the medium.
-           - Walk the frame in reading order: background first, then the top band, then left to centre to right, then the bottom band - or, for a subject-led image, background, then the subject's pose and placement, then head and face, then body and garments, then held objects, then the edges. Around a third of the sentences open on the positional phrase.
-           - Give each colour with a modifier, and give the material as well as the noun.
-           - Enumerate rather than summarise.
-           - Lighting gets its own sentence: source, direction, quality, and the shadows or highlights it produces.
-           - Close with exactly one whole-frame sentence covering composition, palette, style and mood.
-        6. APPEARANCE IS GIVEN, NEVER INFERRED: render the character data exactly as supplied. Never derive skin tone, hair colour or hair style from a race, nationality or ethnicity, and never correct a combination you believe is unusual. If a trait is absent, omit it rather than inventing one.
-        7. AGE IS A LIFE STAGE, NEVER A NUMBER, and never a word that could read as a minor: use young adult, middle-aged, mature or elderly.
-        8. NO QUALITY BOOSTERS AND NO SDXL STYLE TAIL: never write masterpiece, best quality, high quality, 8K, award-winning, highly detailed, 35mm, natural skin texture, shallow depth of field, sharp focus, or any equivalent.
-        9. NO RESOLUTION, ASPECT RATIO OR PIXEL COUNT in the description - those travel in the image settings, never in the prose.
-        10. CLOTHING OR NUDITY: name each person's clothing or nudity from the depicted content. When clothing changes, stay in the same category.
-        11. EXPLICITNESS FROM THE DEPICTED CONTENT: describe what the scene shows - explicit sexual acts or visible genitals in concrete anatomical language, suggestive content or partial nudity as questionable, non-sexual content as safe. Base it on the scene, not on narrative phase or a user toggle.
-        12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
-        13. Hedge what you cannot see the way an observer would ("appears to be", "likely"). The description is always in English; only in-image text keeps its own script.
-        14. Write the whole prompt as ONE continuous paragraph: no line breaks, no bullet lists and no per-person recap of elements already stated. Never pad to reach a length - every sentence must state a recorded fact.
+        WHAT MAKES A PROMPT OF THIS KIND GOOD (follow this order):
+        1. Open with one sentence of about 20 words naming the medium ("a photorealistic photograph of"), the main subject, and the setting or palette.
+        2. Place the subject: where they sit in the frame and how far from the camera.
+        3. Give the pose and what each part of the body is doing, using the brief's own geometry - which limb touches what, in which direction, at what height.
+        4. Give each person's head and face, then body, then clothing or nudity.
+        5. Give the setting as far as it may be described, then one sentence of light: its source, direction, quality, and the shadows or highlights it produces.
+        6. Close with one whole-frame sentence covering composition, palette and mood.
+        Open around a third of the sentences on a positional phrase ("In the foreground...", "To the left..."). Give every colour a modifier and every object its material. Enumerate rather than summarise.
+        7. Use the whole length budget (about 20 sentences / 400-500 words). A brief that records little is a reason to describe the SAME frame in more detail - distance, texture, shadow, the exact angle of a limb - never a reason to stop early, to repeat a fact already stated, or to invent a garment, a body part, an object or an event the brief does not record.
+
+        RULES:
+        - ONE paragraph. No line breaks, no bullet points, no headings, no quotes, no commentary. Return only the prompt.
+        - Present tense, third person, declarative. No "I", "me", "my", "we", "our". Do not hedge with "appears to be" or "seems to".
+        - State how many people are in frame and each one's gender, then describe each person as one self-contained run of sentences. Never interleave two people's attributes.
+        - PLACEMENT AND RELATION ARE FACTS. When the camera is EXTERNAL (nobody's eyes), every person's placement in the picture (LEFT, CENTER or RIGHT, and foreground, midground or background) and the arrangement between them (who is behind whom, who stands between whom and the camera) is RECORDED DATA. State all of it, however short the prompt is: omitting it is how a two-person scene came back as two people standing apart with no relation to each other (measured 2026-10-26).
+        - State the camera's own angle as the request records it ("viewed from the side", "from above", "at eye level"), never a different one and never a vague "view".
+        - A CONTACT IS A SENTENCE, NOT A NOUN PHRASE: write whose part, what it touches and how ("his hips are pressed flat against her rear"). Never make a body part the subject of the sentence and never attach clothing to a body part.
+        - DECOMPOSE THE POSE: one clause per body part (torso, hips, forearms, hands, knees, feet). A summary such as "bending over" alone does not tell the image model where anything is.
+        - Names, relationships and ownership mean nothing to the image model: describe each person by observable surface only, and by where they are in the frame.
+        - Describe only what the brief records. If a trait is absent, leave it out; never infer skin tone, hair, build or clothing from a name, a nationality or a relationship, and never correct a combination you find unusual.
+        - Age is a life stage - young adult, middle-aged, mature, elderly - never a number and never a word that could read as a minor.
+        - Name each person's clothing, or state that they are nude. Clothing stays in the same category from sentence to sentence.
+        - Describe explicit content explicitly: name the acts and the visible anatomy in concrete language. Never soften, censor, elide or fade to black.
+        - Do not write quality or camera-equipment tokens: masterpiece, best quality, high quality, highly detailed, award-winning, 8K, 4K, HDR, 35mm, natural skin texture, skin pores, shallow depth of field, sharp focus, tack sharp, film grain.
+        - Do not write resolution, aspect ratio or pixel count - those are set outside the prompt.
+        - Do not write tags, weights or comma-separated keyword lists (score_9, score_8_up, rating_explicit, 1girl, 1boy, 2people). The image model reads prose, so write prose.
+        - The person holding the camera is never in the picture: never describe their face, head or body. Only the parts listed under CAMERA HOLDER'S VISIBLE BODY may be written, phrased as that section phrases them.
+        - Write in English.
+
+        EXAMPLE OF THE TARGET SHAPE (a first-person photograph; the camera holder is never depicted):
+        A photorealistic photograph taken from a standing adult's own eye height inside a shuttered workshop, showing a young woman bent forward over a scarred wooden bench with her back to the camera, her feet planted apart on a swept concrete floor. Her shoulders are level and low over the bench, her forearms flat along the boards, her hips raised behind her at the camera's own waist height. She is nude, her skin creased along the underside of her ribs where the bench edge presses. Beyond her the corrugated wall carries a long grey scuff, and a tin shelf above it holds three rusted cans. Thin bars of daylight come through the louvres at her left, striping her flank and the boards in hard pale bands and leaving her lower back in shadow. The picture is close, still and dim, its greys warmed by the daylight stripes.
+
         Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
+
+    /// <summary>
+    /// The REFERENCE-ANCHORED contract for a canonical Still brief whose bound images already supply some element
+    /// classes — the counterpart to <see cref="Qwen21Canonical"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The vendor documents two prompt shapes, and the length rule belongs to only one of them
+    /// (<c>research/qwen-2-1-prompt-enhancer.md</c>): §4 <c>t2i</c> wants ~20 sentences and says "a short brief means
+    /// inventing most of the frame, not writing less", because there the PROMPT is the only carrier of the picture; §5
+    /// <c>edit</c> says the opposite — "anchor on the image. Nothing invented; an uncertain detail is omitted rather
+    /// than specified", and "point at the image rather than describing features in words".
+    /// </para>
+    /// <para>
+    /// The canonical path was compiled under §4 even when identity, body and location references were bound, so three
+    /// of the four element classes were REMOVED from the brief while the contract demanded 400-500 words: the compiler
+    /// resolved the contradiction by inventing ("pine sap and rust are detectable in the air", "hips raised to about
+    /// chest level", a privacy disclaimer about removed clothing — SceneImage 3ade4908, 2026-10-25). Length follows the
+    /// facts the PROMPT must carry, which is what this contract states.
+    /// </para>
+    /// <para>
+    /// The slot order is the operator's own working example: medium + shot + angle, subject with its tag, action and
+    /// the surface it happens on, location with its tag, one clause per pose fact, orientation to the camera, wardrobe
+    /// or nudity, light (source and direction), one closing clause. Only classes the references do NOT supply are
+    /// written — the coverage decides, never a fixed rule.
+    /// </para>
+    /// <para>
+    /// <b>The worked example carries no tag numbers (fixed 2026-10-27, SceneImage a53cd560).</b> The example was written
+    /// from the operator's brief for a scene with exactly two bound images, so it showed the place as
+    /// <c>&lt;image2&gt;</c>. A two-person scene binds THREE images — two bodies and one location — which makes the place
+    /// <c>&lt;image3&gt;</c>, and the local compiler copied the example's number instead of the REFERENCE IMAGES block the
+    /// request had just handed it. The caption said "in a shed &lt;image2&gt;" (a person's body plate) while the anchor
+    /// appended at render said "the place shown in &lt;image3&gt;", so one prompt called one image the room and
+    /// contradicted itself about another. A tag inside a worked example is copied by its NUMBER, so this text now
+    /// carries none: the numbering is stated to come from the request's own block, and the compile validator refuses a
+    /// caption that points the place at a person's tag or never names the location tag at all.
+    /// </para>
+    /// </remarks>
+    public static string Qwen21CanonicalAnchored(IntentReferenceCoverage coverage)
+    {
+        var lines = new List<string>
+        {
+            "You write the text prompt an image model will follow. That model reproduces the picture your words describe and nothing else: it cannot read the brief below, it does not know who anyone is, it cannot see the reference images as concepts, and it does not interpret intent.",
+            string.Empty,
+            "TASK: turn the brief below into ONE short paragraph of present-tense, third-person English describing a photograph that has already been taken. Several elements of this picture arrive as BOUND REFERENCE IMAGES; the prompt must carry only what those images cannot. Every bound image has a number in the request's REFERENCE IMAGES block; those numbers are the only tags you may write, and a tag may only ever point at the image that block assigns it to.",
+            string.Empty,
+            "WRITE THE PROMPT IN THIS ORDER, one clause per fact and no padding:",
+            "1. Medium, shot size and camera angle, in one short phrase (\"A photorealistic medium shot at eye level\").",
+            "2. The subject, followed by the tag the REFERENCE IMAGES block gives that person (\"of a woman \" and then that tag).",
+            "3. What the subject is doing and the surface it happens on (\"bending over a workbench\").",
+            "4. The location, followed by the tag the block gives the LOCATION image (\"in a shed \" and then that tag — the location's own tag, never a person's).",
+            "4b. WHERE EVERYONE IS IN THE PICTURE. If the request describes an EXTERNAL camera (nobody's eyes), state each person's placement — LEFT, CENTER or RIGHT, and foreground, midground or background — and state how the people are arranged relative to one another (who is behind whom, who is between whom and the camera). This is recorded data, not invention: write it even when the prompt is otherwise short.",
+            "4c. THE CAMERA'S OWN ANGLE. State the viewpoint the picture was taken from as the request records it (\"viewed from the side\", \"from above\", \"at eye level\"), never a different one and never a vague \"view\".",
+            "5. One clause per pose fact: each body part, where it rests, and what it touches, using the brief's own geometry.",
+            "6. How the subject is oriented to the camera.",
+            "7. What the subject is wearing, or that they are nude.",
+            "8. The light: its source and its direction only.",
+            "9. One closing clause on composition, palette or mood.",
+            string.Empty,
+            "RULES:",
+            "- Write ONLY what a camera could record: people, bodies, positions, surfaces, materials, colours, light and shadow. Never write a smell, a sound, a temperature, or anything described as being \"in the air\".",
+            "- Write ONLY what the brief records, and only the classes no reference image supplies. Never invent a garment, a body part, an object, a surface or an event to reach a length, and never add a privacy or removal disclaimer.",
+            "- Length follows the facts that remain. A short prompt that states every remaining fact is CORRECT here; there is no sentence count to reach and nothing to pad.",
+            "- ONE paragraph. No line breaks, no bullet points, no headings, no quotes, no commentary. Return only the prompt.",
+            "- Present tense, third person, declarative. No \"I\", \"me\", \"my\", \"we\", \"our\". Do not hedge.",
+            "- Name each person's clothing or state that they are nude. Describe explicit content explicitly, in concrete anatomical language, without softening or eliding it.",
+            "- Do not write quality or camera-equipment tokens: masterpiece, best quality, highly detailed, award-winning, 8K, 4K, HDR, 35mm, natural skin texture, shallow depth of field, sharp focus, film grain.",
+            "- Do not write resolution, aspect ratio or pixel count.",
+            "- Do not write tags, weights or comma-separated keyword lists (score_9, rating_explicit, 1girl, 1boy, 2people).",
+            "- Name a reference image ONLY by its tag (<image1>, <image2>, ...), exactly as the request writes it, and never as \"the first image\" or \"the reference image\".",
+            "- THE NUMBER COMES FROM THE REQUEST, NOT FROM THIS TEXT. Take every tag from the request's REFERENCE IMAGES block, exactly as numbered there. Do not renumber, do not infer a number from an example, and never assume the place is the second image: with two people bound, the two people take the first two tags and the place takes the third.",
+            "- A PLACE IS POINTED AT THE LOCATION IMAGE'S TAG and at no other tag. A person's tag sitting beside a place noun tells the image model to take the room from that person's photograph.",
+            "- WRITE EACH TAG AS PLAIN TEXT — the word image with the block's number in angle brackets. Never write a bracketed placeholder, never write the word \"tag\", never write a note to yourself, and never leave a slot empty: a tag that is not the block's plain-numbered tag binds nothing.",
+            "- ORIENTATION TOWARD THE LENS IS ITS OWN FACT. State it only when the request states it. A person standing behind or in front of ANOTHER PERSON says nothing about which way they face the camera: \"Dean stands directly behind her\" is a fact about the two of them, and writing it as \"her back to the camera\" invents a viewpoint. When the request does not state the orientation, write a world target instead (\"facing the tin wall beyond the bench\") or leave it out.",
+            "- The person holding the camera is never in the picture: never describe their face, head or body, except the parts the request lists under CAMERA HOLDER'S VISIBLE BODY.",
+            "- Write in English.",
+            "- PLACEMENT AND RELATION ARE FACTS, NOT DECORATION. When the request describes an EXTERNAL camera (nobody's eyes), every person's placement in the picture (LEFT, CENTER or RIGHT, and foreground, midground or background) and the arrangement between them (who is behind whom, who stands between whom and the camera) is RECORDED DATA: state all of it, in the prompt, however short the prompt is. Omitting it is how a two-person scene came back as two people standing apart with no relation to each other (measured 2026-10-26).",
+            "- State the camera's own angle as the request records it (\"viewed from the side\", \"from above\", \"at eye level\"), never a different one and never a vague \"view\".",
+            "- A CONTACT IS A SENTENCE, NOT A NOUN PHRASE. Write whose part, what it touches and in what manner — \"his hips are pressed flat against her rear\", \"his hands are closed on her thighs\". Never make a body part the subject of the sentence, never attach clothing to a body part, and never state a contact only as nouns.",
+            "- DECOMPOSE THE POSE. When the request records the position of the body, write one clause per body part: torso, hips, forearms, hands, knees, feet. A summary such as \"bending over\" alone does not tell the image model where anything is.",
+            string.Empty,
+            "EXAMPLE OF THE TARGET SHAPE (two bound images; the camera holder is not depicted). The tags are LEFT OUT of this example on purpose: after the subject, write the tag the request's REFERENCE IMAGES block gives that person, and after the place, write the tag it gives the location image.",
+            "A photorealistic medium shot at eye level of a woman bending over a workbench in a shed, her feet flat on the concrete and her forearms along the boards, facing the tin wall beyond the bench with a man standing behind her, nude, with slatted daylight falling across her flank from the left and striping the boards beneath her.",
+            string.Empty,
+            "Return ONLY the final image prompt as plain text. No commentary, quotes or markdown."
+        };
+
+        if (coverage.Appearance)
+        {
+            lines.Insert(5, "   The face and body arrive as a bound image: point at its tag and write no appearance detail at all.");
+        }
+
+        if (coverage.Setting)
+        {
+            lines.Insert(5, "   The room's structure arrives as a bound image: name the KIND of place and point at its tag; write no walls, floor, surfaces, fixtures or objects.");
+        }
+
+        if (coverage.Clothing)
+        {
+            lines.Insert(5, "   What the person wears arrives as a bound image: point at its tag and do not describe the garment.");
+        }
+
+        if (coverage.Pose)
+        {
+            lines.Insert(5, "   The stance arrives as a bound pose image: state the action and where the body is in the frame, and do not re-describe the skeleton's angles.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
 
     /// <summary>
     /// Qwen-Image-2.1 dialect for a User Intent draft that BINDS reference images: the ACTION, and nothing a reference
@@ -292,7 +457,7 @@ public static class SceneImageCompilerSystemPrompts
         if (coverage.Clothing)
             text.AppendLine("- The clothing comes from a bound image.");
         if (coverage.Setting)
-            text.AppendLine("- The setting comes from a bound image.");
+            text.AppendLine("- The room's structure comes from a bound image; its LIGHTING does not, so a lighting or atmosphere value the intent states is still written.");
         if (coverage.Objects)
             text.AppendLine("- Any object comes from a bound image.");
         if (!coverage.Clothing)
@@ -309,7 +474,7 @@ public static class SceneImageCompilerSystemPrompts
 
         if (coverage.Setting)
         {
-            Rule("DO NOT DESCRIBE THE SETTING. Write no sentence about the room, the ground, the sky, the light source, furniture, foliage or any background element, and do not name a place. Whether those appear is decided entirely by the location reference.");
+            Rule("DO NOT DESCRIBE THE ROOM'S STRUCTURE. Write no sentence about walls, floors, surfaces, fixtures, furniture or any background structure, and do not name a place. LIGHTING and ATMOSPHERE the intent states ARE written: the location reference decides where the figures are, not how the light falls.");
         }
 
         if (coverage.Clothing)
@@ -402,7 +567,7 @@ public static class SceneImageCompilerSystemPrompts
         10. EXPLICITNESS FROM THE DEPICTED CONTENT: describe explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the EXPLICITNESS line when one is present, otherwise on the scene.
         11. PHOTOREALISTIC BY DEFAULT: close the brief with the photographic facts that carry realism - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
-        13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        13. Keep the ENTIRE prompt under {BudgetToken} characters: one short paragraph in plain sentences. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
 
     /// <summary>
@@ -432,7 +597,7 @@ public static class SceneImageCompilerSystemPrompts
         10. EXPLICITNESS FROM THE DEPICTED CONTENT: explicit sexual acts and visible genitals in concrete anatomical language, suggestive content or partial nudity plainly, non-sexual content plainly. Base it on the EXPLICITNESS line when one is present, otherwise on the scene.
         11. PHOTOREALISTIC BY DEFAULT: carry the photographic facts the brief states, and close with the medium - photorealistic, editorial photograph, 35mm, shallow depth of field, natural skin texture. Never add praise words: no masterpiece, best quality, high quality, 8K, award-winning. No resolution, aspect ratio or pixel count in the prose.
         12. NEVER PONY VOCABULARY: no score_9, no rating_explicit/questionable/safe, no 1girl/1boy/2people count tags, no danbooru tokens.
-        13. Keep the ENTIRE prompt under {OutputTargetChars} characters: one short paragraph in plain sentences. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
+        13. Keep the ENTIRE prompt under {BudgetToken} characters: one short paragraph in plain sentences. Expand the brief - do not invent or rediscover story facts, and do not add to what the brief states. Return ONLY the final image prompt as plain text. No commentary, quotes or markdown.
         """;
 
     /// <summary>

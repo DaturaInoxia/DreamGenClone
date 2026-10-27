@@ -19,9 +19,6 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
 {
     public const int InputExcerptMaxChars = 1200;
     public const int OutputPromptMaxChars = 2000;
-
-    /// <summary>Kept as the builder's name for the shared target so no caller has to know where it lives (B-135).</summary>
-    public const int OutputPromptTargetChars = SceneImageCompilerSystemPrompts.OutputTargetChars;
     public const int CharacterAppearanceDescriptionMaxChars = 240;
 
     /// <summary>
@@ -181,6 +178,9 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         }
 
         prompt = SceneImagePromptRefusal.EnsureIsPrompt(prompt);
+
+        // B-167: one paragraph, whatever line shape the model used. See the natural-language builder for the rule.
+        prompt = NaturalLanguageSceneImagePromptBuilder.CollapseToSingleParagraph(prompt);
 
         if (prompt.Length > OutputPromptMaxChars)
         {
@@ -624,7 +624,7 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         var projection = povProjection ?? SceneImagePovProjection.Resolve(
             brief, pov, effectiveBlocking,
             cameraHolderPartsMode: settings.CameraHolderParts, cameraHolderPartsText: settings.CameraHolderPartsText);
-        sb.AppendLine("CANONICAL STILL BRIEF (the complete semantic source for this request):");
+        sb.AppendLine("CANONICAL STILL BRIEF (the selected facts this request must realize):");
         // A reference-supplied room also drops the frame rationale: it is prose ABOUT the room and the compiler echoes
         // it as room description. The frame itself — camera and placements — is untouched.
         var promptBlocking = effectiveBlocking is not null && projection.SceneSuppliedByReference
@@ -642,14 +642,24 @@ public sealed class PonySceneImagePromptBuilder : IPonySceneImagePromptBuilder, 
         {
             briefJson = SceneImagePovProjection.DropViewpoint(briefJson, projection.UnseenViewpointProfileKey);
         }
-        sb.AppendLine(SemanticSnapshotDeDuplicator.DeDuplicate(briefJson));
+        // B-167 Part B: labelled facts instead of the raw snapshot; an operator-edited value is marked as intent.
+        sb.AppendLine(StillBriefFactSheet.Render(
+            briefJson,
+            effectiveOverrides,
+            projection.UnseenViewpointProfileKey,
+            ParticipantNames.FromProjection(projection)));
         var appearanceBlock = CanonicalCharacterAppearance.BuildBlock(brief, pov, characters, appearanceOverrides, canonicalAppearance, appearanceElementOverrides);
         if (!string.IsNullOrWhiteSpace(appearanceBlock))
         {
             sb.AppendLine(appearanceBlock);
             sb.AppendLine();
         }
-        sb.AppendLine($"PRODUCTION POV: {pov}");
+        // The camera holder is the CAMERA, not a subject: putting "PRODUCTION POV: Becky" in front of the compiler is
+        // what produced "as seen by Becky" (record f5a2a9df). The natural-language families already state this without
+        // the name; the tag families must do the same or the same name reaches the caption.
+        sb.AppendLine(projection is { IsOmniscient: false }
+            ? "PRODUCTION POV: a participant standing in the scene — that person IS the camera and is never in the picture."
+            : $"PRODUCTION POV: {pov}");
         sb.AppendLine(projection.ToPromptText());
         sb.AppendLine($"IMAGE SETTINGS: style={settings.Style}; size={settings.ImageSize}; aspect={settings.AspectRatio}; policy={policy}");
         sb.AppendLine($"EXPLICITNESS: {SceneImageExplicitnessWording.Directive(settings.Explicitness)}");

@@ -35,11 +35,13 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
             INSERT INTO FunctionModelDefaults (
                 Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, MaxConcurrentJobs,
                 DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds, TransientRetryCount,
-                TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays, MaximumCatalogueEntries, UpdatedUtc)
+                TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays, MaximumCatalogueEntries,
+                PresencePenalty, UpdatedUtc)
             VALUES (
                 $id, $funcName, $modelId, $temp, $topP, $maxTokens, $thinkingMode, $maxConcurrentJobs,
                 $durableJobLeaseSeconds, $durableJobPollIntervalMilliseconds, $transientRetryCount,
-                $transientRetryDelaysSecondsJson, $diagnosticsRetentionDays, $maximumCatalogueEntries, $updated)
+                $transientRetryDelaysSecondsJson, $diagnosticsRetentionDays, $maximumCatalogueEntries,
+                $presencePenalty, $updated)
             ON CONFLICT(Id) DO UPDATE SET
                 FunctionName = $funcName,
                 ModelId = $modelId,
@@ -54,6 +56,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
                 TransientRetryDelaysSecondsJson = $transientRetryDelaysSecondsJson,
                 DiagnosticsRetentionDays = $diagnosticsRetentionDays,
                 MaximumCatalogueEntries = $maximumCatalogueEntries,
+                PresencePenalty = $presencePenalty,
                 UpdatedUtc = $updated
             """;
 
@@ -71,6 +74,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         command.Parameters.AddWithValue("$transientRetryDelaysSecondsJson", (object?)functionDefault.TransientRetryDelaysSecondsJson ?? DBNull.Value);
         command.Parameters.AddWithValue("$diagnosticsRetentionDays", (object?)functionDefault.DiagnosticsRetentionDays ?? DBNull.Value);
         command.Parameters.AddWithValue("$maximumCatalogueEntries", (object?)functionDefault.MaximumCatalogueEntries ?? DBNull.Value);
+        command.Parameters.AddWithValue("$presencePenalty", (object?)functionDefault.PresencePenalty ?? DBNull.Value);
         command.Parameters.AddWithValue("$updated", functionDefault.UpdatedUtc);
 
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -171,7 +175,8 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
             TransientRetryCount = reader.IsDBNull(11) ? null : reader.GetInt32(11),
             TransientRetryDelaysSecondsJson = reader.IsDBNull(12) ? null : reader.GetString(12),
             DiagnosticsRetentionDays = reader.IsDBNull(13) ? null : reader.GetInt32(13),
-            MaximumCatalogueEntries = reader.IsDBNull(14) ? null : reader.GetInt32(14)
+            MaximumCatalogueEntries = reader.IsDBNull(14) ? null : reader.GetInt32(14),
+            PresencePenalty = reader.IsDBNull(15) ? null : reader.GetDouble(15)
         };
     }
 
@@ -179,7 +184,7 @@ public sealed class FunctionDefaultRepository : IFunctionDefaultRepository
         SELECT Id, FunctionName, ModelId, Temperature, TopP, MaxTokens, ThinkingMode, UpdatedUtc,
                MaxConcurrentJobs, DurableJobLeaseSeconds, DurableJobPollIntervalMilliseconds,
                TransientRetryCount, TransientRetryDelaysSecondsJson, DiagnosticsRetentionDays,
-               MaximumCatalogueEntries
+               MaximumCatalogueEntries, PresencePenalty
         FROM FunctionModelDefaults
         """;
 }

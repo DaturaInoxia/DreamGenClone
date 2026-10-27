@@ -225,7 +225,37 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        await MigrateBudgetTokenAsync(connection, cancellationToken);
         await SeedAsync(connection, cancellationToken);
+    }
+
+    /// <summary>
+    /// Converts the prompt budget baked into a stored compiler instruction into the single-owner token (B-167).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The instruction texts used to state a literal <c>800</c> characters, and rows were seeded with that sentence, so a
+    /// checkpoint whose profile declares a different budget (Qwen-Image-2.1 declares 3400) was told one number while the
+    /// profile enforced another — a cell that can never pass. The texts now carry
+    /// <see cref="SceneImageCompilerSystemPrompts.BudgetToken"/> and the render-time resolution supplies the profile's
+    /// own value.
+    /// </para>
+    /// <para>
+    /// This rewrites ONLY that one sentence, and only where the old literal is still present, so an operator's edits to
+    /// any other part of the instruction survive and a row already carrying the token is untouched. It is idempotent.
+    /// </para>
+    /// </remarks>
+    private static async Task MigrateBudgetTokenAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE ImageCompilerProfiles
+            SET SystemPrompt = REPLACE(SystemPrompt, 'under 800 characters', 'under {{maxChars}} characters'),
+                UpdatedUtc = $updatedUtc
+            WHERE INSTR(SystemPrompt, 'under 800 characters') > 0;
+            """;
+        command.Parameters.AddWithValue("$updatedUtc", DateTime.UtcNow.ToString("o"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task SeedAsync(SqliteConnection connection, CancellationToken cancellationToken)
@@ -392,11 +422,12 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             DisplayName = "Qwen-Image-2.1 (Local ComfyUI)",
             Family = SceneImageModelFamily.QwenImage21,
             PromptDialect = SceneImagePromptDialect.NaturalLanguage,
-            // Qwen-2.1 wants LONG, detailed prompts; this budget is the opposite of the SDXL-family envelope.
-            // 3400 characters rather than 1600: the compiler contract asks for "about 20 sentences / 400-500 words",
-            // which is ~3000 characters. A cap below the length the same prompt demands is unsatisfiable, and the model
-            // resolves it by writing a thin caption that drops the operator's own element text (measured 2026-10-23).
-            MinChars = 300,
+            // Qwen-2.1 wants LONG, detailed prompts WHEN THE PROMPT IS THE ONLY CARRIER (no references bound); with
+            // identity/body/location plates bound the anchored contract applies and a short prompt that states every
+            // remaining fact is CORRECT (vendor §5 "anchor on the image; nothing invented"). So the CAP stays generous
+            // while the FLOOR comes down to the anchored regime: a 300-character floor rejected the operator's own
+            // ~200-character working prompt and the model padded to reach it (measured 2026-10-25, SceneImage 3ade4908).
+            MinChars = 120,
             MaxChars = 3400,
             // A long-form budget needs a matching token allowance: 300 tokens is ~1200 characters, so a 3400-character
             // answer could not be produced even if the character rule allowed it.
@@ -424,9 +455,11 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             DisplayName = "Qwen-Image-2.1 Noct Q Uncensored (Local ComfyUI)",
             Family = SceneImageModelFamily.QwenImage21,
             PromptDialect = SceneImagePromptDialect.NaturalLanguage,
-            // Carried from profile-qwen-image-2-1, including the 3400/700 long-form budget: this build runs the same
-            // Qwen-Image-2.1 prompt dialect, so a smaller budget here would make the same contract unsatisfiable.
-            MinChars = 300,
+            // Carried from profile-qwen-image-2-1, including the 120/3400/700 budget: this build runs the same
+            // Qwen-Image-2.1 prompt dialect and the same two contracts (long-form when nothing is bound, anchored and
+            // therefore potentially short when references carry the picture), so a different floor here would make the
+            // anchored contract unsatisfiable on this checkpoint only.
+            MinChars = 120,
             MaxChars = 3400,
             MaxTokens = 700,
             RequiredComponentsJson = """["subject","action","setting","framing","lighting"]""",
@@ -456,15 +489,20 @@ public sealed class ImageCompilerProfileRepository : IImageCompilerProfileReposi
             DisplayName = "Krea 2 Turbo (local ComfyUI)",
             Family = SceneImageModelFamily.Krea2,
             PromptDialect = SceneImagePromptDialect.Krea2NaturalLanguage,
-            // A photographic BRIEF, not a long-form description and not tag soup. The budget matches the ceiling the
-            // compiler text itself states (SceneImageCompilerSystemPrompts.Krea2Beat ends with "keep the ENTIRE prompt
-            // under {OutputTargetChars} characters"): a budget written into the instruction text and a budget enforced
-            // by the profile that disagree is a cell that can never pass.
+            // A photographic BRIEF, not a long-form description and not tag soup. B-167: the compiler text no longer
+            // states a number at all — it carries {{maxChars}} and the render resolves it from THIS row's MaxChars, so
+            // the instruction and the enforced budget cannot disagree.
             MinChars = 120,
-            MaxChars = 800,
+            // 800 was too small to state the still brief's facts once each. Measured 2026-10-25 (SceneImage 36857035,
+            // Dean POV): with the ceiling actually enforced for the first time, the compiler produced an 824-character
+            // caption and paid for it by deleting the NUDITY clause — the one fact nothing else in the record repeats.
+            // The facts a participant frame must carry (place, light, event, posture, facing, action, wardrobe, the
+            // camera holder's visible body, the frame) need ~1100-1300 characters, so the ceiling is 1600.
+            MaxChars = 1600,
             // The text encoder is Qwen3-VL 4B, NOT CLIP: the SDXL-family 75-token CLIP window is a property of a
-            // different architecture and would be simply wrong here. 800 characters is roughly 200 tokens.
-            MaxTokens = 300,
+            // different architecture and would be simply wrong here. 1600 characters is roughly 400 tokens, so the
+            // allowance is 600 — a ceiling the allowance cannot reach is a ceiling the model meets by deleting facts.
+            MaxTokens = 600,
             RequiredComponentsJson = """["subject","action","setting","lighting","photographic-treatment"]""",
             // The last three are this checkpoint's measured traps, spelled out so the categories are self-describing
             // rather than needing the proof matrix to interpret: an explicit framing DEMAND never once worked, a body

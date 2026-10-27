@@ -28,7 +28,15 @@ public sealed class QwenSceneImagePromptBuilder : NaturalLanguageSceneImagePromp
     /// Qwen-2.1 long-form system prompt for the canonical-brief path (B-104/B-103 part B). Same route-1 source as
     /// the beat path, adapted to the immutable canonical Still brief.
     /// </summary>
-    protected override string BuildCanonicalSystemPrompt() => SceneImageCompilerSystemPrompts.Qwen21Canonical;
+    /// <summary>
+    /// Qwen-2.1 canonical contract, chosen by what the bound images supply. With no references the vendor's §4
+    /// long-form text applies; with any reference bound its §5 anchored form applies, because that is the shape the
+    /// vendor documents for a request whose images carry part of the picture.
+    /// </summary>
+    protected override string BuildCanonicalSystemPrompt(IntentReferenceCoverage coverage)
+        => coverage.Any
+            ? SceneImageCompilerSystemPrompts.Qwen21CanonicalAnchored(coverage)
+            : SceneImageCompilerSystemPrompts.Qwen21Canonical;
 
     /// <summary>
     /// A User Intent draft that BINDS reference images is compiled under the ACTION-ONLY contract, not the long-form

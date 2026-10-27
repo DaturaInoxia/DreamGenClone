@@ -39,26 +39,25 @@ public static class StepPromptElementPlan
     /// "the room" from the SAME set — two lists of the room's elements is how a binding and an operator edit come to
     /// mean different things by "remove the room".
     /// </summary>
+    /// <remarks>
+    /// B-167 D2: only elements the image brief actually carries. The continuity blocks and the duplicate prose
+    /// restatements are not selected into a Still brief at all, so addressing them would be an element key the brief
+    /// cannot honour — and the applier refuses those by name rather than no-opping.
+    ///
+    /// <para>
+    /// <b>ENVIRONMENT and LIGHTING are deliberately NOT here</b> (operator decision 2026-10-25). A location reference
+    /// supplies where the people are — the room's structure, its surfaces and what stands in it — and that is what the
+    /// room-scopes list exists to stop the prompt repeating. It does NOT decide the light: the same room at dawn, under
+    /// slat light, or in the dark is a different picture, and the operator asking for a lighting or atmosphere change
+    /// was finding the row locked with no way to say it. Both facts stay the operator's to state, and the caption rule
+    /// was narrowed to match.
+    /// </para>
+    /// </remarks>
     public static readonly IReadOnlyList<string> LocationScopes =
     [
         "frozenState.location",
-        "frozenState.environment",
-        "frozenState.lighting",
         "frozenState.objects",
-        "frozenState.visualDescription",
-        "frozenState.continuityState",
-        "moment.frozenState",
-        "moment.compositionRationale",
-        "continuity.start.location",
-        "continuity.start.objectStates",
-        "continuity.start.lighting",
-        "continuity.start.characterStates",
-        "continuity.start.stateSummary",
-        "continuity.end.location",
-        "continuity.end.objectStates",
-        "continuity.end.lighting",
-        "continuity.end.characterStates",
-        "continuity.end.stateSummary"
+        "moment.compositionRationale"
     ];
 
     /// <summary>
@@ -111,9 +110,9 @@ public static class StepPromptElementPlan
 
             ImageStepSlotKind.Wardrobe => [$"{actor}.clothing"],
 
-            // A skeleton supplies the stance. Addressed at the character when one is named, and at the Moment's
-            // visible action otherwise - a frame-wide pose has no character whose position could be cleared.
-            ImageStepSlotKind.Pose => namesActor ? [$"{actor}.position"] : ["moment.visibleAction"],
+            // A skeleton supplies the stance. Addressed at the character when one is named, and at the Moment's single
+            // event sentence otherwise — a frame-wide pose has no character whose position could be cleared.
+            ImageStepSlotKind.Pose => namesActor ? [$"{actor}.position"] : ["frozenState.event.line"],
 
             // A character pose asset carries appearance AND wardrobe AND stance in one image.
             ImageStepSlotKind.CharacterPose =>
@@ -257,7 +256,7 @@ public static class StepPromptElementPlan
             ? owner[CharacterScopePrefix.Length..].Trim()
             : null;
 
-        var element = field switch
+        var element = SpecialElement(trimmed) ?? field switch
         {
             "location" => "the setting — its structure, surfaces and objects",
             "environment" => "the surroundings",
@@ -283,4 +282,19 @@ public static class StepPromptElementPlan
 
         return string.IsNullOrWhiteSpace(actor) ? element : $"{actor}'s {element}";
     }
+
+    /// <summary>
+    /// The v4 world facts whose leaf name alone is ambiguous (an <c>anchor</c> is a body anchor under <c>at</c> and a
+    /// place feature on the event), so they are matched on their full suffix.
+    /// </summary>
+    private static string? SpecialElement(string scope) => scope switch
+    {
+        _ when scope.EndsWith(".event.line", StringComparison.OrdinalIgnoreCase) => "the event",
+        _ when scope.EndsWith(".event.anchor", StringComparison.OrdinalIgnoreCase) => "the event anchor",
+        _ when scope.EndsWith(".at.anchor", StringComparison.OrdinalIgnoreCase) => "the body anchor",
+        _ when scope.EndsWith(".at.posture", StringComparison.OrdinalIgnoreCase) => "the posture",
+        _ when scope.EndsWith(".facing.toward", StringComparison.OrdinalIgnoreCase) => "the facing",
+        _ when scope.EndsWith(".contacts", StringComparison.OrdinalIgnoreCase) => "the body contacts",
+        _ => null
+    };
 }

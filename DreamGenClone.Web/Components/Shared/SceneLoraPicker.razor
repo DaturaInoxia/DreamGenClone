@@ -35,6 +35,16 @@
         {
             <div class="alert alert-warning small mb-0 mt-1">@_error</div>
         }
+        else if (_clearedForFamily.Count > 0)
+        {
+            @* Reported, never silent: these rows belonged to the previous model's family, so this control cannot keep
+               them. The render refuses such a selection by name anyway; better to say so here than after queueing one. *@
+            <div class="alert alert-warning small mb-0 mt-1">
+                <strong>Cleared @(_clearedForFamily.Count == 1 ? "1 scene LoRA" : $"{_clearedForFamily.Count} scene LoRAs")</strong>
+                selected for the previous model family, because this family's catalog does not list
+                @(_clearedForFamily.Count == 1 ? "it" : "them"): @string.Join(", ", _clearedForFamily).
+            </div>
+        }
         else if (!_loading)
         {
             <div class="row g-1 align-items-end mt-1">
@@ -160,6 +170,7 @@
     private static readonly double[] StrengthOptions = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
     private readonly List<SceneLora> _available = [];
+    private readonly List<string> _clearedForFamily = [];
     private SceneImageModelFamily _loadedFor = SceneImageModelFamily.Unknown;
     private string _addFileName = string.Empty;
     private double _addStrength = 1.0;
@@ -184,6 +195,7 @@
 
         _loadedFor = Family;
         _available.Clear();
+        _clearedForFamily.Clear();
         _error = null;
         _addFileName = string.Empty;
         if (Family == SceneImageModelFamily.Unknown)
@@ -206,6 +218,48 @@
         {
             _loading = false;
         }
+
+        // Only when the catalog actually loaded: a failed read must never look like "nothing is catalogued".
+        if (_error is null)
+        {
+            await ClearSelectionsForThePreviousFamilyAsync();
+        }
+    }
+
+    /// <summary>
+    /// Removes selections the NEW family does not catalogue, and records them so the removal is shown, not silent.
+    /// </summary>
+    /// <remarks>
+    /// A scene LoRA is catalogued per model FAMILY (a Krea-2 LoRA is not a Qwen LoRA), so switching the Composition
+    /// model left the old family's LoRAs selected and the render refused them afterwards. The render's refusal is
+    /// untouched — this stops the control carrying a value it cannot express, and names what it dropped.
+    /// </remarks>
+    private async Task ClearSelectionsForThePreviousFamilyAsync()
+    {
+        var selected = Selected;
+        if (selected.Count == 0 || !SelectionsChanged.HasDelegate)
+        {
+            return;
+        }
+
+        var catalogued = _available.Select(lora => lora.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stale = selected
+            .Where(selection => !catalogued.Contains(selection.FileName ?? string.Empty))
+            .ToList();
+        if (stale.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var selection in stale)
+        {
+            _clearedForFamily.Add(string.IsNullOrWhiteSpace(selection.FileName)
+                ? "an unnamed file"
+                : selection.FileName);
+        }
+
+        await SelectionsChanged.InvokeAsync(
+            selected.Where(selection => catalogued.Contains(selection.FileName ?? string.Empty)).ToList());
     }
 
     private void OnAddFileChanged(ChangeEventArgs args)

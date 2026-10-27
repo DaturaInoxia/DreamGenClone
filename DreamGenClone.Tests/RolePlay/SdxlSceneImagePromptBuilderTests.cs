@@ -138,7 +138,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             ImageContentPolicy.AdultAllowed,
             null);
 
-        Assert.Contains("\"shotSize\":\"wide establishing shot\"", user, StringComparison.Ordinal);
+        Assert.Contains("camera: eye level, wide establishing shot", user, StringComparison.Ordinal);
         Assert.DoesNotContain("medium shot", user, StringComparison.Ordinal);
     }
 
@@ -156,7 +156,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             ImageContentPolicy.AdultAllowed,
             null);
 
-        Assert.Contains("\"shotSize\":\"medium shot\"", user, StringComparison.Ordinal);
+        Assert.Contains("camera: eye level, medium shot", user, StringComparison.Ordinal);
         Assert.DoesNotContain("wide establishing shot", user, StringComparison.Ordinal);
     }
 
@@ -234,7 +234,9 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.Contains("GENDER AND COUNT", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NO ATTRIBUTE BLEED", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CLOTHING IS A SAFETY ANCHOR", system, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("under 800 characters", system, StringComparison.OrdinalIgnoreCase);
+        // B-167: the budget is a TOKEN in the instruction text; the render resolves it from the checkpoint profile's MaxChars.
+        Assert.Contains(SceneImageCompilerSystemPrompts.BudgetToken, system, StringComparison.Ordinal);
+        Assert.Contains("under 800 characters", SceneImageCompilerSystemPrompts.ApplyBudget(system, 800), StringComparison.OrdinalIgnoreCase);
         // Externally-sourced primary example + internal secondary (POV-specific) example.
         Assert.Contains("Young woman reading a book in a cozy coffee shop", system, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("a photorealistic view from twenty feet away", system, StringComparison.OrdinalIgnoreCase);
@@ -244,8 +246,11 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.DoesNotContain("score_9", system, StringComparison.Ordinal);
         Assert.DoesNotContain("rating_explicit", system, StringComparison.Ordinal);
 
-        // The user prompt still carries the production POV and the single semantic source.
-        Assert.Contains("PRODUCTION POV: Dean", user, StringComparison.Ordinal);
+        // The user prompt still carries the production POV and the single semantic source. The POV line is ANONYMOUS
+        // for a participant POV: that person is the CAMERA, and naming them put the name in the caption ("as seen by
+        // Becky", record f5a2a9df). The SHOT block below states the frame.
+        Assert.Contains("PRODUCTION POV: a participant standing in the scene", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRODUCTION POV: Dean", user, StringComparison.Ordinal);
         Assert.Contains("CANONICAL STILL BRIEF", user, StringComparison.Ordinal);
         // The provider-request snapshot duplicates the semantic input and is NOT sent to the
         // pre-processor: it used to hand back every element the user had removed (debug 052).
@@ -265,7 +270,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
                 Fields =
                 [
                     new ScenePromptFieldOverride { ElementKey = "scene.mood", Removed = true },
-                    new ScenePromptFieldOverride { ElementKey = "frozenState.visualDescription", Removed = true }
+                    new ScenePromptFieldOverride { ElementKey = "frozenState.event.line", Removed = true }
                 ],
                 RemovedCharacters = ["dean"]
             }
@@ -276,7 +281,7 @@ public sealed class SdxlSceneImagePromptBuilderTests
             MakeCanonicalStillBrief(), "Omniscient", settings, ImageContentPolicy.AdultAllowed, null, characters);
 
         Assert.Contains("USER REMOVALS — AUTHORITATIVE", user, StringComparison.Ordinal);
-        Assert.Contains("Removed elements: the mood, the visual description", user, StringComparison.Ordinal);
+        Assert.Contains("Removed elements: the mood, the event", user, StringComparison.Ordinal);
         Assert.Contains("Removed characters: Dean", user, StringComparison.Ordinal);
         Assert.Contains("do NOT substitute an equivalent", user, StringComparison.Ordinal);
         Assert.Contains("USER REMOVALS ARE AUTHORITATIVE", system, StringComparison.Ordinal);
@@ -589,7 +594,8 @@ public sealed class SdxlSceneImagePromptBuilderTests
         Assert.Contains("THE ROOM IS A REFERENCE IMAGE IN THIS REQUEST", system, StringComparison.Ordinal);
         // B-166 D5: the geometry is the image's, but the KIND of place is still named so the caption stays coherent.
         Assert.Contains("name it only as that kind of place", user, StringComparison.Ordinal);
-        Assert.Contains("never its structure, surfaces, fixtures, objects or lighting", user, StringComparison.Ordinal);
+        Assert.Contains("never its structure, surfaces, fixtures or objects", user, StringComparison.Ordinal);
+        Assert.Contains("LIGHTING or atmosphere fact recorded above is still yours to write", user, StringComparison.Ordinal);
         Assert.Contains("exactly where they are in the frame", user, StringComparison.Ordinal);
 
         // Without that fact the rule is absent — a fully-textual step still describes the room.
@@ -616,8 +622,8 @@ public sealed class SdxlSceneImagePromptBuilderTests
             null, null, null, suppression, null, projection);
 
         // A character's physicalLocation is a ROOM anchor ("the yard"), and one would leak the place back in.
-        Assert.DoesNotContain("\"physicalLocation\"", user, StringComparison.Ordinal);
-        Assert.Contains("\"position\":\"standing at the railing", user, StringComparison.Ordinal);
+        Assert.DoesNotContain("place: ", user, StringComparison.Ordinal);
+        Assert.Contains("stance: standing at the railing", user, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,5 +1,8 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using DreamGenClone.Domain.ModelManager;
 using DreamGenClone.Domain.RolePlay;
+using DreamGenClone.Web.Application.RolePlay.ImageStep;
 using DreamGenClone.Web.Application.RolePlay.Models;
 
 namespace DreamGenClone.Web.Application.RolePlay.Evaluation;
@@ -234,6 +237,141 @@ public static class SceneImagePromptContractValidator
            && wording.Any(phrase => text.Contains(phrase, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// A place mentioned with a <c>&lt;imageN&gt;</c> tag: "in a shed &lt;image2&gt;", "inside the trailer &lt;image3&gt;".
+    /// </summary>
+    /// <remarks>
+    /// Deliberately narrow — the preposition, one to three words of noun phrase, then the tag — so it only fires on a
+    /// place being POINTED AT an image. Relation phrases ("in front of", "in the hands of") are filtered by the caller,
+    /// because those are facts about two people, not about the room.
+    /// </remarks>
+    private static readonly Regex PlaceTagMention = new(
+        @"\b(?:in|inside|within)\s+(?:the|a|an)\s+(?<place>[A-Za-z][A-Za-z\-']{0,24}(?:\s+[A-Za-z][A-Za-z\-']{0,24}){0,2})\s*<image(?<tag>\d+)>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Words that describe WHERE IN THE FRAME something sits rather than what KIND of place it is. "In the foreground
+    /// &lt;image1&gt;" is a placement statement about a person, not a claim that the person's photograph is the room.
+    /// </summary>
+    private static readonly string[] FramePlacementWords =
+    [
+        "foreground", "midground", "background", "frame", "picture", "shot", "view", "left", "right",
+        "centre", "center", "middle", "edge", "corner", "focus"
+    ];
+
+    /// <summary>
+    /// The caption's <c>&lt;imageN&gt;</c> tags must name the images this request binds, at the numbers the request gives
+    /// them — and a place must never be pointed at a person's tag.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Measured 2026-10-27 on SceneImage a53cd560 (Qwen-Image-2.1, two bound bodies plus a bound location). The compiled
+    /// caption read "…of a woman &lt;image1&gt; bending over a workbench in a shed &lt;image2&gt;…" while the render sent
+    /// the location as &lt;image3&gt;: the compiler had copied the number from the anchored contract's worked example
+    /// (written for a one-person scene, where the place really is &lt;image2&gt;) instead of from the REFERENCE IMAGES
+    /// block in its own request. The finished prompt then named a person's body plate as "the shed" and, a few lines
+    /// later, named &lt;image3&gt; as the place — two contradictory instructions about the same element of the picture.
+    /// </para>
+    /// <para>
+    /// Pointing the place at the WRONG tag is BLOCKING, because the failure is silent: a caption whose tags disagree with
+    /// its own sentences renders without error and simply produces a picture nobody asked for. Range alone is not enough
+    /// — &lt;image2&gt; was in range and pointed at a real image, just the wrong one. Leaving the location tag out
+    /// altogether is ADVISORY: a reference-bound User Intent draft is action-only by contract and legitimately never
+    /// names the place, and a place named in words without a tag is still anchored correctly at render time.
+    /// </para>
+    /// <para>
+    /// Only the Qwen-Image-2.1 family is checked: it is the family whose contract writes &lt;imageN&gt; tags into the
+    /// CAPTION. The other families state the reference block at render time and their compiled prose legitimately
+    /// carries no tags, so a missing tag there would be a false failure.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<PromptContractViolation> ValidateReferenceTags(
+        string prompt,
+        IReadOnlyList<ReferenceApplicationSelection>? bindings,
+        SceneImageModelFamily family)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        if (family != SceneImageModelFamily.QwenImage21)
+        {
+            return [];
+        }
+
+        var roles = ReferenceRoleClauses.RolesFor(bindings);
+        if (!ReferenceRoleClauses.SendsTags(roles.Count))
+        {
+            // One image in total is never numbered (the vendor's N = 1 rule), so there is no tag to check.
+            return [];
+        }
+
+        var locationIndex = -1;
+        for (var position = 0; position < roles.Count; position++)
+        {
+            if (roles[position].SlotKind == ImageStepSlotKind.Location)
+            {
+                locationIndex = position;
+                break;
+            }
+        }
+
+        if (locationIndex < 0)
+        {
+            // No location reference bound: the setting is the prose's own business, as it is for a text-only model.
+            return [];
+        }
+
+        var violations = new List<PromptContractViolation>();
+        var locationTag = ReferenceRoleClauses.TagFor(locationIndex + 1);
+
+        foreach (Match match in PlaceTagMention.Matches(prompt))
+        {
+            var place = match.Groups["place"].Value.Trim();
+            if (place.Contains(" of ", StringComparison.OrdinalIgnoreCase)
+                || IsFramePlacement(place))
+            {
+                continue;
+            }
+
+            var number = int.Parse(match.Groups["tag"].Value, CultureInfo.InvariantCulture);
+            var index = number - 1;
+            if (index < 0 || index >= roles.Count || roles[index].SlotKind == ImageStepSlotKind.Location)
+            {
+                continue;
+            }
+
+            var label = string.IsNullOrWhiteSpace(roles[index].Label)
+                ? "a person reference"
+                : $"the {roles[index].Label!.Trim()} reference";
+            violations.Add(new PromptContractViolation(
+                "which image the setting points at",
+                roles[index].SubjectKey,
+                $"The prompt puts the setting \"{place}\" on <image{number}>, but <image{number}> is {label}, not the "
+                + $"room. Name the place with the LOCATION reference's tag, {locationTag}, and never with a person's tag: "
+                + "the image model takes the room from whichever image the caption points at.",
+                Blocking: true));
+        }
+
+        if (!prompt.Contains(locationTag, StringComparison.Ordinal)
+            && Regex.IsMatch(prompt, @"<image\d+>"))
+        {
+            // ADVISORY, not blocking. A reference-bound User Intent draft is ACTION ONLY by contract — the location image
+            // supplies the room, so a caption that never names the place is correct there, and refusing it would fail
+            // every such compile. A place named in words without any tag is survivable too: the render prepends the
+            // location anchor and appends the role block, which together point the room at the right image. What is NOT
+            // survivable is a place pointed at the WRONG tag, and that is the blocking check above.
+            violations.Add(new PromptContractViolation(
+                "which image the setting points at",
+                null,
+                $"The prompt never names the LOCATION reference {locationTag}. That image supplies the setting, so where "
+                + $"the caption names the place it should point at it by that tag; a caption that describes the place "
+                + $"without naming {locationTag} leaves the render free to take the room from a person reference."));
+        }
+
+        return violations;
+    }
+
+    private static bool IsFramePlacement(string place)
+        => FramePlacementWords.Any(word => place.StartsWith(word, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
     /// The POV holder is the CAMERA, so their name has no place in the prompt (B-166).
     /// </summary>
     /// <remarks>
@@ -283,7 +421,7 @@ public static class SceneImagePromptContractValidator
     }
 
     /// <summary>
-    /// The caption's SHAPE: one continuous paragraph, with no per-person element recap.
+    /// The caption's SHAPE: no bullet/numbered list, and no per-person element recap.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -295,37 +433,175 @@ public static class SceneImagePromptContractValidator
     /// 3bbad8c9, 2026-10-23).
     /// </para>
     /// <para>
-    /// This is certainly wrong rather than a prose judgement: the contract states the shape, and a second line is not
-    /// a paraphrase of it. It therefore blocks, and the corrective pass restates the shape rule.
+    /// <b>Line breaks alone are NOT a defect.</b> The parser collapses a produced caption to one paragraph before it
+    /// reaches this check, because an image prompt's line breaks carry no meaning: a five-line answer whose five lines
+    /// are five sentences is the right content in a shape the image model ignores. Refusing it failed a live compile
+    /// with "one corrective pass did not fix it" (reported 2026-10-24) even though nothing was wrong with the caption.
+    /// What is still refused is the CONTENT shape — an explicit bullet or numbering marker, or a per-person element
+    /// recap — since those are re-statements of the paragraph, not wrapping.
     /// </para>
     /// </remarks>
     public static IReadOnlyList<PromptContractViolation> ValidateCaptionShape(string prompt)
     {
         ArgumentNullException.ThrowIfNull(prompt);
 
-        var lines = prompt
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (lines.Length <= 1)
+        var single = CollapseToParagraph(prompt);
+        var marker = ListMarker(single);
+        if (marker is not null)
+        {
+            return
+            [
+                new PromptContractViolation(
+                    "the caption's shape",
+                    null,
+                    "The prompt must be ONE continuous paragraph of prose, but it contains a list item "
+                    + $"(\"{Shorten(marker)}\"). Return the caption as a single paragraph: no bullet points, no "
+                    + "numbering, no per-person summary.",
+                    Blocking: true)
+            ];
+        }
+
+        var recap = ElementRecap(single);
+        if (recap is not null)
+        {
+            return
+            [
+                new PromptContractViolation(
+                    "the caption's shape",
+                    null,
+                    "The prompt must be ONE continuous paragraph, but it contains the element recap "
+                    + $"\"{Shorten(recap)}\", which repeats facts the paragraph already states. Return the caption as "
+                    + "a single paragraph: no line breaks, no bullet lists, no per-person summary.",
+                    Blocking: true)
+            ];
+        }
+
+        var key = ParticipantKey(single);
+        return key is null
+            ? []
+            :
+            [
+                new PromptContractViolation(
+                    "the caption's wording",
+                    null,
+                    "The prompt contains the internal participant key "
+                    + $"\"{Shorten(key)}\". A profile key is not a word the image model knows, and a parenthesised one "
+                    + "is weight syntax in a diffusion prompt. Name the person instead.",
+                    Blocking: true)
+            ];
+    }
+
+    /// <summary>
+    /// The first participant key (<c>p0</c>, <c>p1</c>, …) that reached the caption.
+    /// </summary>
+    /// <remarks>
+    /// A key identifies a body inside the brief; it is never a word of the caption. One leaked live (SceneImage
+    /// 57fcc461, 2026-10-25: "his penis buried to the root (p0)") from a contact note, and in ComfyUI syntax that
+    /// parenthesis weights the token instead of being ignored — so this is refused structurally rather than left to
+    /// the caption writer's judgement.
+    /// </remarks>
+    private static string? ParticipantKey(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"(?<![A-Za-z0-9])p\d{1,2}(?![A-Za-z0-9])");
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var start = Math.Max(0, match.Index - 20);
+        return text[start..Math.Min(text.Length, match.Index + match.Length + 20)];
+    }
+
+    /// <summary>Collapses newlines and whitespace runs, so line shape cannot decide anything here.</summary>
+    private static string CollapseToParagraph(string prompt)
+        => System.Text.RegularExpressions.Regex.Replace(
+            prompt.Replace("\r\n", " ", StringComparison.Ordinal).Replace('\r', ' ').Replace('\n', ' '),
+            @"\s{2,}",
+            " ").Trim();
+
+    /// <summary>
+    /// The first explicit list item — a bullet or a numbered marker at the start of the text or of a sentence. Prose
+    /// does not open a sentence with one; a list does.
+    /// </summary>
+    private static string? ListMarker(string text)
+    {
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+            text, @"(?:^|(?<=[.!?;]\s))([-*•–]|\d{1,2}[.)])\s"))
+        {
+            var start = match.Index;
+            return text[start..Math.Min(text.Length, start + 30)];
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The first ELEMENT RECAP in the text — a bare name, a colon, then semicolon-separated elements ("Becky: bent over
+    /// the workbench; facing away; naked"). Prose does not open a clause that way; the element list does.
+    /// </summary>
+    private static string? ElementRecap(string text)
+    {
+        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+            text, @"(?:^|(?<=[.!?]\s))([A-Z][\w'-]{1,20}):\s"))
+        {
+            var start = match.Index;
+            var window = text[start..Math.Min(text.Length, start + 120)];
+            var colon = window.IndexOf(':', StringComparison.Ordinal);
+            if (colon < 0) continue;
+            var tail = window[(colon + 1)..];
+            if (tail.Contains(';', StringComparison.Ordinal)) return window.Split(';')[0].TrimEnd('.');
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// A caption may not describe what is OUTSIDE the frame.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// "Her head is not visible due to being positioned below the frame line where the image cuts off at about waist
+    /// height" was a caption for a close overhead shot of a body that was entirely frameable (SceneImage 8bb09d13,
+    /// 2026-10-25). The image model obeyed the sentence and cropped her. A shot size describes how much of the picture a
+    /// subject occupies — it is never an instruction to remove part of somebody, and naming the absence is what turns a
+    /// framing choice into a mutilation.
+    /// </para>
+    /// <para>
+    /// What IS in frame stays describable, including a back instead of a face ("her back is to the lens") — the rule
+    /// refuses statements about the EDGE of the picture, not about which way somebody is turned.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<PromptContractViolation> ValidateNoFrameExclusions(string prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+
+        var match = FrameExclusion.Match(prompt);
+        if (!match.Success)
         {
             return [];
         }
 
-        var recap = lines.FirstOrDefault(IsElementRecapLine);
         return
         [
             new PromptContractViolation(
-                "the caption's shape",
+                "the frame's inclusion",
                 null,
-                $"The prompt must be ONE continuous paragraph, but it came back as {lines.Length} separate lines"
-                + (recap is null
-                    ? string.Empty
-                    : $", including the element recap \"{Shorten(recap)}\", which repeats facts the paragraph already states")
-                + ". Return the caption as a single paragraph: no line breaks, no bullet lists, no per-person summary.",
+                $"The caption describes what is outside the picture (\"{Shorten(match.Value)}\"). A shot size never removes "
+                + "a body part: state what IS in frame and never mention a crop, a cut-off edge, or a part that is not "
+                + "shown. Every person in frame is in frame whole.",
                 Blocking: true)
         ];
     }
+
+    /// <summary>
+    /// Phrasings that state a crop. Deliberately about the EDGE of the picture — a body part that is hidden behind a
+    /// bench is a recorded occlusion, not a frame exclusion, and reads differently.
+    /// </summary>
+    private static readonly Regex FrameExclusion = new(
+        @"\b(?:not\s+visible\b|is\s+not\s+shown\b|are\s+not\s+shown\b|cuts?\s+off\b|cut\s+off\b|below\s+the\s+frame"
+        + @"|above\s+the\s+frame|outside\s+the\s+(?:frame|picture)|out\s+of\s+(?:frame|shot)|off[-\s]?screen"
+        + @"|frame\s+line|edge\s+of\s+the\s+(?:frame|picture)|hidden\s+by\s+the\s+(?:frame|crop))\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
     /// The camera holder's visible body has to appear INSIDE the caption.
@@ -372,11 +648,67 @@ public static class SceneImagePromptContractValidator
             return [];
         }
 
-        var present = distinctive.Count >= 3
+        // The parts must be IN the caption (coverage), and they must belong to a SECOND PERSON (attribution). Coverage
+        // alone passed a caption that said "hands clenching tightly around her thighs" — the subject's own hands — and
+        // another that mentioned no hands at all (SceneImages f2acd4fb / 34b95f2f, 2026-10-25). A part word without an
+        // owner is the failure this guards. A terse note cannot be word-matched without punishing a legitimate
+        // re-phrasing, so for it BOTH questions are answered by the same attribution test.
+        var attributed = OtherBodyInFrame.IsMatch(prompt);
+        var covered = distinctive.Count >= 3
             ? distinctive.Any(word => prompt.Contains(word, StringComparison.OrdinalIgnoreCase))
-            : OtherBodyInFrame.IsMatch(prompt);
+            : attributed;
 
-        if (present)
+        if (covered && attributed)
+        {
+            return [];
+        }
+
+        if (!covered)
+        {
+            return
+            [
+                new PromptContractViolation(
+                    "the camera holder's visible body",
+                    null,
+                    "The request states that this first-person frame SHOWS the camera holder's body ("
+                    + Shorten(parts)
+                    + "), but the caption never mentions it. State it INSIDE the caption, in the same paragraph as "
+                    + "the in-frame subject, as a second, separate person behind them — not as a sentence added at the end.",
+                    Blocking: true)
+            ];
+        }
+
+        return
+        [
+            new PromptContractViolation(
+                "who the visible body belongs to",
+                null,
+                "The caption mentions the camera holder's body ("
+                + Shorten(parts)
+                + ") but never says it belongs to a SECOND PERSON: it reads as the pictured subject's own body. Write it "
+                + "as someone else's — \"a man stands behind her, his hands on her thighs\".",
+                Blocking: true)
+        ];
+    }
+
+    /// <summary>
+    /// A participant caption must be written in the THIRD person: the camera is never "I".
+    /// </summary>
+    /// <remarks>
+    /// The projection's own system rule already says so ("Write it in the THIRD PERSON: never I, me, my, we or our"),
+    /// and the compiler still produced "In front of me is Becky … my eye-level camera as I stand behind her … near the
+    /// tin wall behind us" (SceneImage prompt 50e778e5, 2026-10-25). A first-person caption reads as a selfie to the
+    /// image model, which is the opposite of a photograph taken from that person's eyes, so it is refused
+    /// structurally rather than trusted to the rule.
+    /// </remarks>
+    public static IReadOnlyList<PromptContractViolation> ValidateThirdPerson(string prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+
+        var match = FirstPerson.IsMatch(prompt)
+            ? FirstPerson.Match(prompt)
+            : null;
+        if (match is null || !match.Success)
         {
             return [];
         }
@@ -384,15 +716,22 @@ public static class SceneImagePromptContractValidator
         return
         [
             new PromptContractViolation(
-                "the camera holder's visible body",
+                "the caption's point of view",
                 null,
-                "The request states that this first-person frame SHOWS the camera holder's body ("
-                + Shorten(parts)
-                + "), but the caption never mentions it. State it INSIDE the caption, in the same paragraph as "
-                + "the in-frame subject, as a second, separate person behind them — not as a sentence added at the end.",
+                $"The caption is written in the FIRST person (\"{Shorten(match.Value)}\"), but it describes a photograph "
+                + "taken from that person's eyes: the camera is never \"I\". Rewrite it in the third person — describe "
+                + "what the picture shows, not what the person taking it sees.",
                 Blocking: true)
         ];
     }
+
+    /// <summary>
+    /// First-person pronouns that make a shot description read as a selfie. "I" is matched case-sensitively because the
+    /// lowercase word is not a pronoun; the others are word-bounded, so "my" inside a longer word is never matched.
+    /// </summary>
+    private static readonly Regex FirstPerson = new(
+        @"\bI\b|\b(?:me|my|mine|myself|we|our|ours)\b",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
     /// Whether the caption shows a SECOND body — the holder's — rather than only the in-frame subject's own.
@@ -420,28 +759,6 @@ public static class SceneImagePromptContractValidator
         "never", "shows", "shown", "same", "only", "theirs", "also", "more", "less", "make", "show", "nsfw", "add",
         "with", "onto", "over", "hers", "hims", "them", "that", "this", "some", "very", "just", "like", "want"
     };
-
-    /// <summary>
-    /// Whether a line is an ELEMENT RECAP — a bare name, a colon, then semicolon-separated elements ("Becky: bent over
-    /// the workbench; facing away; naked"). Prose does not open a sentence that way; the element list does.
-    /// </summary>
-    private static bool IsElementRecapLine(string line)
-    {
-        var colon = line.IndexOf(':', StringComparison.Ordinal);
-        if (colon is <= 0 or > 40)
-        {
-            return false;
-        }
-
-        var head = line[..colon].Trim();
-        if (head.Length == 0 || head.Contains(' ', StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var tail = line[(colon + 1)..];
-        return tail.Contains(';', StringComparison.Ordinal) || tail.Count(character => character == ':') >= 2;
-    }
 
     private static string Shorten(string text)
         => text.Length <= 70 ? text : text[..70].TrimEnd() + "…";

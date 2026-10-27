@@ -703,9 +703,10 @@ public sealed class SceneImageRepository : ISceneImageRepository
     }
 
     public async Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
-        string productionGroupId, CancellationToken cancellationToken = default)
+        SceneImageProductionGroup group, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(productionGroupId))
+        ArgumentNullException.ThrowIfNull(group);
+        if (string.IsNullOrWhiteSpace(group.Id))
         {
             throw new InvalidOperationException("Production group id is required to list scene images.");
         }
@@ -725,9 +726,16 @@ public sealed class SceneImageRepository : ISceneImageRepository
                    MomentId, MomentEnrichmentId, MomentEnrichmentRevision, TypedReferenceSnapshotJson, Sha256, BytesPurgedUtc, DispositionUpdatedUtc, RequestedModelId, FinishChangeClass, IdentityStale, IdentityReferenceBindingsJson, AppliedReferenceBindingsJson, DisplayName, TagsJson, SentInstructionSnapshot
             FROM SceneImages
             WHERE ProductionGroupId = $productionGroupId
+               OR ($momentSetId <> '' AND $momentId <> ''
+                   AND MomentSetId = $momentSetId
+                   AND MomentId = $momentId
+                   AND Pov = $pov COLLATE NOCASE)
             ORDER BY CreatedUtc DESC, Id DESC;
             """;
-        command.Parameters.AddWithValue("$productionGroupId", productionGroupId.Trim());
+        command.Parameters.AddWithValue("$productionGroupId", group.Id.Trim());
+        command.Parameters.AddWithValue("$momentSetId", group.MomentSetId ?? string.Empty);
+        command.Parameters.AddWithValue("$momentId", group.MomentId ?? string.Empty);
+        command.Parameters.AddWithValue("$pov", group.Pov ?? string.Empty);
 
         var results = new List<SceneImageRecord>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -777,14 +785,15 @@ public sealed class SceneImageRepository : ISceneImageRepository
     }
 
     public async Task<bool> TrySetDispositionAsync(
+        SceneImageProductionGroup group,
         string imageId,
-        string productionGroupId,
         SceneImageAttemptDisposition expectedDisposition,
         SceneImageAttemptDisposition nextDisposition,
         DateTime updatedUtc,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(imageId) || string.IsNullOrWhiteSpace(productionGroupId))
+        ArgumentNullException.ThrowIfNull(group);
+        if (string.IsNullOrWhiteSpace(imageId) || string.IsNullOrWhiteSpace(group.Id))
             throw new InvalidOperationException("Image id and production group id are required to update disposition.");
         if (!IsAllowedDispositionTransition(expectedDisposition, nextDisposition))
             throw new InvalidOperationException($"Scene image disposition transition from {expectedDisposition} to {nextDisposition} is not allowed.");
@@ -799,11 +808,18 @@ public sealed class SceneImageRepository : ISceneImageRepository
             UPDATE SceneImages
             SET Disposition = $nextDisposition, DispositionUpdatedUtc = $updatedUtc, UpdatedUtc = $updatedUtc
             WHERE Id = $imageId
-              AND ProductionGroupId = $productionGroupId
-              AND Disposition = $expectedDisposition;
+              AND Disposition = $expectedDisposition
+              AND (ProductionGroupId = $productionGroupId
+                   OR ($momentSetId <> '' AND $momentId <> ''
+                       AND MomentSetId = $momentSetId
+                       AND MomentId = $momentId
+                       AND Pov = $pov COLLATE NOCASE));
             """;
         command.Parameters.AddWithValue("$imageId", imageId.Trim());
-        command.Parameters.AddWithValue("$productionGroupId", productionGroupId.Trim());
+        command.Parameters.AddWithValue("$productionGroupId", group.Id.Trim());
+        command.Parameters.AddWithValue("$momentSetId", group.MomentSetId ?? string.Empty);
+        command.Parameters.AddWithValue("$momentId", group.MomentId ?? string.Empty);
+        command.Parameters.AddWithValue("$pov", group.Pov ?? string.Empty);
         command.Parameters.AddWithValue("$expectedDisposition", expectedDisposition.ToString());
         command.Parameters.AddWithValue("$nextDisposition", nextDisposition.ToString());
         command.Parameters.AddWithValue("$updatedUtc", updatedUtc.ToString("O"));

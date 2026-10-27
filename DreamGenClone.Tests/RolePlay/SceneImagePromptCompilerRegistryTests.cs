@@ -143,12 +143,12 @@ public sealed class SceneImagePromptCompilerRegistryTests
         Assert.Contains("score_9", pony.SystemPrompt, StringComparison.Ordinal);
 
         // Qwen-2.1 carries its own long-form text (route 1), distinct from the SDXL/API brief, but both are
-        // natural-language descriptions. Pony vocabulary and the SDXL style tail appear only as PROHIBITIONS in
-        // the Qwen text, never as cues to emit.
+        // natural-language descriptions. The prohibitions are literal tokens to avoid, never a dialect name the
+        // writing model cannot interpret.
         Assert.NotEqual(expected.SystemPrompt, qwenExpected.SystemPrompt);
-        Assert.Contains("no score_9", qwenExpected.SystemPrompt, StringComparison.Ordinal);
-        Assert.Contains("never write masterpiece", qwenExpected.SystemPrompt, StringComparison.Ordinal);
-        Assert.Contains("natural-language", qwenExpected.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("score_9", qwenExpected.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("masterpiece, best quality", qwenExpected.SystemPrompt, StringComparison.Ordinal);
+        Assert.Contains("third-person", qwenExpected.SystemPrompt, StringComparison.OrdinalIgnoreCase);
 
         // The API family still shares the SDXL natural-language brief: same system prompt, same user prompt.
         var apiMessages = api.PromptBuilder.BuildMessages(

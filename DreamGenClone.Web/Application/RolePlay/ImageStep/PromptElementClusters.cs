@@ -66,31 +66,38 @@ public static class PromptElementClusters
     public static readonly IReadOnlyList<PromptElementCluster> Scene =
     [
         new("location", "Location", PromptElementConsumer.DeterministicFrame,
-            ["frozenState.location", "continuity.start.location", "continuity.end.location"],
+            ["frozenState.location"],
             StepPromptElementPlan.LocationScopes),
         new("environment", "Environment", PromptElementConsumer.CompilerRead,
             ["frozenState.environment"]),
         new("timeOfDay", "Time of day", PromptElementConsumer.CompilerRead,
             ["frozenState.timeOfDay"]),
         new("lighting", "Lighting", PromptElementConsumer.CompilerRead,
-            ["frozenState.lighting", "continuity.start.lighting", "continuity.end.lighting"]),
+            ["frozenState.lighting"]),
         new("mood", "Mood", PromptElementConsumer.CompilerRead,
             ["frozenState.mood"]),
         new("objects", "Objects / props", PromptElementConsumer.CompilerRead,
             ["scene.objects"], ReadPath: "frozenState.objects"),
-        new("visualDescription", "Visual description (whole event)", PromptElementConsumer.CompilerRead,
-            ["frozenState.visualDescription"]),
-        new("momentProse", "Moment prose (enrichment)", PromptElementConsumer.CompilerRead,
-            ["moment.frozenState"]),
-        new("visibleAction", "Visible action", PromptElementConsumer.CompilerRead,
-            ["moment.visibleAction"]),
-        new("continuityState", "Continuity (global)", PromptElementConsumer.CompilerRead,
-            ["frozenState.continuityState"])
+        // B-167 D2: the four prose restatements that used to sit here (visual description, moment prose, visible
+        // action, global continuity) are no longer selected into the image brief. The event sentence keeps exactly one
+        // owner, and the two v4 facts an operator can edit directly are rows of their own.
+        new("eventLine", "Event (what happens)", PromptElementConsumer.CompilerRead,
+            ["frozenState.event.line"]),
+        new("eventAnchor", "Event anchor (where it happens)", PromptElementConsumer.CompilerRead,
+            ["frozenState.event.anchor"]),
+        new("contacts", "Contacts (from|part|to|targetPart|manner per line)", PromptElementConsumer.CompilerRead,
+            ["frozenState.contacts"])
     ];
 
     /// <summary>The per-character concepts, in display order, each expanded with the character's payload key.</summary>
     public static readonly IReadOnlyList<PromptElementCluster> Character =
     [
+        new("atAnchor", "Body anchor (world)", PromptElementConsumer.CompilerRead,
+            ["character:{key}.at.anchor"]),
+        new("atPosture", "Posture (world)", PromptElementConsumer.CompilerRead,
+            ["character:{key}.at.posture"]),
+        new("facing", "Facing (world)", PromptElementConsumer.CompilerRead,
+            ["character:{key}.facing.toward"]),
         new("physicalLocation", "Physical location", PromptElementConsumer.DeterministicFrame,
             ["character:{key}.physicalLocation"]),
         new("position", "Position", PromptElementConsumer.DeterministicFrame,

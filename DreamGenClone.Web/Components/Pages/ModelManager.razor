@@ -34,7 +34,10 @@
         <div class="card-body">
             @if (_healthResults.Count == 0)
             {
-                <div class="alert alert-info mb-0">No health check results yet. Click "Re-check All" or restart the application.</div>
+                <div class="alert alert-info mb-0">
+                    No health check results yet. Checks run only when you click <strong>Re-check All</strong> or a row's <strong>Test</strong> button — never on startup.
+                    A check asks the provider for its model list, so it verifies the key but never generates an image or a completion, and it cannot see your credit balance.
+                </div>
             }
             else
             {
@@ -643,17 +646,18 @@
             else
             {
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle">
+                    <table class="table table-sm align-middle model-defaults-table">
                         <thead>
                             <tr>
-                                <th>Function</th>
-                                <th>Model</th>
-                                <th style="width:120px">Temperature</th>
-                                <th style="width:100px">Top P</th>
-                                <th style="width:100px">Max Tokens</th>
-                                <th style="width:120px">Thinking</th>
-                                <th style="width:100px">Max Parallel</th>
-                                <th style="width:80px"></th>
+                                <th class="col-function">Function</th>
+                                <th class="col-model">Model</th>
+                                <th class="col-temperature">Temperature</th>
+                                <th class="col-top-p">Top P</th>
+                                <th class="col-max-tokens">Max Tokens</th>
+                                <th class="col-thinking">Thinking</th>
+                                <th class="col-repetition" title="Sent as presence_penalty. Blank means this function declares none.">Repetition</th>
+                                <th class="col-parallel">Max Parallel</th>
+                                <th class="col-actions"></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -662,7 +666,7 @@
                                 var state = GetFunctionState(func);
                                 var isVideoFunction = func == AppFunction.RolePlaySceneVideo;
                                 <tr>
-                                    <td>
+                                    <td class="col-function" data-label="Function">
                                         <strong>@FormatFunctionName(func)</strong>
                                         @if ((func == AppFunction.RolePlaySemanticAnalysis
                                             || func == AppFunction.RolePlaySceneBeatAnalyzer
@@ -679,47 +683,75 @@
                                             <span class="badge bg-warning text-dark ms-1">No model</span>
                                         }
                                     </td>
-                                    <td>
-                                        <select class="form-select form-select-sm" value="@state.ModelId" @onchange="e => OnFunctionModelChange(func, e)">
-                                            <option value="">-- Not Assigned --</option>
-                                            @foreach (var group in GetFunctionModelDropdown(func))
-                                            {
-                                                <optgroup label="@group.Provider.Name">
+                                    <td class="col-model" data-label="Model">
+                                        <details class="model-picker" open="@(_openModelPicker == func ? "open" : null)">
+                                            <summary class="model-picker-summary"
+                                                     @onclick="() => ToggleModelPicker(func)"
+                                                     @onclick:preventDefault>
+                                                <span class="model-picker-name">@GetFunctionModelDisplayName(state.ModelId)</span>
+                                                <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                            </summary>
+                                            <div class="model-picker-options">
+                                                <button type="button"
+                                                        class="model-picker-option @(string.IsNullOrEmpty(state.ModelId) ? "is-selected" : "")"
+                                                        @onclick="() => SelectFunctionModel(func, null)">
+                                                    <span>-- Not Assigned --</span>
+                                                    @if (string.IsNullOrEmpty(state.ModelId))
+                                                    {
+                                                        <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                                    }
+                                                </button>
+                                                @foreach (var group in GetFunctionModelDropdown(func))
+                                                {
+                                                    <div class="model-picker-group">@group.Provider.Name</div>
                                                     @foreach (var m in group.Models)
                                                     {
-                                                        <option value="@m.Id">@m.DisplayName</option>
+                                                        <button type="button"
+                                                                class="model-picker-option @(state.ModelId == m.Id ? "is-selected" : "")"
+                                                                @onclick="() => SelectFunctionModel(func, m.Id)">
+                                                            <span>@m.DisplayName</span>
+                                                            @if (state.ModelId == m.Id)
+                                                            {
+                                                                <i class="bi bi-check-lg" aria-hidden="true"></i>
+                                                            }
+                                                        </button>
                                                     }
-                                                </optgroup>
-                                            }
-                                        </select>
+                                                }
+                                            </div>
+                                        </details>
                                     </td>
-                                    <td>
+                                    <td data-label="Temperature">
                                         <input type="number" class="form-control form-control-sm" step="0.1" min="0" max="2"
                                                value="@state.Temperature" @onchange="e => state.Temperature = ParseDouble(e, 0.7)" />
                                     </td>
-                                    <td>
+                                    <td data-label="Top P">
                                         <input type="number" class="form-control form-control-sm" step="0.05" min="0" max="1"
                                                value="@state.TopP" @onchange="e => state.TopP = ParseDouble(e, 0.9)" />
                                     </td>
-                                    <td>
+                                    <td data-label="Max Tokens">
                                         <input type="number" class="form-control form-control-sm" min="1" max="16000"
                                                value="@state.MaxTokens" @onchange="e => state.MaxTokens = ParseInt(e, 500)" />
                                     </td>
-                                    <td>
+                                    <td data-label="Thinking">
                                         <select class="form-select form-select-sm" value="@state.ThinkingMode" @onchange="e => state.ThinkingMode = ParseThinkingMode(e)">
                                             <option value="Default">Default (omit)</option>
                                             <option value="Enabled">Enabled</option>
                                             <option value="Disabled">Disabled</option>
                                         </select>
                                     </td>
-                                    <td>
+                                    <td data-label="Repetition">
+                                        <input type="number" class="form-control form-control-sm" step="0.1" min="-2" max="2"
+                                               placeholder="none"
+                                               value="@state.PresencePenalty" @onchange="e => state.PresencePenalty = ParseNullableDouble(e)" />
+                                    </td>
+                                    <td data-label="Max Parallel">
                                         @if (func is AppFunction.RolePlaySemanticAnalysis or AppFunction.RolePlaySceneBeatAnalyzer or AppFunction.RolePlaySceneVideo)
                                         {
                                             <input type="number" class="form-control form-control-sm" min="1" max="16"
                                                    value="@state.MaxConcurrentJobs" @onchange="e => state.MaxConcurrentJobs = ParseNullableInt(e)" />
                                         }
                                     </td>
-                                    <td>
+                                    <td class="col-actions">
                                         <button class="btn btn-sm btn-outline-success" @onclick="() => SaveFunctionDefault(func)" disabled="@_isBusy">
                                             <i class="bi bi-check-lg me-1"></i> Save
                                         </button>
@@ -732,7 +764,7 @@
                                 @if (func is AppFunction.RolePlaySceneBeatAnalyzer or AppFunction.RolePlaySceneVideo)
                                 {
                                     <tr>
-                                        <td colspan="8" class="border-top-0 pt-0 pb-3">
+                                        <td colspan="9" class="border-top-0 pt-0 pb-3 col-details">
                                             <div class="row g-2 ms-1">
                                                 <div class="col-md-2">
                                                     <label class="form-label small">Lease Seconds</label>
@@ -853,6 +885,7 @@
 
     // Function default edit state
     private Dictionary<AppFunction, FunctionEditState> _functionStates = [];
+    private AppFunction? _openModelPicker;
 
     // Delete confirmation state
     private bool _showDeleteConfirmation;
@@ -891,6 +924,7 @@
                     TopP = fd?.TopP ?? 0.9,
                     MaxTokens = fd?.MaxTokens ?? 500,
                     ThinkingMode = fd?.ThinkingMode ?? ThinkingMode.Default,
+                    PresencePenalty = fd?.PresencePenalty,
                     MaxConcurrentJobs = fd?.MaxConcurrentJobs,
                     DurableJobLeaseSeconds = fd?.DurableJobLeaseSeconds,
                     DurableJobPollIntervalMilliseconds = fd?.DurableJobPollIntervalMilliseconds,
@@ -1343,10 +1377,30 @@
         return _functionStates.GetValueOrDefault(func) ?? new FunctionEditState();
     }
 
-    private void OnFunctionModelChange(AppFunction func, ChangeEventArgs e)
+    private void ToggleModelPicker(AppFunction func)
+        => _openModelPicker = _openModelPicker == func ? null : func;
+
+    private void SelectFunctionModel(AppFunction func, string? modelId)
     {
         var state = GetFunctionState(func);
-        state.ModelId = e.Value?.ToString() ?? "";
+        state.ModelId = modelId ?? "";
+        state.ValidationError = null;
+        _openModelPicker = null;
+    }
+
+    /// <summary>
+    /// The full display name of the assigned model. The picker shows this as wrapping text rather than
+    /// letting a native select clip it, and a model that is no longer enabled still resolves from the
+    /// full model list so the operator can see what is assigned before replacing it.
+    /// </summary>
+    private string GetFunctionModelDisplayName(string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId))
+            return "-- Not Assigned --";
+
+        var model = _modelsGrouped.Values.SelectMany(models => models)
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, modelId, StringComparison.Ordinal));
+        return model?.DisplayName ?? modelId;
     }
 
     private async Task SaveFunctionDefault(AppFunction func)
@@ -1422,6 +1476,7 @@
                 TopP = state.TopP,
                 MaxTokens = state.MaxTokens,
                 ThinkingMode = state.ThinkingMode,
+                PresencePenalty = state.PresencePenalty,
                 MaxConcurrentJobs = state.MaxConcurrentJobs,
                 DurableJobLeaseSeconds = state.DurableJobLeaseSeconds,
                 DurableJobPollIntervalMilliseconds = state.DurableJobPollIntervalMilliseconds,
@@ -1548,6 +1603,20 @@
     {
         var s = e.Value?.ToString();
         return string.IsNullOrWhiteSpace(s) ? null : int.TryParse(s, out var v) ? v : null;
+    }
+
+    /// <summary>
+    /// Reads the repetition-penalty box. Blank means "this function declares none", which is different from 0 (a
+    /// penalty of zero is a declared setting that says the provider default must not apply).
+    /// </summary>
+    private static double? ParseNullableDouble(ChangeEventArgs e)
+    {
+        var s = e.Value?.ToString();
+        return string.IsNullOrWhiteSpace(s)
+            ? null
+            : double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)
+                ? v
+                : null;
     }
 
     private static ThinkingMode ParseThinkingMode(ChangeEventArgs e)
@@ -1690,6 +1759,7 @@
         public double TopP { get; set; } = 0.9;
         public int MaxTokens { get; set; } = 500;
         public ThinkingMode ThinkingMode { get; set; } = ThinkingMode.Default;
+        public double? PresencePenalty { get; set; }
         public int? MaxConcurrentJobs { get; set; }
         public int? DurableJobLeaseSeconds { get; set; }
         public int? DurableJobPollIntervalMilliseconds { get; set; }

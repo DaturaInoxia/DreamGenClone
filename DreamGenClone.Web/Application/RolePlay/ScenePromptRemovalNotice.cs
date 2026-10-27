@@ -108,22 +108,11 @@ internal static class ScenePromptRemovalNotice
             ["scene.objects"] = "the objects and props",
             ["frozenState.objects"] = "the objects and props",
             ["moment.temporalAnchor"] = "the temporal anchor",
-            ["moment.frozenState"] = "the moment continuity line",
-            ["moment.visibleAction"] = "the visible action",
             ["moment.compositionRationale"] = "the composition rationale",
             ["moment.productionRoles"] = "the production roles",
-            ["frozenState.visualDescription"] = "the visual description",
-            ["frozenState.continuityState"] = "the global continuity state",
-            ["continuity.start.location"] = "the opening setting",
-            ["continuity.start.objectStates"] = "the opening objects and props",
-            ["continuity.start.lighting"] = "the opening lighting",
-            ["continuity.start.stateSummary"] = "the opening continuity summary",
-            ["continuity.start.characterStates"] = "the opening character states",
-            ["continuity.end.location"] = "the closing setting",
-            ["continuity.end.objectStates"] = "the closing objects and props",
-            ["continuity.end.lighting"] = "the closing lighting",
-            ["continuity.end.stateSummary"] = "the closing continuity summary",
-            ["continuity.end.characterStates"] = "the closing character states",
+            ["frozenState.event.line"] = "the event",
+            ["frozenState.event.anchor"] = "the event anchor",
+            ["frozenState.contacts"] = "the body contacts",
         };
 
     private static readonly IReadOnlyDictionary<string, string> CharacterFieldDescriptions =
@@ -135,5 +124,8 @@ internal static class ScenePromptRemovalNotice
             ["sightline"] = "the sightline",
             ["clothing"] = "the wardrobe",
             ["appearance"] = "the appearance",
+            ["at.anchor"] = "the body anchor",
+            ["at.posture"] = "the posture",
+            ["facing.toward"] = "the facing",
         };
 }

@@ -149,6 +149,117 @@ public sealed class SceneImageProductionGroupRepositoryTests
     }
 
     [Fact]
+    public async Task ReEnrichedMoment_KeepsEarlierTakesListedDispositionedAndApprovable()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var earlierEnrichment = await CreateCompletedEnrichmentAsync(fixture, "rev-2");
+            var earlierGroup = CreateGroup(earlierEnrichment);
+            await fixture.GroupRepository.CreateAsync(earlierGroup);
+            var earlierImage = await CreateApprovalImageAsync(
+                fixture, earlierGroup, "earlier-image", "sha-earlier", SceneImageAttemptDisposition.Active);
+
+            // Re-enriching the same moment supersedes the earlier facts and creates a NEW group for the same
+            // (moment set, moment, POV). The operator does nothing: the takes they already made are still takes of
+            // that moment and must keep behaving like any other attempt.
+            var currentEnrichment = await CreateCompletedEnrichmentAsync(fixture, "rev-3");
+            var currentGroup = CreateGroup(currentEnrichment);
+            await fixture.GroupRepository.CreateAsync(currentGroup);
+            var currentImage = await CreateApprovalImageAsync(
+                fixture, currentGroup, "current-image", "sha-current", SceneImageAttemptDisposition.Active);
+
+            var listed = await fixture.ImageRepository.ListImagesByProductionGroupAsync(currentGroup);
+            Assert.Equal(
+                new[] { "current-image", "earlier-image" },
+                listed.Select(image => image.Id).OrderBy(id => id, StringComparer.Ordinal).ToArray());
+
+            Assert.True(await fixture.ImageRepository.TrySetDispositionAsync(
+                currentGroup,
+                earlierImage.Id,
+                SceneImageAttemptDisposition.Active,
+                SceneImageAttemptDisposition.Shortlisted,
+                DateTime.UtcNow));
+            Assert.Equal(
+                SceneImageAttemptDisposition.Shortlisted,
+                (await fixture.ImageRepository.GetImageAsync(earlierImage.Id))!.Disposition);
+
+            var decision = await fixture.GroupRepository.ApproveAsync(
+                currentGroup.Id, earlierImage.Id, earlierImage.Sha256!, "reviewer", "carried over", DateTime.UtcNow);
+            Assert.Equal(earlierImage.Id, decision.SceneImageId);
+            Assert.Equal(earlierImage.Sha256, decision.Sha256);
+            // The decision records the group that approved it; the image keeps the enrichment that actually rendered
+            // it, so the recipe behind the approved bytes is never restated as something it was not.
+            Assert.Equal(currentGroup.Id, decision.ProductionGroupId);
+            Assert.Equal(earlierGroup.MomentEnrichmentId, (await fixture.ImageRepository.GetImageAsync(earlierImage.Id))!.MomentEnrichmentId);
+            Assert.Equal(
+                SceneImageAttemptDisposition.Active,
+                (await fixture.ImageRepository.GetImageAsync(currentImage.Id))!.Disposition);
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ReEnrichedMoment_DoesNotAdoptTakesOfADifferentMomentOrPov()
+    {
+        var fixture = CreateFixture();
+        try
+        {
+            var enrichment = await CreateCompletedEnrichmentAsync(fixture, "scoped");
+            var group = CreateGroup(enrichment);
+            await fixture.GroupRepository.CreateAsync(group);
+
+            await fixture.ImageRepository.InsertImageAsync(CreateForeignImage(group, "other-moment", momentId: "moment-2"));
+            await fixture.ImageRepository.InsertImageAsync(CreateForeignImage(group, "other-pov", pov: "Becky"));
+            await fixture.ImageRepository.InsertImageAsync(CreateForeignImage(group, "other-set", momentSetId: "moment-set-2"));
+
+            var listed = await fixture.ImageRepository.ListImagesByProductionGroupAsync(group);
+
+            Assert.DoesNotContain(listed, image => image.Id == "other-moment");
+            Assert.DoesNotContain(listed, image => image.Id == "other-pov");
+            Assert.DoesNotContain(listed, image => image.Id == "other-set");
+        }
+        finally
+        {
+            Cleanup(fixture.DatabasePath);
+        }
+    }
+
+    /// <summary>An attempt of a DIFFERENT composition: another group, and a different moment set, moment or POV.</summary>
+    private static SceneImageRecord CreateForeignImage(
+        SceneImageProductionGroup group,
+        string imageId,
+        string? momentSetId = null,
+        string? momentId = null,
+        string? pov = null)
+        => new()
+        {
+            Id = imageId,
+            SessionId = group.SessionId,
+            InteractionId = group.InteractionId,
+            PromptRecordId = "prompt-1",
+            PromptSnapshot = "composition",
+            Status = SceneImageStatus.Complete,
+            ProductionGroupId = $"other-{group.Pov}",
+            ProductionStage = SceneImageProductionStage.Composition,
+            Disposition = SceneImageAttemptDisposition.Active,
+            CatalogueId = group.CatalogueId,
+            BeatId = group.BeatId,
+            BeatProductionPlanId = group.BeatProductionPlanId,
+            BeatProductionPlanVersion = group.BeatProductionPlanVersion,
+            MomentSetId = momentSetId ?? group.MomentSetId,
+            MomentSetVersion = group.MomentSetVersion,
+            MomentId = momentId ?? group.MomentId,
+            MomentEnrichmentId = "enrichment-elsewhere",
+            MomentEnrichmentRevision = 1,
+            Pov = pov ?? group.Pov,
+            Sha256 = $"sha-{imageId}"
+        };
+
+    [Fact]
     public async Task Approve_RejectsChecksumMismatchAndRejectedAttempt()
     {
         var fixture = CreateFixture();
@@ -316,6 +427,7 @@ public sealed class SceneImageProductionGroupRepositoryTests
             MomentId = group.MomentId,
             MomentEnrichmentId = group.MomentEnrichmentId,
             MomentEnrichmentRevision = group.MomentEnrichmentRevision,
+            Pov = group.Pov,
             TypedReferenceSnapshotJson = "[]",
             Sha256 = sha256
         };

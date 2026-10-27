@@ -273,6 +273,20 @@ public sealed class SceneBeatProductionParserTests
         Assert.Contains("unknown Beat Production profile key", error.Message, StringComparison.OrdinalIgnoreCase);
       }
 
+      [Fact]
+      public void Parse_RejectsDialogueSpeakerNameInsteadOfProfileKey()
+      {
+        var response = MutateResponse(root =>
+        {
+          root["dialogue"]![0]!["speakerKey"] = "dean";
+          root["dialogue"]![0]!["performance"]!["speakerKey"] = "dean";
+        });
+
+        var error = Assert.Throws<InvalidOperationException>(() => Parse(response));
+
+        Assert.Contains("unknown Beat Production profile key 'dean'", error.Message, StringComparison.OrdinalIgnoreCase);
+      }
+
       [Theory]
       [InlineData("MomentHold", "start")]
       [InlineData("MomentAction", "start,end")]

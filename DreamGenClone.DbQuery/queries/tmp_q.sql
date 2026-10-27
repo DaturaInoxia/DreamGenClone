@@ -1,0 +1,1 @@
+﻿SELECT substr(Id,1,8) AS id, substr(CreatedUtc,12,8) AS t, ModelIdentifier AS model, json_extract(SettingsJson,'$.SceneLoras') AS loras FROM SceneImages WHERE CreatedUtc >= '2026-10-24' ORDER BY CreatedUtc DESC LIMIT 16;

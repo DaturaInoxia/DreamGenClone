@@ -79,13 +79,33 @@ public interface ISceneImageRepository
     Task<bool> TryFailImageAsync(SceneImageRecord image, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByInteractionAsync(
         string sessionId, string interactionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Every attempt of a production group — including attempts made under an EARLIER enrichment of the same moment
+    /// and point of view.
+    ///
+    /// <para>
+    /// A group is the composition of one moment at one POV; re-enriching the moment restates its facts without making a
+    /// different composition, so takes made before the re-enrichment are still takes of this group and must keep
+    /// appearing in its deck with the same controls as any other take. The group is passed rather than its id so the
+    /// moment lineage can never be forgotten by a caller: this query is the SQL form of
+    /// <c>SceneImageGroupMembership.Contains</c>, and the two must agree. A different moment set, moment, or POV is
+    /// never included.
+    /// </para>
+    /// </summary>
     Task<IReadOnlyList<SceneImageRecord>> ListImagesByProductionGroupAsync(
-        string productionGroupId, CancellationToken cancellationToken = default);
+        SceneImageProductionGroup group, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SceneImageRecord>> ListImagesBySessionAsync(
         string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets an attempt's disposition, accepting the group it belongs to under the same membership rule as
+    /// <see cref="ListImagesByProductionGroupAsync"/> — so a take carried over from an earlier enrichment keeps the
+    /// same disposition controls as any other take.
+    /// </summary>
     Task<bool> TrySetDispositionAsync(
+        SceneImageProductionGroup group,
         string imageId,
-        string productionGroupId,
         SceneImageAttemptDisposition expectedDisposition,
         SceneImageAttemptDisposition nextDisposition,
         DateTime updatedUtc,

@@ -454,6 +454,52 @@ public sealed class SceneImageResolutionTests
     }
 
     [Fact]
+    public async Task ResolveImagePromptModel_CarriesTheConfiguredPresencePenalty()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        var provider = new Provider { Id = "prov-1", Name = "DeepSeekHost", ProviderType = ProviderType.TogetherAI, BaseUrl = "https://api.deepseek", IsEnabled = true };
+        providers.Add(provider);
+        models.Add(new RegisteredModel { Id = "model-1", ProviderId = "prov-1", ModelIdentifier = "deepseek-chat", DisplayName = "DeepSeek", ModelKind = ModelKind.Text, IsEnabled = true });
+        funcDefaults.Set(AppFunction.RolePlaySceneImagePreprocessor, new FunctionModelDefault
+        {
+            FunctionName = AppFunction.RolePlaySceneImagePreprocessor.ToString(),
+            ModelId = "model-1",
+            Temperature = 0.3,
+            TopP = 0.9,
+            MaxTokens = 1000,
+            PresencePenalty = 1.5
+        });
+
+        var resolved = await service.ResolveImagePromptModelAsync(null, CancellationToken.None);
+
+        // B-167: the penalty is a persisted function setting, so the resolved model must carry it. A value configured in
+        // Model Manager that never reaches the request would be a setting that silently does nothing.
+        Assert.Equal(1.5, resolved.PresencePenalty);
+    }
+
+    [Fact]
+    public async Task ResolveImagePromptModel_NoConfiguredPenalty_CarriesNone()
+    {
+        var (service, funcDefaults, models, providers) = Build();
+        var provider = new Provider { Id = "prov-1", Name = "DeepSeekHost", ProviderType = ProviderType.TogetherAI, BaseUrl = "https://api.deepseek", IsEnabled = true };
+        providers.Add(provider);
+        models.Add(new RegisteredModel { Id = "model-1", ProviderId = "prov-1", ModelIdentifier = "deepseek-chat", DisplayName = "DeepSeek", ModelKind = ModelKind.Text, IsEnabled = true });
+        funcDefaults.Set(AppFunction.RolePlaySceneImagePreprocessor, new FunctionModelDefault
+        {
+            FunctionName = AppFunction.RolePlaySceneImagePreprocessor.ToString(),
+            ModelId = "model-1",
+            Temperature = 0.3,
+            TopP = 0.9,
+            MaxTokens = 1000
+        });
+
+        var resolved = await service.ResolveImagePromptModelAsync(null, CancellationToken.None);
+
+        // Blank means "this function declares none" — not zero, and never an invented default.
+        Assert.Null(resolved.PresencePenalty);
+    }
+
+    [Fact]
     public async Task ResolveImagePromptModel_HappyPath_ReturnsTextModel()
     {
         var (service, funcDefaults, models, providers) = Build();

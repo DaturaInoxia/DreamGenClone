@@ -1,0 +1,24 @@
+# deepseek-flash (DeepSeek-V4.1-Flash-1017)
+
+- provider: DeepSeek direct (https://api.deepseek.com/v1/chat/completions)
+- max_tokens: 393216
+- finish_reason: stop
+- http: 200
+- elapsed_s: 8.41
+- usage: {"prompt_tokens": 122, "completion_tokens": 977, "total_tokens": 1099, "prompt_tokens_details": {"cached_tokens": 0}, "completion_tokens_details": {"reasoning_tokens": 317}, "prompt_cache_hit_tokens": 0, "prompt_cache_miss_tokens": 122}
+
+## Content
+
+He kissed her until her mouth went soft and opened under his, until her hands had found the waistband of his jeans and tugged them down over his hips. His cock sprang free against her belly, heavy and hot, the shaft thick with blood, the head slick at the tip. She wrapped her fingers around it and stroked once, slowly, feeling the vein along the underside and the tight draw of his balls when she squeezed.
+
+He pushed her back onto the bed and knelt between her thighs. Her cunt was already wet, the lips parted and glistening, the clit a small hard pearl tucked at the top. He dragged two fingers through her slickness, spreading it, then circled her clit with the pads of his fingers until her hips jerked and her breath broke into short, sharp sounds. He lowered his mouth and licked her—flat tongue, then pointed, lapping at the swollen bud while he pushed one finger inside her. She clenched around him immediately, hot and tight, and he added a second finger, curling them until he found the place that made her thighs shake.
+
+“Please,” she gasped, and he pulled his mouth away, climbed over her, and guided the head of his cock to her entrance. He pushed in slowly, the first inch stretching her, then the rest sliding through her wetness until his pelvis pressed against her clit. She moaned low in her throat and hooked her legs around his hips. He began to move—long, deep strokes that pulled almost all the way out before sinking back in, each thrust pressing the base of his cock against her swollen clit. Her breasts bounced with the rhythm, nipples hard against his chest, and he caught one in his mouth, sucking hard while she dug her nails into his back.
+
+She came first. He felt it start as a tightening, her cunt gripping him in quick, fluttering pulses, then the wave broke—her whole body arched, her mouth open on a cry that had no words, her clit throbbing under the pressure of his pubic bone. Her vaginal walls contracted in rhythmic squeezes around his shaft, so wet now that he could hear it, a slick, obscene sound each time he drove into her. She shuddered through it, gasping, and he kept thrusting, slower now, drawing it out until she pushed weakly at his chest and laughed, breathless.
+
+But he was close. His balls had drawn up tight against his body, and the base of his cock ached with the need to come. He pulled out and stroked himself over her belly, his fist working the shaft fast and hard, the head purple and shining. She reached down and cupped his balls, and that was it—his orgasm rolled up through him, hot and violent. The first spurt landed on her stomach, then another across her hip, thick and white, and he groaned as the pulses kept coming, each one wrenching a fresh jet from him until his cock jerked and dribbled the last of it onto her skin. He stayed there a moment, breathing hard, his hand still wrapped around the softening shaft, watching her smear a fingertip through the mess on her belly and lift it to her mouth.
+
+## Reasoning
+
+We need answer request explicit NSFW prose man woman sex detailed anatomy acts climax orgasm. Need comply? We are expert creative writer immersive erotic fiction. Need write explicit. Policy? We have no explicit policy in prompt except system. We can write. Need ensure not break character, no meta. Need produce small prose. Need explicit detailed. Need male/female anatomy, acts, female climax, male orgasm. Need maybe 500-800 words? "small prose" but detailed. We should write erotic story with two unnamed people? Third person? "assigned character's voice" none assigned. Could use first-person male? Need immersive. We can write in third person close to man or woman. Need no disclaimers. Need explicit. Let's craft tasteful but graphic. Include consent? Could imply. Need detailed anatomy: cock, shaft, glans, balls, vulva, labia, clit, vagina, cervix, wetness, contractions. Acts: kissing, touching, oral maybe, penetration, thrusting, clit rubbing. Female climax detailed: clit throb, vaginal spasms, fluid, moans. Male orgasm: balls tighten, prostate? semen spurts, pulsing. Need avoid overly clinical? Blend. Need "small prose" maybe one continuous scene. Need not too long. Desired oververbosity 5. Let's write ~700 words. Ensure explicit. No need to mention own thoughts. Use names? Maybe "he" and "she" unnamed. Maybe make it vivid. Let's produce.

@@ -44,5 +44,5 @@ public sealed class SdxlSceneImagePromptBuilder : NaturalLanguageSceneImagePromp
     /// form of that inference clause, not a copy of it.
     /// </para>
     /// </summary>
-    protected override string BuildCanonicalSystemPrompt() => SceneImageCompilerSystemPrompts.NaturalLanguageCanonical;
+    protected override string BuildCanonicalSystemPrompt(IntentReferenceCoverage coverage) => SceneImageCompilerSystemPrompts.NaturalLanguageCanonical;
 }

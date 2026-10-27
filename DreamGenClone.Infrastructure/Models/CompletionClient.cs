@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -133,7 +134,7 @@ public sealed class CompletionClient : ICompletionClient
         try
         {
             var client = _httpClientFactory.CreateClient("CompletionClient");
-            client.BaseAddress = new Uri(providerBaseUrl);
+            client.BaseAddress = new Uri(providerBaseUrl.TrimEnd('/') + "/");
             client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
 
             if (!string.IsNullOrEmpty(decryptedApiKey))
@@ -141,7 +142,26 @@ public sealed class CompletionClient : ICompletionClient
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
             }
 
-            using var response = await client.GetAsync("/", cancellationToken);
+            // A model listing is free and still reports 401/403 for a bad key, so it replaces any call that
+            // would bill the account. Health checks never request a completion.
+            using (var listing = await client.GetAsync("v1/models", cancellationToken))
+            {
+                if (listing.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Provider health check passed (model list, no completion requested): {BaseUrl}", providerBaseUrl);
+                    return true;
+                }
+
+                var listingStatus = (int)listing.StatusCode;
+                if (listingStatus is 401 or 403)
+                {
+                    _logger.LogWarning("Provider health check failed: key rejected at {BaseUrl}, Status={StatusCode}", providerBaseUrl, listingStatus);
+                    return false;
+                }
+            }
+
+            // Providers without a listing route still get a plain reachability ping.
+            using var response = await client.GetAsync(string.Empty, cancellationToken);
             var isHealthy = response.IsSuccessStatusCode;
             _logger.LogInformation("Provider health check completed: {BaseUrl}, Status={StatusCode}", providerBaseUrl, (int)response.StatusCode);
             return isHealthy;
@@ -173,36 +193,52 @@ public sealed class CompletionClient : ICompletionClient
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", decryptedApiKey);
             }
 
-            var payload = new ChatRequest
-            {
-                Model = modelIdentifier,
-                Messages = [new("system", "Reply OK"), new("user", "test")],
-                Temperature = 0.0,
-                TopP = 1.0,
-                MaxTokens = 1
-            };
+            // Free model listing only. A 1-token completion would prove more, but it bills the account, so the
+            // check stops here and says what it could not verify.
+            var probe = await ProviderModelsProbe.QueryAsync(client, chatCompletionsPath, modelIdentifier, cancellationToken);
 
-            var relativePath = chatCompletionsPath.TrimStart('/');
-            using var response = await client.PostAsJsonAsync(relativePath, payload, cancellationToken);
-
-            if (response.IsSuccessStatusCode)
+            switch (probe.StatusCode)
             {
-                _logger.LogInformation("Model health check passed: {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
-                return (true, "Model is reachable and responding.");
+                case 401 or 403:
+                    _logger.LogWarning("Model health check failed: key rejected for {ModelIdentifier} at {BaseUrl}, Status={StatusCode}", modelIdentifier, providerBaseUrl, probe.StatusCode);
+                    return (false, $"API key rejected (HTTP {probe.StatusCode}).");
+
+                case 402:
+                    return (false, "Payment required — the provider account has no credit.");
+
+                case 429:
+                    return (false, "Rate limit exceeded while listing models.");
+
+                case >= 500:
+                    return (false, $"Provider server error ({probe.StatusCode}).");
             }
 
-            var statusCode = (int)response.StatusCode;
-            var errorMessage = statusCode switch
+            if (!probe.ListingSupported)
             {
-                401 => "Invalid API key.",
-                404 => $"Model '{modelIdentifier}' not found on provider.",
-                429 => "Rate limit exceeded.",
-                >= 500 => $"Provider server error ({statusCode}).",
-                _ => $"Unexpected status {statusCode}."
-            };
+                using var reach = await client.GetAsync(string.Empty, cancellationToken);
+                if (!reach.IsSuccessStatusCode)
+                {
+                    return (false, $"Provider returned HTTP {(int)reach.StatusCode} and exposes no model list (HTTP {probe.StatusCode}) to check the key against.");
+                }
 
-            _logger.LogWarning("Model health check failed: {ModelIdentifier} at {BaseUrl}, Status={StatusCode}", modelIdentifier, providerBaseUrl, statusCode);
-            return (false, errorMessage);
+                _logger.LogInformation("Model health check: {ModelIdentifier} at {BaseUrl} exposes no model list; reachability only, no completion requested", modelIdentifier, providerBaseUrl);
+                return (true, $"Provider is reachable, but it exposes no model list to check the key against. "
+                    + "No completion was requested, so the key stays unverified until the first real call.");
+            }
+
+            if (probe.StatusCode >= 400)
+            {
+                return (false, $"Model list request failed (HTTP {probe.StatusCode}).");
+            }
+
+            if (!probe.ContainsModel)
+            {
+                _logger.LogWarning("Model health check: {ModelIdentifier} is not listed at {BaseUrl}", modelIdentifier, providerBaseUrl);
+                return (false, $"API key accepted, but '{modelIdentifier}' is not in the provider's model list.");
+            }
+
+            _logger.LogInformation("Model health check passed (model list, no completion requested): {ModelIdentifier} at {BaseUrl}", modelIdentifier, providerBaseUrl);
+            return (true, $"API key accepted and '{modelIdentifier}' is listed by the provider. No completion was requested.");
         }
         catch (TaskCanceledException)
         {
@@ -222,7 +258,8 @@ public sealed class CompletionClient : ICompletionClient
     private async Task<string> SendCompletionAsync(
         List<ChatMessage> messages,
         ResolvedModel resolved,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowParameterRetry = true)
     {
         var totalStopwatch = Stopwatch.StartNew();
         long setupMs = 0;
@@ -267,9 +304,12 @@ public sealed class CompletionClient : ICompletionClient
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
                 MaxTokens = resolved.MaxTokens,
-                ChatTemplateKwargs = resolved.SupportsThinkingControl && resolved.ThinkingMode != ThinkingMode.Default
+                PresencePenalty = resolved.PresencePenalty,
+                Seed = resolved.Seed,
+                ChatTemplateKwargs = UsesChatTemplateThinking(resolved)
                     ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
-                    : null
+                    : null,
+                Thinking = DeepSeekThinking(resolved)
             };
 
             _logger.LogDebug(
@@ -306,6 +346,31 @@ public sealed class CompletionClient : ICompletionClient
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 var statusCode = (int)response.StatusCode;
 
+                // Some hosted models refuse non-streaming requests outright (Together's Qwen3.7/3.8 family
+                // answers 400 streaming_required). Retry the same messages over the streaming path, which
+                // yields one assembled string, so callers such as Prompt Tester work with every model.
+                if (statusCode == 400 && IsStreamingRequired(errorContent))
+                {
+                    _logger.LogInformation(
+                        "Model requires streaming; retrying with stream=true: Model={ModelIdentifier}, Provider={ProviderName}",
+                        resolved.ModelIdentifier,
+                        resolved.ProviderName);
+                    return await SendCompletionStreamingAsync(messages, resolved, _ => Task.CompletedTask, cancellationToken, allowNonStreamingFallback: false);
+                }
+
+                // A provider may reject a parameter the app sends by default (Together: "top_p must be
+                // within [0.95, 1]"). Clamp to the range the provider itself states and retry once.
+                if (statusCode == 400 && allowParameterRetry && TryClampRejectedParameter(errorContent, resolved) is { } adjusted)
+                {
+                    _logger.LogInformation(
+                        "Parameter rejected; retrying with TopP={TopP}, Temperature={Temperature}, MaxTokens={MaxTokens}: Model={ModelIdentifier}",
+                        adjusted.TopP,
+                        adjusted.Temperature,
+                        adjusted.MaxTokens,
+                        resolved.ModelIdentifier);
+                    return await SendCompletionAsync(messages, adjusted, cancellationToken, allowParameterRetry: false);
+                }
+
                 var errorMessage = statusCode switch
                 {
                     401 => $"Invalid API key for provider {resolved.ProviderName}",
@@ -314,8 +379,17 @@ public sealed class CompletionClient : ICompletionClient
                     _ => $"Request failed for provider {resolved.ProviderName}: {statusCode}"
                 };
 
+                // Carry the provider's own explanation into the exception so the UI says why a request was
+                // rejected ("This model only supports streaming", "Unable to access non-serverless model"),
+                // instead of a bare 400.
+                var providerDetail = TryReadProviderMessage(errorContent);
+                if (!string.IsNullOrWhiteSpace(providerDetail))
+                {
+                    errorMessage += $" — {providerDetail}";
+                }
+
                 _logger.LogError("Completion request failed: {ErrorMessage}, Response={ErrorContent}", errorMessage, errorContent);
-                response.EnsureSuccessStatusCode();
+                throw new HttpRequestException(errorMessage, inner: null, response.StatusCode);
             }
 
             var readStopwatch = Stopwatch.StartNew();
@@ -425,7 +499,8 @@ public sealed class CompletionClient : ICompletionClient
         List<ChatMessage> messages,
         ResolvedModel resolved,
         Func<string, Task> onChunk,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowNonStreamingFallback = true)
     {
         // Wrap the chunk callback so that ObjectDisposedException / InvalidOperationException
         // (thrown when the Blazor component that owns the callback has been disposed due to
@@ -470,7 +545,13 @@ public sealed class CompletionClient : ICompletionClient
             Temperature = resolved.Temperature,
             TopP = resolved.TopP,
             MaxTokens = resolved.MaxTokens,
-            Stream = true
+            PresencePenalty = resolved.PresencePenalty,
+            Seed = resolved.Seed,
+            Stream = true,
+            ChatTemplateKwargs = UsesChatTemplateThinking(resolved)
+                ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
+                : null,
+            Thinking = DeepSeekThinking(resolved)
         };
 
         var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
@@ -492,12 +573,20 @@ public sealed class CompletionClient : ICompletionClient
                 _ => $"Request failed for provider {resolved.ProviderName}: {statusCode}"
             };
 
+            var providerDetail = TryReadProviderMessage(errorContent);
+            if (!string.IsNullOrWhiteSpace(providerDetail))
+            {
+                errorMessage += $" — {providerDetail}";
+            }
+
             _logger.LogError("Streaming completion request failed: {ErrorMessage}, Response={ErrorContent}", errorMessage, errorContent);
-            response.EnsureSuccessStatusCode();
+            throw new HttpRequestException(errorMessage, inner: null, response.StatusCode);
         }
 
         var sb = new StringBuilder();
         string? finishReason = null;
+        string? streamError = null;
+        var sawDone = false;
 
         // IMPORTANT (UI responsiveness):
         //   1. Do NOT use `reader.EndOfStream` in the loop condition. That property performs a
@@ -537,6 +626,16 @@ public sealed class CompletionClient : ICompletionClient
 
                 if (string.Equals(data, "[DONE]", StringComparison.Ordinal))
                 {
+                    sawDone = true;
+                    break;
+                }
+
+                // Together's managed chat layer ends an aborted generation with a bare error event
+                // ({"error":{"code":"managed_chat_error",...}}) and no [DONE] and no finish_reason.
+                // Ignoring it silently returned a half-written scene as if it were a complete answer.
+                if (data.Contains("\"error\"", StringComparison.Ordinal))
+                {
+                    streamError = TryReadProviderMessage(data) ?? "The provider aborted the stream.";
                     break;
                 }
 
@@ -568,9 +667,29 @@ public sealed class CompletionClient : ICompletionClient
         }
 
         var content = sb.ToString();
-        if (string.IsNullOrWhiteSpace(content))
+
+        if (streamError is not null)
         {
-            // Provider likely ignored stream=true and returned non-SSE JSON.
+            _logger.LogError(
+                "Streaming completion aborted by provider: {Error}, PartialChars={Chars}, Model={Model}",
+                streamError,
+                content.Length,
+                resolved.ModelIdentifier);
+            throw new IncompleteCompletionException(streamError, content, partialReasoning: null, finishReason);
+        }
+
+        if (!sawDone && finishReason is null)
+        {
+            _logger.LogWarning(
+                "Streaming completion ended without [DONE] or finish_reason: Model={Model}, Chars={Chars}",
+                resolved.ModelIdentifier,
+                content.Length);
+        }
+
+        if (string.IsNullOrWhiteSpace(content) && allowNonStreamingFallback)
+        {
+            // Provider likely ignored stream=true and returned non-SSE JSON. Skipped when this call was itself
+            // the streaming fallback for a stream-only model, which would otherwise recurse forever.
             content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
             if (!string.IsNullOrWhiteSpace(content))
             {
@@ -612,7 +731,8 @@ public sealed class CompletionClient : ICompletionClient
     private async Task<(string Content, string? Reasoning)> SendCompletionWithReasoningAsync(
         List<ChatMessage> messages,
         ResolvedModel resolved,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowParameterRetry = true)
     {
         var totalStopwatch = Stopwatch.StartNew();
 
@@ -643,7 +763,13 @@ public sealed class CompletionClient : ICompletionClient
                 Messages = messages,
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
-                MaxTokens = resolved.MaxTokens
+                MaxTokens = resolved.MaxTokens,
+                PresencePenalty = resolved.PresencePenalty,
+                Seed = resolved.Seed,
+                ChatTemplateKwargs = UsesChatTemplateThinking(resolved)
+                    ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
+                    : null,
+                Thinking = DeepSeekThinking(resolved)
             };
 
             var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
@@ -652,8 +778,37 @@ public sealed class CompletionClient : ICompletionClient
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Completion (reasoning-aware) failed: {Status}, {Error}", (int)response.StatusCode, errorContent);
-                response.EnsureSuccessStatusCode();
+                var statusCode = (int)response.StatusCode;
+
+                // Same recoverable 400s as the plain path: stream-only models and rejected parameter ranges.
+                if (statusCode == 400 && IsStreamingRequired(errorContent))
+                {
+                    _logger.LogInformation(
+                        "Model requires streaming; retrying reasoning-aware call with stream=true: Model={ModelIdentifier}",
+                        resolved.ModelIdentifier);
+                    return await SendCompletionStreamingWithReasoningAsync(
+                        messages, resolved, _ => Task.CompletedTask, cancellationToken, allowNonStreamingFallback: false);
+                }
+
+                if (statusCode == 400 && TryClampRejectedParameter(errorContent, resolved) is { } adjusted)
+                {
+                    _logger.LogInformation(
+                        "Parameter rejected; retrying reasoning-aware call with TopP={TopP}, MaxTokens={MaxTokens}: Model={ModelIdentifier}",
+                        adjusted.TopP,
+                        adjusted.MaxTokens,
+                        resolved.ModelIdentifier);
+                    return await SendCompletionWithReasoningAsync(messages, adjusted, cancellationToken, allowParameterRetry: false);
+                }
+
+                _logger.LogError("Completion (reasoning-aware) failed: {Status}, {Error}", statusCode, errorContent);
+                var detail = TryReadProviderMessage(errorContent);
+                var message = $"Request failed for provider {resolved.ProviderName}: {statusCode}";
+                if (!string.IsNullOrWhiteSpace(detail))
+                {
+                    message += $" — {detail}";
+                }
+
+                throw new HttpRequestException(message, inner: null, response.StatusCode);
             }
 
             var rawBody = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -696,7 +851,8 @@ public sealed class CompletionClient : ICompletionClient
         List<ChatMessage> messages,
         ResolvedModel resolved,
         Func<string, Task> onChunk,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowNonStreamingFallback = true)
     {
         // Wrap the chunk callback for disposal safety
         var safeOnChunk = onChunk;
@@ -735,7 +891,13 @@ public sealed class CompletionClient : ICompletionClient
             Temperature = resolved.Temperature,
             TopP = resolved.TopP,
             MaxTokens = resolved.MaxTokens,
-            Stream = true
+            PresencePenalty = resolved.PresencePenalty,
+            Seed = resolved.Seed,
+            Stream = true,
+            ChatTemplateKwargs = UsesChatTemplateThinking(resolved)
+                ? new Dictionary<string, object> { ["thinking"] = resolved.ThinkingMode == ThinkingMode.Enabled }
+                : null,
+            Thinking = DeepSeekThinking(resolved)
         };
 
         var relativePath = resolved.ChatCompletionsPath.TrimStart('/');
@@ -755,6 +917,8 @@ public sealed class CompletionClient : ICompletionClient
         var contentSb = new StringBuilder();
         var reasoningSb = new StringBuilder();
         string? finishReason = null;
+        string? streamError = null;
+        var sawDone = false;
 
         await using (var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
         using (var reader = new StreamReader(stream))
@@ -768,7 +932,18 @@ public sealed class CompletionClient : ICompletionClient
 
                 var data = line[5..].Trim();
                 if (data.Length == 0) continue;
-                if (string.Equals(data, "[DONE]", StringComparison.Ordinal)) break;
+                if (string.Equals(data, "[DONE]", StringComparison.Ordinal))
+                {
+                    sawDone = true;
+                    break;
+                }
+
+                // Same abort contract as the plain path: an error event with no [DONE] and no finish_reason.
+                if (data.Contains("\"error\"", StringComparison.Ordinal))
+                {
+                    streamError = TryReadProviderMessage(data) ?? "The provider aborted the stream.";
+                    break;
+                }
 
                 if (!TryParseStreamingChunkWithKind(data, out var chunkText, out var isReasoning, out var chunkFinishReason))
                     continue;
@@ -791,6 +966,25 @@ public sealed class CompletionClient : ICompletionClient
         var content = contentSb.ToString();
         var reasoning = reasoningSb.Length > 0 ? reasoningSb.ToString() : null;
 
+        if (streamError is not null)
+        {
+            _logger.LogError(
+                "Streaming completion (reasoning-aware) aborted by provider: {Error}, PartialChars={Chars}, ReasoningChars={ReasoningChars}, Model={Model}",
+                streamError,
+                content.Length,
+                reasoning?.Length ?? 0,
+                resolved.ModelIdentifier);
+            throw new IncompleteCompletionException(streamError, content, reasoning, finishReason);
+        }
+
+        if (!sawDone && finishReason is null)
+        {
+            _logger.LogWarning(
+                "Streaming completion (reasoning-aware) ended without [DONE] or finish_reason: Model={Model}, Chars={Chars}",
+                resolved.ModelIdentifier,
+                content.Length);
+        }
+
         if (string.IsNullOrWhiteSpace(content))
         {
             // Reasoning-only response (empty content): try a focused force-answer follow-up when the
@@ -802,7 +996,11 @@ public sealed class CompletionClient : ICompletionClient
             }
             else
             {
-                content = await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false);
+                // Skipped when this call was itself the streaming fallback for a stream-only model, which
+                // would otherwise bounce back through the non-streaming path forever.
+                content = allowNonStreamingFallback
+                    ? await SendCompletionAsync(messages, resolved, cancellationToken).ConfigureAwait(false)
+                    : string.Empty;
             }
             if (!string.IsNullOrWhiteSpace(content))
                 await onChunk(content).ConfigureAwait(false);
@@ -961,7 +1159,9 @@ public sealed class CompletionClient : ICompletionClient
             Messages = forceMessages,
             Temperature = 0,
             TopP = resolved.TopP,
-            MaxTokens = resolved.MaxTokens
+            MaxTokens = resolved.MaxTokens,
+            PresencePenalty = resolved.PresencePenalty,
+            Seed = resolved.Seed,
         };
 
         var stopwatch = Stopwatch.StartNew();
@@ -1054,7 +1254,9 @@ public sealed class CompletionClient : ICompletionClient
                 Messages = continuationMessages,
                 Temperature = resolved.Temperature,
                 TopP = resolved.TopP,
-                MaxTokens = resolved.MaxTokens
+                MaxTokens = resolved.MaxTokens,
+                PresencePenalty = resolved.PresencePenalty,
+                Seed = resolved.Seed,
             };
 
             var continuationCallStopwatch = Stopwatch.StartNew();
@@ -1132,6 +1334,167 @@ public sealed class CompletionClient : ICompletionClient
         return (content, reasoning, firstChoice?.FinishReason, result?.Choices?.Count ?? 0);
     }
 
+    /// <summary>
+    /// DeepSeek's own API toggles thinking with a top-level <c>thinking: {type}</c> object, not with
+    /// <c>chat_template_kwargs</c>; sending the Qwen/GLM shape there is silently ignored.
+    /// </summary>
+    private static bool UsesDeepSeekThinkingApi(ResolvedModel resolved)
+        => resolved.ProviderBaseUrl.Contains("api.deepseek.com", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary><c>chat_template_kwargs.thinking</c> for providers that accept it.</summary>
+    private static bool UsesChatTemplateThinking(ResolvedModel resolved)
+        => !UsesDeepSeekThinkingApi(resolved)
+           && resolved.SupportsThinkingControl
+           && resolved.ThinkingMode != ThinkingMode.Default;
+
+    /// <summary><c>thinking: {type}</c> for DeepSeek, null when the model has no thinking control.</summary>
+    private static Dictionary<string, string>? DeepSeekThinking(ResolvedModel resolved)
+        => UsesDeepSeekThinkingApi(resolved)
+           && resolved.SupportsThinkingControl
+           && resolved.ThinkingMode != ThinkingMode.Default
+            ? new Dictionary<string, string>
+            {
+                ["type"] = resolved.ThinkingMode == ThinkingMode.Enabled ? "enabled" : "disabled"
+            }
+            : null;
+
+    /// <summary>True when the provider rejected a non-streaming request because the model is stream-only.</summary>
+    private static bool IsStreamingRequired(string errorContent)
+        => errorContent.Contains("only supports streaming", StringComparison.OrdinalIgnoreCase)
+           || errorContent.Contains("streaming_required", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Reads a provider parameter rejection of the shape
+    /// <c>{"error":{"code":"invalid_top_p","message":"top_p must be within [0.95, 1], got 0.9"}}</c>
+    /// and returns the model with that one parameter clamped into the stated range. Returns null when the
+    /// error is not a range rejection, or when the value already sits inside the range.
+    /// </summary>
+    private static ResolvedModel? TryClampRejectedParameter(string errorContent, ResolvedModel resolved)
+    {
+        string? code;
+        string? parameter;
+        string? message;
+        try
+        {
+            using var document = JsonDocument.Parse(errorContent);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("error", out var error)
+                || error.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            code = ReadString(error, "code");
+            parameter = ReadString(error, "param");
+            message = ReadString(error, "message");
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        var subject = (code ?? parameter ?? message ?? string.Empty).ToLowerInvariant();
+        var range = ExtractRange(message ?? string.Empty);
+        if (subject.Length == 0 || range is null)
+        {
+            return null;
+        }
+
+        var (min, max) = range.Value;
+
+        if (subject.Contains("top_p"))
+        {
+            var clamped = Clamp(resolved.TopP, min, max);
+            return Math.Abs(clamped - resolved.TopP) < 1e-9 ? null : resolved with { TopP = clamped };
+        }
+
+        if (subject.Contains("temperature"))
+        {
+            var clamped = Clamp(resolved.Temperature, min, max);
+            return Math.Abs(clamped - resolved.Temperature) < 1e-9 ? null : resolved with { Temperature = clamped };
+        }
+
+        if (subject.Contains("presence_penalty") || subject.Contains("frequency_penalty"))
+        {
+            if (resolved.PresencePenalty is not { } current)
+            {
+                return null;
+            }
+
+            var clamped = Clamp(current, min, max);
+            return Math.Abs(clamped - current) < 1e-9 ? null : resolved with { PresencePenalty = clamped };
+        }
+
+        if (subject.Contains("max_tokens"))
+        {
+            var clamped = (int)Math.Round(Clamp(resolved.MaxTokens, min, max));
+            return clamped == resolved.MaxTokens ? null : resolved with { MaxTokens = clamped };
+        }
+
+        return null;
+    }
+
+    private static string? ReadString(JsonElement element, string property)
+        => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    /// <summary>Extracts <c>[min, max]</c> from a provider message; null when no usable range is stated.</summary>
+    private static (double Min, double Max)? ExtractRange(string message)
+    {
+        var open = message.IndexOf('[');
+        var comma = open >= 0 ? message.IndexOf(',', open + 1) : -1;
+        var close = comma >= 0 ? message.IndexOf(']', comma + 1) : -1;
+        if (open < 0 || comma < 0 || close < 0)
+        {
+            return null;
+        }
+
+        var minText = message[(open + 1)..comma].Trim();
+        var maxText = message[(comma + 1)..close].Trim();
+
+        return double.TryParse(minText, NumberStyles.Float, CultureInfo.InvariantCulture, out var min)
+            && double.TryParse(maxText, NumberStyles.Float, CultureInfo.InvariantCulture, out var max)
+            && min <= max
+                ? (min, max)
+                : null;
+    }
+
+    /// <summary>Extracts <c>error.message</c> from a provider error body, or null when there is none.</summary>
+    private static string? TryReadProviderMessage(string errorContent)
+    {
+        if (string.IsNullOrWhiteSpace(errorContent))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(errorContent);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("error", out var error)
+                || error.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var message = ReadString(error, "message");
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return null;
+            }
+
+            var flattened = message.ReplaceLineEndings(" ").Trim();
+            return flattened.Length > 300 ? flattened[..300] + "…" : flattened;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static double Clamp(double value, double min, double max) => Math.Min(Math.Max(value, min), max);
+
     private sealed class ChatRequest
     {
         [JsonPropertyName("model")]
@@ -1152,6 +1515,22 @@ public sealed class CompletionClient : ICompletionClient
         [JsonPropertyName("stream")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public bool? Stream { get; init; }
+
+        // B-167: sent only when the function's row declares one; omitted otherwise so a provider that rejects the
+        // parameter sees exactly the request it saw before this existed.
+        [JsonPropertyName("presence_penalty")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? PresencePenalty { get; init; }
+
+        // DeepSeek's thinking toggle; omitted for every other provider.
+        [JsonPropertyName("thinking")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Dictionary<string, string>? Thinking { get; init; }
+
+        // Reproducible sampling for A/B prose comparisons; omitted so the provider chooses by default.
+        [JsonPropertyName("seed")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public long? Seed { get; init; }
 
         [JsonPropertyName("chat_template_kwargs")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

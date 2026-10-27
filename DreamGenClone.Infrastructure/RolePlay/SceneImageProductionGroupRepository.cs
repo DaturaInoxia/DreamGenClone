@@ -433,7 +433,7 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         command.CommandText = """
             SELECT Id, Status, ProductionGroupId, Disposition, Sha256,
                    CatalogueId, BeatId, BeatProductionPlanId, BeatProductionPlanVersion,
-                   MomentSetId, MomentSetVersion, MomentId, MomentEnrichmentId, MomentEnrichmentRevision
+                   MomentSetId, MomentSetVersion, MomentId, MomentEnrichmentId, MomentEnrichmentRevision, Pov
             FROM SceneImages WHERE Id = $id;
             """;
         command.Parameters.AddWithValue("$id", imageId.Trim());
@@ -455,7 +455,8 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
             MomentSetVersion = reader.IsDBNull(10) ? null : reader.GetInt32(10),
             MomentId = reader.IsDBNull(11) ? null : reader.GetString(11),
             MomentEnrichmentId = reader.IsDBNull(12) ? null : reader.GetString(12),
-            MomentEnrichmentRevision = reader.IsDBNull(13) ? null : reader.GetInt32(13)
+            MomentEnrichmentRevision = reader.IsDBNull(13) ? null : reader.GetInt32(13),
+            Pov = reader.IsDBNull(14) ? null : reader.GetString(14)
         };
     }
 
@@ -465,7 +466,13 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
             throw new InvalidOperationException("Only a completed scene image can be approved.");
         if (image.Disposition is SceneImageAttemptDisposition.Rejected or SceneImageAttemptDisposition.Archived)
             throw new InvalidOperationException("Rejected or archived scene images cannot be approved.");
-        EnsureEqual(image.ProductionGroupId ?? string.Empty, group.Id, "ProductionGroupId");
+        // Membership is the domain's one rule: the attempt must depict this group's moment at this group's POV. It is
+        // deliberately NOT an equality check on ProductionGroupId / MomentEnrichmentId / MomentEnrichmentRevision —
+        // re-enriching a moment restates its facts without making a different composition, so a take made before the
+        // re-enrichment is still a take of this group. Everything that makes the frame's provenance exact (catalogue,
+        // beat, plan, moment set, moment) is still required to match to the character.
+        if (!SceneImageGroupMembership.Contains(group, image))
+            throw new InvalidOperationException("The approved attempt must belong to the production group's moment and POV.");
         if (string.IsNullOrWhiteSpace(image.Sha256) || !string.Equals(image.Sha256, sha256.Trim(), StringComparison.Ordinal))
             throw new InvalidOperationException("Approval SHA-256 must exactly match the persisted scene image checksum.");
         EnsureEqual(image.CatalogueId ?? string.Empty, group.CatalogueId, "CatalogueId");
@@ -475,8 +482,6 @@ public sealed class SceneImageProductionGroupRepository : ISceneImageProductionG
         EnsureEqual(image.MomentSetId ?? string.Empty, group.MomentSetId, "MomentSetId");
         EnsureEqual(image.MomentSetVersion ?? 0, group.MomentSetVersion, "MomentSetVersion");
         EnsureEqual(image.MomentId ?? string.Empty, group.MomentId, "MomentId");
-        EnsureEqual(image.MomentEnrichmentId ?? string.Empty, group.MomentEnrichmentId, "MomentEnrichmentId");
-        EnsureEqual(image.MomentEnrichmentRevision ?? 0, group.MomentEnrichmentRevision, "MomentEnrichmentRevision");
     }
 
     private static async Task<int> GetNextDecisionVersionAsync(

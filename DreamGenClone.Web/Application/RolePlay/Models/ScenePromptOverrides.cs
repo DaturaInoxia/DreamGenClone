@@ -7,13 +7,16 @@ namespace DreamGenClone.Web.Application.RolePlay.Models;
 /// second copy. The persisted brief itself is never mutated.
 ///
 /// Element keys are stable, explicit, and mirror the compiled Still brief's semantic snapshot shape:
-///   scene.location | scene.environment | scene.timeOfDay | scene.lighting | scene.mood | scene.objects
-///   moment.temporalAnchor | moment.frozenState | moment.visibleAction | moment.compositionRationale | moment.productionRoles
-///   frozenState.visualDescription | frozenState.continuityState
-///   continuity.start.stateSummary | continuity.end.stateSummary
+///   scene.objects
+///   moment.momentId | moment.temporalAnchor | moment.participantSummary | moment.compositionRationale | moment.productionRoles
+///   frozenState.location | .environment | .timeOfDay | .lighting | .mood | .objects | .contacts
+///   frozenState.event.anchor | frozenState.event.line
 ///   character:{key}.physicalLocation | .position | .actionOrObservation | .sightline | .clothing | .appearance
-/// where {key} is the character id (preferred) or the character name. An element key outside this set
-/// fails fast at prompt-build time instead of being silently ignored.
+///   character:{key}.at.anchor | character:{key}.at.posture | character:{key}.facing.toward
+/// where {key} is the character id (preferred) or the character name. An element key outside this set — including a
+/// dropped restatement such as <c>moment.frozenState</c> or <c>frozenState.visualDescription</c> — fails fast at
+/// prompt-build time with a diagnostic naming where the fact now lives, instead of being silently ignored or written
+/// into the snapshot as a duplicate (B-167 D2, see <c>StillBriefElements</c>).
 /// </summary>
 public sealed class ScenePromptOverrides
 {

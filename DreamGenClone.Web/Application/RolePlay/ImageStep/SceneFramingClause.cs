@@ -29,7 +29,13 @@ namespace DreamGenClone.Web.Application.RolePlay.ImageStep;
 /// </summary>
 public static class SceneFramingClause
 {
-    public static string LineFor(SceneBlocking? blocking)
+    /// <param name="inclusion">
+    /// The inclusion sentence this frame states. Defaults to <see cref="FrameInclusion.Sentence"/> — every person whole —
+    /// which is right for an external frame. A participant POV whose camera holder's parts are in the picture passes
+    /// <see cref="FrameInclusion.ParticipantSentence"/> instead, because that holder is the camera and is cropped by the
+    /// frame by definition.
+    /// </param>
+    public static string LineFor(SceneBlocking? blocking, string? inclusion = null)
     {
         if (blocking?.Camera is not { } camera || string.IsNullOrWhiteSpace(camera.ShotSize))
         {
@@ -39,15 +45,25 @@ public static class SceneFramingClause
         }
 
         var shot = camera.ShotSize.Trim();
-        var angle = string.IsNullOrWhiteSpace(camera.Angle) ? string.Empty : $" at {camera.Angle.Trim()}";
+        var angle = string.IsNullOrWhiteSpace(camera.Angle) ? string.Empty : camera.Angle.Trim();
         // The height is the operator's/compile-time decision and is stated in the ONE camera clause, as term + relation
         // ("low angle from floor level, looking up"). Two sentences would read as two subjects, and the research is
         // explicit that a bare term alone under-delivers at the extremes.
         var height = CameraHeights.IsDefined(camera.Height)
             ? $", {CameraHeights.Wording(CameraHeights.Require(camera.Height, "The compiled camera"))}"
             : string.Empty;
-        var head = $"CAMERA — AUTHORITATIVE: this frame is a {shot}{angle}{height}.";
+        // The angle and the height are derived from the SAME pitch when the operator chose a height and no angle, so
+        // stating both printed it twice: "at high angle, viewed from above, high angle, camera just above eye level,
+        // looking down" (reported live 2026-10-25, SceneImage 57fcc461). When the height wording already carries the
+        // angle's own term, the term is said once — an operator-supplied angle ("three-quarter angle") is kept.
+        if (angle.Length > 0 && height.Length > 0 && height.Contains(AngleTerm(angle), StringComparison.OrdinalIgnoreCase))
+        {
+            angle = string.Empty;
+        }
 
+        var angleClause = angle.Length > 0 ? $" at {angle}" : string.Empty;
+        var head = $"CAMERA — AUTHORITATIVE: this frame is a {shot}{angleClause}{height}."
+            + $" {inclusion ?? FrameInclusion.Sentence}";
         // The SCALE instruction only applies to a shot that contains distance. It was measured on a WIDE establishing
         // shot (B-161, 2026-10-13): a subject told to be "far in the background" still rendered at half frame height
         // until the camera distance was stated in the prompt. On a close-up there is no distance to scale, so the same
@@ -60,6 +76,16 @@ public static class SceneFramingClause
         return head + " Every person in it is scaled by how far they are from that camera: someone further away is "
             + "smaller in the picture, and a person at a distance is not enlarged to stay readable — a wide frame is "
             + "mostly setting. Reproduce that scale rather than framing everyone at close range.";
+    }
+
+    /// <summary>
+    /// The angle's leading TERM — "high angle, viewed from above" → "high angle". This is the part a height wording can
+    /// already say, which is what makes a duplicated camera phrase detectable without a second table of synonyms.
+    /// </summary>
+    private static string AngleTerm(string angle)
+    {
+        var comma = angle.IndexOf(',');
+        return (comma > 0 ? angle[..comma] : angle).Trim();
     }
 
     /// <summary>

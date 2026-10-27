@@ -145,8 +145,9 @@ public sealed class ProviderTestService
                 cancellationToken);
         }
 
-        // Image-kind models are served at the image-generation endpoint (not chat completions),
-        // so probe the image path for them. Text models keep the existing chat health check.
+        // Image-kind models are served at the image-generation endpoint (not chat completions), so their check
+        // targets that provider's model list. No probe here may render an image: a billed render is not a
+        // health check, and a bad key or empty balance is allowed to fail at generation time.
         if (model.ModelKind == ModelKind.Image)
         {
             _logger.LogInformation(

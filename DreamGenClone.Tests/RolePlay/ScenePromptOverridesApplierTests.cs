@@ -331,34 +331,58 @@ public sealed class ScenePromptOverridesApplierTests
     }
 
     [Fact]
-    public void ApplySnapshot_RemovesContinuityBlockElement()
+    public void ApplySnapshot_RefusesADroppedRestatementByName()
     {
+        // B-167 D2: `continuity.*` is not part of the image brief at all. Addressing it must fail loudly and say why,
+        // never no-op and never re-create the block.
         var overrides = new ScenePromptOverrides
         {
             Fields = [new ScenePromptFieldOverride { ElementKey = "continuity.start.stateSummary", Removed = true }]
         };
 
-        var root = JsonNode.Parse(ScenePromptOverridesApplier.ApplySnapshot(ProfileKeyedSnapshot, overrides).SnapshotJson)!.AsObject();
+        var error = Assert.Throws<InvalidOperationException>(
+            () => ScenePromptOverridesApplier.ApplySnapshot(ProfileKeyedSnapshot, overrides));
 
-        Assert.Null(root["continuity"]!["start"]!["stateSummary"]);
-        Assert.NotNull(root["continuity"]!["end"]!["stateSummary"]);
+        Assert.Contains("continuity.start.stateSummary", error.Message, StringComparison.Ordinal);
+        Assert.Contains("not part of the compiled Still brief", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ApplySnapshot_RemovesFrozenStateVisualDescriptionAndMomentRationale()
+    public void ApplySnapshot_RemovesTheEventLineAndKeepsTheAnchor()
     {
+        const string withEvent = """
+            {"moment":{},"frozenState":{"event":{"anchor":"workbench","line":"Dean bends Becky forward."}}}
+            """;
         var overrides = new ScenePromptOverrides
         {
-            Fields =
-            [
-                new ScenePromptFieldOverride { ElementKey = "frozenState.visualDescription", Removed = true },
-                new ScenePromptFieldOverride { ElementKey = "moment.compositionRationale", Removed = true }
-            ]
+            Fields = [new ScenePromptFieldOverride { ElementKey = "frozenState.event.line", Removed = true }]
         };
 
-        var root = JsonNode.Parse(ScenePromptOverridesApplier.ApplySnapshot(ProfileKeyedSnapshot, overrides).SnapshotJson)!.AsObject();
+        var root = JsonNode.Parse(ScenePromptOverridesApplier.ApplySnapshot(withEvent, overrides).SnapshotJson)!.AsObject();
 
-        Assert.Null(root["frozenState"]!["visualDescription"]);
+        Assert.Null(root["frozenState"]!["event"]!["line"]);
+        Assert.Equal("workbench", root["frozenState"]!["event"]!["anchor"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void ApplySnapshot_RefusesVisualDescriptionAndKeepsTheCompositionRationale()
+    {
+        // The visual description is a dropped restatement; the composition rationale IS selected, and the two used to
+        // be edited together. The refusal names the dropped key, so the operator is told where the fact now lives.
+        var dropped = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "frozenState.visualDescription", Removed = true }]
+        };
+        var error = Assert.Throws<InvalidOperationException>(
+            () => ScenePromptOverridesApplier.ApplySnapshot(ProfileKeyedSnapshot, dropped));
+        Assert.Contains("frozenState.visualDescription", error.Message, StringComparison.Ordinal);
+        Assert.Contains("frozenState.event.line", error.Message, StringComparison.Ordinal);
+
+        var rationale = new ScenePromptOverrides
+        {
+            Fields = [new ScenePromptFieldOverride { ElementKey = "moment.compositionRationale", Removed = true }]
+        };
+        var root = JsonNode.Parse(ScenePromptOverridesApplier.ApplySnapshot(ProfileKeyedSnapshot, rationale).SnapshotJson)!.AsObject();
         Assert.Null(root["moment"]!["compositionRationale"]);
     }
 
