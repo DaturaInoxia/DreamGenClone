@@ -514,7 +514,16 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
             // participant POV whose contacts put parts in frame — an Omniscient prompt is byte-identical.
             var holderBodyLine = CameraHolderBodyStatement.For(povProjection);
 
-            var appended = new[] { framingLine, stagingLine, holderBodyLine }
+            // The FIXED APPEARANCE is stated as data too, for the same reason the geometry and the camera are: a compile
+            // model drops it. A character with no reference image must still look like themselves (measured 2026-10-27:
+            // Ken's full appearance was in the DEPICTED CHARACTER APPEARANCE block and the caption described only his
+            // sleepwear).
+            var appearanceLine = SceneAppearanceStatement.For(
+                povProjection,
+                CanonicalCharacterAppearance.ResolveByProfileKey(
+                    brief, group.Pov, characters, promptPayload.AppearanceOverrides, canonicalAppearance));
+
+            var appended = new[] { framingLine, stagingLine, holderBodyLine, appearanceLine }
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .ToList();
             record.OutputPrompt = appended.Count == 0
@@ -628,19 +637,18 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
     }
 
     /// <summary>
-    /// Parses the pre-processor output, then enforces the request contract with at most ONE corrective pass.
+    /// Parses the pre-processor output, then enforces the request contract with up to THREE corrective passes.
     /// </summary>
     /// <remarks>
     /// <para>
     /// Two failures are handled here because both are the same thing to the operator — "the compile failed for a reason
-    /// the request did not ask for". An OVERLONG answer gets one shorter rewrite (the cap is a provider constraint, and
-    /// the prompt that arrives over it is usually one paragraph of redundant detail). A BLOCKING contract violation
-    /// gets one corrective rewrite that names it. Advisory violations are returned for the caller to record and never
-    /// cost a second generation.
+    /// the request did not ask for". An OVERLONG answer gets one shorter rewrite (the cap is a provider constraint). A
+    /// BLOCKING contract violation gets up to three corrective rewrites that name it. Advisory violations are returned
+    /// for the caller to record and never cost a second generation.
     /// </para>
     /// <para>
-    /// Exactly one retry, never a loop: a model that twice produces the same contradiction is refused with a message
-    /// naming it, so the operator sees a fixable fault instead of a silently wrong image (B-166 D2).
+    /// Three passes, never a loop: a model that keeps producing the same contradiction is refused with a message naming
+    /// it, so the operator sees a fixable fault instead of a silently wrong image (B-166 D2).
     /// </para>
     /// </remarks>
     private async Task<(
@@ -661,54 +669,71 @@ public sealed class SceneImagePromptGenerationJobHandler : IBackgroundJobHandler
         string? operatorIntent = null,
         string? povOfRecord = null)
     {
+        const int MaxCorrectivePasses = 3;
+
         var parsed = await ParseWithinLengthAsync(builder, systemPrompt, userPrompt, resolvedTextModel, rawResponse, cancellationToken)
             .ConfigureAwait(false);
         if (parsed.LengthRetried) reasoning = parsed.Reasoning;
-        var result = parsed.Parsed;
 
-        var violations = SceneImagePromptContractValidator.Validate(result.Prompt, projection, bindings, textDescribed)
-            .Concat(SceneImagePromptContractValidator.ValidateReferenceTags(result.Prompt, bindings, family))
-            .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(result.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(result.Prompt, projection?.CameraHolderParts))
-            .Concat(SceneImagePromptContractValidator.ValidateThirdPerson(result.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateNoFrameExclusions(result.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(result.Prompt, operatorIntent))
-            .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(result.Prompt, povOfRecord))
-            .ToList();
-        var corrective = SceneImagePromptContractValidator.BuildCorrectiveInstruction(violations);
-        if (corrective.Length == 0)
+        var current = parsed.Parsed;
+        var currentReasoning = reasoning;
+        var currentUserPrompt = userPrompt;
+        IReadOnlyList<PromptContractViolation> violations;
+        var passes = 0;
+
+        while (true)
         {
-            return (result, reasoning, violations);
+            violations = ValidateContract(current.Prompt, projection, bindings, family, textDescribed, operatorIntent, povOfRecord);
+            var corrective = SceneImagePromptContractValidator.BuildCorrectiveInstruction(violations);
+            if (corrective.Length == 0 || passes >= MaxCorrectivePasses)
+            {
+                break;
+            }
+
+            passes++;
+            currentUserPrompt += corrective;
+            var (retryRaw, retryReasoning) = await _completionClient.GenerateWithReasoningAsync(
+                systemPrompt, currentUserPrompt, resolvedTextModel, cancellationToken).ConfigureAwait(false);
+            var retryLength = await ParseWithinLengthAsync(
+                builder, systemPrompt, currentUserPrompt, resolvedTextModel, retryRaw, cancellationToken).ConfigureAwait(false);
+            if (retryLength.LengthRetried) retryReasoning = retryLength.Reasoning;
+
+            current = retryLength.Parsed;
+            currentReasoning = retryReasoning;
         }
 
-        var retryUserPrompt = userPrompt + corrective;
-        var (retryRaw, retryReasoning) = await _completionClient.GenerateWithReasoningAsync(
-            systemPrompt, retryUserPrompt, resolvedTextModel, cancellationToken).ConfigureAwait(false);
-        var retryLength = await ParseWithinLengthAsync(
-            builder, systemPrompt, retryUserPrompt, resolvedTextModel, retryRaw, cancellationToken).ConfigureAwait(false);
-        if (retryLength.LengthRetried) retryReasoning = retryLength.Reasoning;
-
-        var retryParsed = retryLength.Parsed;
-        var remaining = SceneImagePromptContractValidator.Validate(retryParsed.Prompt, projection, bindings, textDescribed)
-            .Concat(SceneImagePromptContractValidator.ValidateReferenceTags(retryParsed.Prompt, bindings, family))
-            .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(retryParsed.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(retryParsed.Prompt, projection?.CameraHolderParts))
-            .Concat(SceneImagePromptContractValidator.ValidateThirdPerson(retryParsed.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateNoFrameExclusions(retryParsed.Prompt))
-            .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(retryParsed.Prompt, operatorIntent))
-            .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(retryParsed.Prompt, povOfRecord))
-            .ToList();
-        var blocking = remaining.Where(violation => violation.Blocking).ToList();
+        var blocking = violations.Where(violation => violation.Blocking).ToList();
         if (blocking.Count > 0)
         {
             throw new InvalidOperationException(
-                "The generated image prompt contradicts the request, and one corrective pass did not fix it: "
+                "The generated image prompt contradicts the request, and "
+                + MaxCorrectivePasses
+                + " corrective passes did not fix it: "
                 + string.Join(" ", blocking.Select(violation =>
                     violation.Person is null ? violation.Detail : $"[{violation.Person}] {violation.Detail}")));
         }
 
-        return (retryParsed, retryReasoning, remaining);
+        return (current, currentReasoning, violations);
     }
+
+    /// <summary>Every contract check the pre-processor's caption must satisfy, in one list.</summary>
+    private static IReadOnlyList<PromptContractViolation> ValidateContract(
+        string prompt,
+        SceneImagePovProjection.Projection? projection,
+        IReadOnlyList<ReferenceApplicationSelection>? bindings,
+        SceneImageModelFamily family,
+        IReadOnlySet<string>? textDescribed,
+        string? operatorIntent,
+        string? povOfRecord)
+        => SceneImagePromptContractValidator.Validate(prompt, projection, bindings, textDescribed)
+            .Concat(SceneImagePromptContractValidator.ValidateReferenceTags(prompt, bindings, family))
+            .Concat(SceneImagePromptContractValidator.ValidateCaptionShape(prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateCameraHolderBody(prompt, projection?.CameraHolderParts))
+            .Concat(SceneImagePromptContractValidator.ValidateThirdPerson(prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateNoFrameExclusions(prompt))
+            .Concat(SceneImagePromptContractValidator.ValidateOperatorCamera(prompt, operatorIntent))
+            .Concat(SceneImagePromptContractValidator.ValidatePovNotNamed(prompt, povOfRecord))
+            .ToList();
 
     /// <summary>
     /// Parses the output, and when the ONLY problem is length asks once for a shorter rewrite. Any other parse failure

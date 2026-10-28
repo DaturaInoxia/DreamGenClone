@@ -143,6 +143,90 @@ internal static class CanonicalCharacterAppearance
     }
 
     /// <summary>
+    /// The fixed appearance text for each DEPICTED character, keyed by the frozen profile key, for the DETERMINISTIC
+    /// appearance statement appended to the compiled caption.
+    ///
+    /// <para>
+    /// The compile model cannot be trusted to carry a fact it was merely asked to carry. Measured 2026-10-20
+    /// (production group 449e9148) and again 2026-10-27: a character with no reference image had their full appearance
+    /// handed to the compiler in the DEPICTED CHARACTER APPEARANCE block, and the caption still described only their
+    /// clothing — no age, height, hair, eyes, skin or build. So the appearance is not only asked for in the block; it is
+    /// also stated, after the caption, the way the staging geometry and the camera are stated. This returns the same
+    /// resolution <see cref="BuildBlock"/> uses (authored text, then the attribute block, then the description, then an
+    /// operator override), keyed by profile key so the statement can name each person the way the staging block does.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyDictionary<string, string> ResolveByProfileKey(
+        CompiledMediaBrief brief,
+        string pov,
+        IReadOnlyList<Character>? characters,
+        IReadOnlyDictionary<string, string>? appearanceOverrides,
+        IReadOnlyDictionary<string, string>? canonicalAppearance)
+    {
+        if (characters is null || characters.Count == 0)
+        {
+            return new Dictionary<string, string>();
+        }
+
+        var frozen = ReadFrozenCharacters(brief);
+        if (frozen.Count == 0)
+        {
+            return new Dictionary<string, string>();
+        }
+
+        var isOmniscient = string.Equals(pov, SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase);
+        var charactersById = characters
+            .Where(character => !string.IsNullOrWhiteSpace(character.Id))
+            .ToDictionary(character => character.Id!, StringComparer.OrdinalIgnoreCase);
+        var charactersByName = characters
+            .Where(character => !string.IsNullOrWhiteSpace(character.Name))
+            .GroupBy(character => character.Name!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var frozenCharacter in frozen)
+        {
+            if (string.IsNullOrWhiteSpace(frozenCharacter.ProfileKey))
+            {
+                continue;
+            }
+
+            if (!isOmniscient
+                && (string.Equals(frozenCharacter.CharacterId, pov, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(frozenCharacter.Name, pov, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (ResolveAppearanceOverride(frozenCharacter, appearanceOverrides) is { Length: 0 })
+            {
+                continue;
+            }
+
+            var character = ResolveCharacter(frozenCharacter, charactersById, charactersByName);
+            var appearance = ResolveCanonicalAppearance(frozenCharacter, canonicalAppearance) ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(appearance) && character is not null)
+            {
+                // The image model reads natural-language descriptors, not the labelled attribute block the compiler
+                // is handed. The personality Description is deliberately NOT a fallback here: it is not visual.
+                appearance = PhysicalAttributesFormatter.FormatVisualProse(character.PhysicalAttributes);
+            }
+
+            if (ResolveAppearanceOverride(frozenCharacter, appearanceOverrides) is { Length: > 0 } overrideText)
+            {
+                appearance = overrideText;
+            }
+
+            if (!string.IsNullOrWhiteSpace(appearance))
+            {
+                result[frozenCharacter.ProfileKey] = appearance;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// The character's authored canonical appearance, keyed the same way an override is (character id, then name), or
     /// null when the caller resolved none for this character.
     /// </summary>
@@ -237,7 +321,7 @@ internal static class CanonicalCharacterAppearance
         }
     }
 
-    private sealed record FrozenCharacterRef(string? CharacterId, string? Name);
+    private sealed record FrozenCharacterRef(string? CharacterId, string? Name, string? ProfileKey);
 
     private static string Truncate(string value, int maxChars)
         => value.Length <= maxChars ? value : value[..maxChars];

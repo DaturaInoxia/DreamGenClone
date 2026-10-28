@@ -93,44 +93,20 @@
                     <span class="small text-muted">Order sets placement - the first reference anchors the frame.</span>
                 </div>
 
-                @* One TAB per element. The elements are independent decisions - a face, a build, an outfit, a pose - and
-                   stacking them made the operator scroll past three answered ones to reach the one they came for. The
-                   tab labels carry the state (required and unbound, or bound) so the work still shows without opening
-                   each tab. *@
-                <ul class="nav nav-tabs">
-                    @foreach (var slot in OfferedSlots)
-                    {
-                        var tabKey = SlotKey(slot);
-                        var tabBinding = BindingFor(slot);
-                        <li class="nav-item">
-                            <button type="button" class="nav-link @(IsActiveSlot(tabKey) ? "active" : null)"
-                                    @onclick="() => _activeSlotKey = tabKey">
-                                @slot.SlotKind
-                                @if (slot.Required && tabBinding is null)
-                                {
-                                    <span class="badge text-bg-warning ms-1">required</span>
-                                }
-                                else if (IsSlotSupplied(slot))
-                                {
-                                    <span class="badge text-bg-success ms-1">supplied</span>
-                                }
-                            </button>
-                        </li>
-                    }
-                </ul>
-
-                <div class="border border-top-0 rounded-bottom p-2">
-                    @foreach (var slot in OfferedSlots)
-                    {
-                        var key = SlotKey(slot);
-                        var binding = BindingFor(slot);
-                        var slotBindings = BindingsFor(slot);
-                        if (!IsActiveSlot(key))
-                        {
-                            continue;
+                @* One named GROUP per character (Face/Body/Wardrobe), then one scene-level group (Location/Prop/Pose).
+                   Grouping by character replaces the flat, unnamed tab strip that showed two "Face" tabs with no way to
+                   tell whose was whose. The active slot's content is rendered through the SlotBody fragment below, so it
+                   is written once and reused in every group rather than duplicated per character. *@
+                @{
+                    RenderFragment<ImageStepSlotBlueprint> SlotBody = slot => @<text>
+                        @{
+                            var key = SlotKey(slot);
+                            var binding = BindingFor(slot);
+                            var slotBindings = BindingsFor(slot);
                         }
-
-                        <div>
+                        @if (IsActiveSlot(key))
+                        {
+                            <div>
                             <div class="d-flex justify-content-between align-items-baseline gap-2 mb-2">
                                 <span>
                                     <strong class="small">@slot.SlotKind</strong>
@@ -328,8 +304,43 @@
                                 }
                             }
                         </div>
-                    }
-                </div>
+                        }
+                    </text>;
+                }
+
+                @foreach (var group in SlotGroups)
+                {
+                    <div class="border rounded p-2 mt-2">
+                        <div class="fw-semibold small mb-2">@group.Heading</div>
+                        <ul class="nav nav-tabs">
+                            @foreach (var slot in group.Slots)
+                            {
+                                var tabKey = SlotKey(slot);
+                                var tabBinding = BindingFor(slot);
+                                <li class="nav-item">
+                                    <button type="button" class="nav-link @(IsActiveSlot(tabKey) ? "active" : null)"
+                                            @onclick="() => _activeSlotKey = tabKey">
+                                        @slot.SlotKind
+                                        @if (slot.Required && tabBinding is null)
+                                        {
+                                            <span class="badge text-bg-warning ms-1">required</span>
+                                        }
+                                        else if (IsSlotSupplied(slot))
+                                        {
+                                            <span class="badge text-bg-success ms-1">supplied</span>
+                                        }
+                                    </button>
+                                </li>
+                            }
+                        </ul>
+                        <div class="border border-top-0 rounded-bottom p-2">
+                            @foreach (var slot in group.Slots)
+                            {
+                                @SlotBody(slot)
+                            }
+                        </div>
+                    </div>
+                }
             </div>
         }
         else if (SelectedChoice is not null)
@@ -1208,6 +1219,45 @@
 
     private bool IsSlotOffered(ImageStepSlotBlueprint slot) =>
         BindingFor(slot) is not null || StrategiesForSlot(slot).Any(CarriesAStrategy);
+
+    /// <summary>One display group of reference slots: a character's Face/Body/Wardrobe, or the scene-level slots.</summary>
+    private sealed class SlotGroup
+    {
+        public string Heading { get; set; } = string.Empty;
+        public IReadOnlyList<ImageStepSlotBlueprint> Slots { get; set; } = [];
+    }
+
+    /// <summary>
+    /// The reference slots grouped for display: one group per character (headed by the character's NAME) holding that
+    /// character's Face/Body/Wardrobe, then one scene-level group (headed "Moment") holding Location/Prop/Pose. Grouping
+    /// by character is what replaces the flat, unnamed tab strip that showed two "Face" tabs with no way to tell whose
+    /// was whose. Group order follows the blueprint's slot order, which is the order the render reads.
+    /// </summary>
+    private IReadOnlyList<SlotGroup> SlotGroups
+    {
+        get
+        {
+            var groups = new List<SlotGroup>();
+            foreach (var actorGroup in OfferedSlots
+                         .Where(slot => !string.IsNullOrWhiteSpace(slot.ActorKey))
+                         .GroupBy(slot => slot.ActorKey!, StringComparer.Ordinal))
+            {
+                groups.Add(new SlotGroup
+                {
+                    Heading = ActorLabel(actorGroup.Key),
+                    Slots = actorGroup.ToList()
+                });
+            }
+
+            var global = OfferedSlots.Where(slot => string.IsNullOrWhiteSpace(slot.ActorKey)).ToList();
+            if (global.Count > 0)
+            {
+                groups.Add(new SlotGroup { Heading = "Moment", Slots = global });
+            }
+
+            return groups;
+        }
+    }
 
     /// <summary>
     /// The strategies to offer for a slot: what the slot means, intersected with what the model can execute. Both

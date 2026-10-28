@@ -101,7 +101,7 @@ public static class SceneStagingStatement
     /// How each in-frame person is NAMED in this block: by their place in the picture and what they are wearing, never by
     /// a story name. The name means nothing to the image model, and the placement is what the record actually fixes.
     /// </summary>
-    private static Dictionary<string, Label> Labels(SceneImagePovProjection.Projection projection)
+    internal static Dictionary<string, Label> Labels(SceneImagePovProjection.Projection projection)
     {
         var placements = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (projection.Frame?.Subjects is { Count: > 0 } subjects)
@@ -309,5 +309,5 @@ public static class SceneStagingStatement
     }
 
     /// <summary>A person's placement in the picture and the words this block uses for them.</summary>
-    private readonly record struct Label(string Placement, string Text);
+    internal readonly record struct Label(string Placement, string Text);
 }

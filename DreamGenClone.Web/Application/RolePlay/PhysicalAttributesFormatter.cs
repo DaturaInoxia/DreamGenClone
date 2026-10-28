@@ -131,6 +131,149 @@ internal static class PhysicalAttributesFormatter
     }
 
     /// <summary>
+    /// Returns the visual identity as NATURAL-LANGUAGE descriptors for the image model — not the labelled
+    /// <c>Label: value</c> block that <see cref="FormatVisualBlock"/> produces for the compiler.
+    ///
+    /// <para>
+    /// Image models (Krea 2 included) read appearance as prose: an age CATEGORY ("in their fifties"), not a number
+    /// ("51"); a height band ("average height"), not a measurement ("5'8\""); and joined traits ("short brown hair",
+    /// "blue eyes", "fair skin") rather than labelled pairs. This is the form the deterministic APPEARANCE —
+    /// AUTHORITATIVE block appends to the compiled caption, because that block reaches the image model directly and
+    /// nothing rewrites it.
+    /// </para>
+    /// </summary>
+    internal static string FormatVisualProse(PhysicalAttributes? attrs)
+    {
+        if (attrs is null) return string.Empty;
+
+        var parts = new List<string>();
+        AddPart(parts, AgeBand(attrs.Age));
+        AddPart(parts, HeightBand(attrs.Height));
+        AddPart(parts, Lower(attrs.Ethnicity));
+        AddPart(parts, Hair(attrs.HairStyle, attrs.HairColour));
+        AddPart(parts, Eyes(attrs.EyeColour));
+        AddPart(parts, Skin(attrs.SkinTone, attrs.SkinTexture));
+        AddPart(parts, Lower(BuildBodyAxes(attrs)));
+        AddPart(parts, Lower(BuildFigure(attrs)));
+        AddPart(parts, Lower(attrs.FacialHair));
+        AddPart(parts, Lower(attrs.BodyHair));
+        AddPart(parts, Lower(attrs.DistinguishingMarks));
+        AddPart(parts, Lower(attrs.Piercings));
+        AddPart(parts, Lower(attrs.Tattoos));
+
+        return parts.Count == 0 ? string.Empty : string.Join(", ", parts);
+    }
+
+    /// <summary>A numeric age becomes a plain CATEGORY the model reads (no number); an already-prose age passes through.</summary>
+    private static string? AgeBand(string? age)
+    {
+        if (string.IsNullOrWhiteSpace(age)) return null;
+        var text = age.Trim();
+        if (!int.TryParse(text, out var years)) return text;
+
+        // Aligned with BodyReferencePromptCompiler.AgeBands (40 → middle-aged, 60 → older), plus a young band below 40
+        // so a young character's age is still stated as a category instead of a number.
+        return years switch
+        {
+            < 40 => "young",
+            < 60 => "middle-aged",
+            _ => "older"
+        };
+    }
+
+    /// <summary>A feet/inches height becomes a band; an unrecognised value passes through unchanged.</summary>
+    private static string? HeightBand(string? height)
+    {
+        if (string.IsNullOrWhiteSpace(height)) return null;
+        var inches = ParseHeightInches(height);
+        if (inches is null) return height.Trim();
+
+        return inches switch
+        {
+            < 62 => "short",
+            < 66 => "below average height",
+            < 72 => "average height",
+            < 76 => "tall",
+            _ => "very tall"
+        };
+    }
+
+    private static int? ParseHeightInches(string height)
+    {
+        // "5'8\"", "5' 8\"", "5ft 8in", "5 feet 8 inches" — the feet and inches digits are what matter.
+        var match = System.Text.RegularExpressions.Regex.Match(
+            height,
+            @"(?<feet>\d+)\s*(?:'|ft|feet|foot)\s*(?<inches>\d+)?");
+        if (match.Success && match.Groups["feet"].Success)
+        {
+            var feet = int.Parse(match.Groups["feet"].Value);
+            var inches = match.Groups["inches"].Success ? int.Parse(match.Groups["inches"].Value) : 0;
+            return (feet * 12) + inches;
+        }
+
+        // A bare measurement with an explicit unit: "68in", "172cm".
+        var bare = System.Text.RegularExpressions.Regex.Match(
+            height,
+            @"(?<value>\d+)\s*(?<unit>in|inches|cm|centimetres|centimeters)");
+        if (bare.Success)
+        {
+            var value = int.Parse(bare.Groups["value"].Value);
+            var isMetric = string.Equals(bare.Groups["unit"].Value, "cm", StringComparison.OrdinalIgnoreCase)
+                || bare.Groups["unit"].Value.StartsWith("cm", StringComparison.OrdinalIgnoreCase);
+            return isMetric ? (int)Math.Round(value / 2.54) : value;
+        }
+
+        return null;
+    }
+
+    private static string? Hair(string? style, string? colour)
+    {
+        var hasStyle = !string.IsNullOrWhiteSpace(style);
+        var hasColour = !string.IsNullOrWhiteSpace(colour);
+        if (!hasStyle && !hasColour) return null;
+
+        var s = hasStyle ? style!.Trim().ToLowerInvariant() : null;
+        var c = hasColour ? colour!.Trim().ToLowerInvariant() : null;
+
+        // A named up-do reads backwards as "bun brown hair"; "brown hair in a bun" is what the model understands.
+        if (hasColour && s is "bun" or "ponytail" or "braid" or "braids" or "topknot")
+        {
+            return $"{c} hair in a {s}";
+        }
+
+        if (hasStyle && hasColour) return $"{s} {c} hair";
+        if (hasColour) return $"{c} hair";
+        return $"{s} hair";
+    }
+
+    private static string? Eyes(string? colour)
+        => string.IsNullOrWhiteSpace(colour) ? null : $"{colour.Trim()} eyes".ToLowerInvariant();
+
+    private static string? Skin(string? tone, string? texture)
+    {
+        var hasTone = !string.IsNullOrWhiteSpace(tone);
+        var meaningfulTexture = !string.IsNullOrWhiteSpace(texture)
+            && !string.Equals(texture.Trim(), "average", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(texture.Trim(), "normal", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(texture.Trim(), "neutral", StringComparison.OrdinalIgnoreCase);
+
+        if (!hasTone && !meaningfulTexture) return null;
+
+        var parts = new List<string>(2);
+        if (meaningfulTexture) parts.Add(texture!.Trim().ToLowerInvariant());
+        if (hasTone) parts.Add(tone.Trim().ToLowerInvariant());
+        return $"{string.Join(" ", parts)} skin";
+    }
+
+    private static void AddPart(List<string> parts, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value)) parts.Add(value.Trim());
+    }
+
+    private static string? Lower(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+
+    /// <summary>
     /// Returns a compact, single-line **body** description for the Composition Composer's Body
     /// reference row: the physique axes and the prose figure line (bust/waist/hips/rear) — the
     /// renderable body anchors only, with no face/hair/eye anchors. Returns

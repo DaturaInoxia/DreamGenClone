@@ -19,21 +19,43 @@ public sealed class SceneViewRecommenderTests
     }
 
     [Fact]
-    public void Resolve_TurnedLeft_RecommendsThreeQuarterLeft()
+    public void Resolve_GazeLeft_RecommendsThreeQuarterLeft()
     {
-        var recommendation = SceneViewRecommender.Resolve("Directed left, away from the others", "Turned to her left");
+        // The sightline states the FACING direction: "left" = nose to the LEFT of the frame = LEFT side shown.
+        var recommendation = SceneViewRecommender.Resolve("Directed left, away from the others", "Standing upright");
 
         Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterLeft, recommendation.FaceView);
         Assert.Equal(SceneImageReferenceBodyView.ThreeQuarterLeft, recommendation.BodyView);
     }
 
     [Fact]
-    public void Resolve_InProfileRight_RecommendsProfileRight()
+    public void Resolve_GazeRightInProfile_RecommendsProfileRight()
     {
+        // The sightline states the FACING direction: "right" = nose to the RIGHT of the frame = RIGHT side shown.
         var recommendation = SceneViewRecommender.Resolve("Directed right in profile", "Standing side-on");
 
         Assert.Equal(SceneImageReferenceFaceView.ProfileRight, recommendation.FaceView);
         Assert.Equal(SceneImageReferenceBodyView.ProfileRight, recommendation.BodyView);
+    }
+
+    [Fact]
+    public void Resolve_PlacedLeftOfFrame_RecommendsThreeQuarterRight()
+    {
+        // The position states PLACEMENT: a character on the LEFT is turned toward the centre, so the camera sees their
+        // RIGHT side — the opposite of the word.
+        var recommendation = SceneViewRecommender.Resolve("Watching Dean", "Standing to the left of Dean");
+
+        Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterRight, recommendation.FaceView);
+        Assert.Equal(SceneImageReferenceBodyView.ThreeQuarterRight, recommendation.BodyView);
+    }
+
+    [Fact]
+    public void Resolve_PlacedRightOfFrame_RecommendsThreeQuarterLeft()
+    {
+        var recommendation = SceneViewRecommender.Resolve("Watching Dean", "Standing to the right of Dean");
+
+        Assert.Equal(SceneImageReferenceFaceView.ThreeQuarterLeft, recommendation.FaceView);
+        Assert.Equal(SceneImageReferenceBodyView.ThreeQuarterLeft, recommendation.BodyView);
     }
 
     /// <summary>A back view shows NO face, so recommending a face view would tell the operator to bind an image the

@@ -156,4 +156,81 @@ public class PhysicalAttributesFormatterTests
 
         Assert.Equal(string.Empty, output);
     }
+
+    // ── Natural-language visual identity (APPEARANCE — AUTHORITATIVE block) ──
+
+    [Fact]
+    public void FormatVisualProse_RendersAgeBandAndJoinedTraits()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualProse(new PhysicalAttributes
+        {
+            Age = "51",
+            Height = "5'8\"",
+            Ethnicity = "Caucasian",
+            HairStyle = "Short",
+            HairColour = "Brown",
+            EyeColour = "Blue",
+            SkinTone = "Fair",
+            SkinTexture = "Average",
+            Adiposity = "average weight"
+        });
+
+        Assert.Contains("middle-aged", output, StringComparison.Ordinal);
+        Assert.Contains("average height", output, StringComparison.Ordinal);
+        Assert.Contains("caucasian", output, StringComparison.Ordinal);
+        Assert.Contains("short brown hair", output, StringComparison.Ordinal);
+        Assert.Contains("blue eyes", output, StringComparison.Ordinal);
+        Assert.Contains("fair skin", output, StringComparison.Ordinal);
+        Assert.Contains("average weight", output, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("Age", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Iris color", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("5'8", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("51", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("fifties", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualProse_HairBun_ReadsAsHairInABun()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualProse(new PhysicalAttributes
+        {
+            HairStyle = "Bun",
+            HairColour = "Brown"
+        });
+
+        Assert.Contains("brown hair in a bun", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("bun brown", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualProse_HeightTall_SixFootOne()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualProse(new PhysicalAttributes { Height = "6'1\"" });
+
+        Assert.Contains("tall", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatVisualProse_ReturnsEmpty_WhenNoVisualFieldsSet()
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualProse(new PhysicalAttributes());
+
+        Assert.Equal(string.Empty, output);
+    }
+
+    [Theory]
+    [InlineData("21", "young")]
+    [InlineData("39", "young")]
+    [InlineData("40", "middle-aged")]
+    [InlineData("51", "middle-aged")]
+    [InlineData("60", "older")]
+    [InlineData("72", "older")]
+    public void FormatVisualProse_AgeBands_UseCategoriesNotNumbers(string age, string expected)
+    {
+        var output = PhysicalAttributesFormatter.FormatVisualProse(new PhysicalAttributes { Age = age });
+
+        Assert.Contains(expected, output, StringComparison.Ordinal);
+        Assert.DoesNotContain(age, output, StringComparison.Ordinal);
+    }
 }

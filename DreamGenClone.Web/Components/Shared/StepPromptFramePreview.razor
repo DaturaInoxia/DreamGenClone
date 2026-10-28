@@ -124,7 +124,7 @@
         @foreach (var subject in _displaySubjects)
         {
             <div class="d-flex flex-wrap align-items-center gap-2 mt-1">
-                <span class="small text-muted" style="min-width: 8rem;">@subject.SubjectKey</span>
+                <span class="small text-muted" style="min-width: 8rem;">@SubjectLabel(subject.SubjectKey)</span>
                 <select class="form-select form-select-sm" style="width: auto;"
                         aria-label="Placement horizontal for @subject.SubjectKey"
                         value="@subject.Position.Horizontal"
@@ -185,7 +185,7 @@ else if (finalPlan is not null && finalPlan.References.Count > 0)
                     <tr>
                         <td><span class="font-monospace">@entry.Tag</span></td>
                         <td>@(entry.SlotKind?.ToString() ?? "reference")</td>
-                        <td>@(string.IsNullOrWhiteSpace(entry.SubjectKey) ? "—" : entry.SubjectKey)</td>
+                        <td>@(string.IsNullOrWhiteSpace(entry.SubjectKey) ? "—" : SubjectLabel(entry.SubjectKey))</td>
                         <td>@DescribePosition(entry.Position)</td>
                     </tr>
                 }
@@ -279,6 +279,22 @@ else if (finalPlan is not null && finalPlan.References.Count > 0)
     /// </summary>
     [Parameter]
     public string CompiledFramingLabel { get; set; } = "Use the brief's own framing";
+
+    /// <summary>
+    /// The operator-facing name of each subject key (<c>p0</c>, <c>p1</c>, ...) — a character's name — supplied by the
+    /// host. Null (the default) shows the raw subject key, which is what a host with no name map falls back to rather
+    /// than guessing a name. The map only changes the LABEL; the keys stored in the override stay the profile keys the
+    /// render joins on.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyDictionary<string, string>? SubjectNames { get; set; }
+
+    private string SubjectLabel(string subjectKey) =>
+        SubjectNames is not null
+        && SubjectNames.TryGetValue(subjectKey, out var name)
+        && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : subjectKey;
 
     private static readonly FrameHorizontal[] SelectableHorizontals =
     [

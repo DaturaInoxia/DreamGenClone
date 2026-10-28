@@ -148,11 +148,24 @@
                                                         Override="_blockingOverride"
                                                         FramingChoices="_framingChoices"
                                                         CompiledFramingLabel="@CompiledFramingLabel"
+                                                        SubjectNames="@PlacementSubjectNames"
                                                         OverrideChanged="OnBlockingOverrideChanged" />
 
                                 @if (!string.IsNullOrWhiteSpace(_locationSeedNotice))
                                 {
                                     <div class="alert alert-warning py-2 small mt-2">@_locationSeedNotice</div>
+                                }
+                                @if (_identityAutoFillNotices.Count > 0)
+                                {
+                                    <div class="alert alert-warning py-2 small mt-2">
+                                        <span class="fw-semibold">References were auto-picked where possible; the rest need attention:</span>
+                                        <ul class="mb-0 ps-3">
+                                            @foreach (var notice in _identityAutoFillNotices)
+                                            {
+                                                <li>@notice</li>
+                                            }
+                                        </ul>
+                                    </div>
                                 }
                                 @* B-137 §4 item 4c: the composition's SCENE LoRAs (unlock / act / anatomy / style).
                                    Filtered to the selected model's FAMILY - a LoRA binds only to the family it was
@@ -174,10 +187,6 @@
                             @if (IsPromptPending && PendingPromptStyle == _activeStyle)
                             {
                                 <div class="small text-muted mb-2"><span class="spinner-border spinner-border-sm me-1"></span>Generating @SceneImagePromptStyleResolver.DisplayLabel(_activeStyle) prompt...</div>
-                            }
-                            else if (_failedPrompt is not null && FailedPromptStyle == _activeStyle)
-                            {
-                                <div class="alert alert-danger py-2 small mb-2">Prompt generation failed: @_failedPrompt.ErrorMessage</div>
                             }
 
                             @if (!string.IsNullOrWhiteSpace(_framingNotice))
@@ -264,6 +273,11 @@
                                     <option value="@CameraHolderPartsMode.Derived">Show the parts the moment records</option>
                                 </select>
                                 <div class="form-text">For a participant POV the camera holder is normally never in the picture. Show the body parts the moment's recorded contacts put in frame — edit the Contacts row under Prompt Input to change which parts those are.</div>
+                            }
+
+                            @if (_failedPrompt is not null && FailedPromptStyle == _activeStyle)
+                            {
+                                <div class="alert alert-danger py-2 small mb-2">Prompt generation failed: @_failedPrompt.ErrorMessage</div>
                             }
 
                             <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
@@ -814,6 +828,29 @@
     }
 
     /// <summary>
+    /// Whether the SELECTED composition model carries references natively (<c>NativeMultiReference</c>). This is the
+    /// only route a bound identity-pack FACE or BODY travels on — Qwen-Image-2.1 and its siblings — so the auto-fill
+    /// runs only then. On an IP-Adapter/PuLID model a bound face would conflict with 'Identity on create', and on a
+    /// text-only model there is nowhere to put it.
+    /// </summary>
+    private bool SelectedModelCarriesNativeReferences =>
+        SelectedModelStrategies.Contains(
+            ReferenceStrategyCatalogue.NativeMultiReference, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The frame-placement display names: participant profile key (<c>p0</c>, <c>p1</c>, ...) to character name. The
+    /// placement selectors and the reference map show THIS instead of the raw profile key, which is a plumbing id no
+    /// operator recognises.
+    /// </summary>
+    private IReadOnlyDictionary<string, string> PlacementSubjectNames =>
+        _frozenState?.Characters
+            .Where(character => !string.IsNullOrWhiteSpace(character.ProfileKey)
+                && !string.IsNullOrWhiteSpace(character.Name))
+            .GroupBy(character => character.ProfileKey!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Name!, StringComparer.Ordinal)
+        ?? new Dictionary<string, string>();
+
+    /// <summary>
     /// The Composition step's references, ordered, written by the composer's planner. It starts empty: the slots come
     /// from the blueprint, so this holds what the operator bound rather than a pre-built element list (the panel this
     /// replaces offered four element rows with no owner on either per-character one).
@@ -895,6 +932,7 @@
     private IReadOnlyList<ImageStepActor> CompositionCast =>
         _identityPackOptions
             .Where(option => !RemovedCharacterKeys.Contains(option.CharacterKey))
+            .Where(option => !IsCameraHolder(option.CharacterName, option.CharacterKey))
             .Select(option => ParticipantProfileKeyFor(option.CharacterKey) is { Length: > 0 } profileKey
                 ? new ImageStepActor(profileKey, option.CharacterName, ViewHintFor(profileKey))
                 : null)
@@ -902,6 +940,20 @@
             .Select(actor => actor!)
             .DistinctBy(actor => actor.ActorKey, StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>
+    /// Whether the given identity-pack option names the CAMERA HOLDER: the POV character of a participant POV. The
+    /// camera holder is never in the picture, so they must be offered neither reference slots nor an auto-filled face or
+    /// body — a reference for them would describe a person the frame never shows.
+    /// </summary>
+    private bool IsCameraHolder(string? characterName, string? characterKey)
+    {
+        if (_productionGroup is null || string.IsNullOrWhiteSpace(_productionGroup.Pov)) return false;
+        if (string.Equals(_productionGroup.Pov.Trim(), SceneImagePovFramer.Omniscient, StringComparison.OrdinalIgnoreCase))
+            return false;
+        return string.Equals(characterName, _productionGroup.Pov.Trim(), StringComparison.OrdinalIgnoreCase)
+            || string.Equals(characterKey, _productionGroup.Pov.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     /// Which reference view this moment's recorded stance suggests for one participant (B-166 D8), or null when the
@@ -1098,6 +1150,7 @@
         // declares no location slot shows a notice instead of a silent drop. Forced, because the step was just cleared
         // above and the once-per-page latch would otherwise swallow this deliberate re-seed.
         await SeedLocationBackdropIfBoundAsync(force: true);
+        await SeedIdentityReferencesAsync(force: true);
         await OnModelChangedAsync();
     }
     private CancellationTokenSource? _pollingCts;
@@ -1138,10 +1191,31 @@
     private bool _applyIdentityOnCreate;
 
     /// <summary>
+    /// The character roster that already has an approved identity pack, keyed by the character TEMPLATE id (the identity
+    /// owner). Each entry carries the NEWEST approved pack and its approved face/body assets, which is exactly what the
+    /// auto-fill needs to resolve the reference for a recommended view without another round trip per character.
+    /// </summary>
+    private IReadOnlyDictionary<string, IdentityPackOwner>? _packOwnersByTemplate;
+
+    /// <summary>
     /// The image the backdrop seed put in the Location slot, so a forced re-seed can withdraw its OWN binding when the
     /// render model changes and no longer carries it — without ever touching what the operator bound.
     /// </summary>
     private string? _locationSeededImageId;
+
+    /// <summary>
+    /// Whether the identity auto-fill has already run for this page instance. It is an INITIALISATION: it fills an empty
+    /// step once and never touches a step the operator has populated, so the 2-second poll can never re-add a face or
+    /// body the operator removed.
+    /// </summary>
+    private bool _identityAutoFillDone;
+
+    /// <summary>
+    /// The characters the auto-fill could NOT resolve a reference for, in the operator's words. Shown once beside the
+    /// step so the missing view is actionable (approve that view on the Faces/Body tab) rather than discovered after a
+    /// render that is not the character.
+    /// </summary>
+    private IReadOnlyList<string> _identityAutoFillNotices = [];
 
     // Pose reference (OpenPose ControlNet conditioning, B-117).
     private bool _poseBusy;
@@ -1279,6 +1353,16 @@
         public string OriginalValue { get; set; } = string.Empty;
         public string Value { get; set; } = string.Empty;
         public bool Removed { get; set; }
+
+        /// <summary>
+        /// True when this row's value is DERIVED from the character profile rather than read from the compiled brief
+        /// (the per-character "Appearance (auto)" row). A stored draft override for such a row is still honoured when
+        /// the operator typed it — overriding here is the point of the Prompt Input — but the LEGACY auto value (the
+        /// labelled "Appearance — Age: 51; …" block saved before the natural-language formatter) is discarded, so an
+        /// old profile snapshot cannot pin the appearance over the current one. See
+        /// <see cref="IsLegacyAutoAppearance"/>.
+        /// </summary>
+        public bool IsAutoDerived { get; set; }
 
         /// <summary>True once the operator's value differs from the compiled one, or the row is ticked for removal.</summary>
         public bool IsChanged => Removed || !string.Equals(Value, OriginalValue, StringComparison.Ordinal);
@@ -1669,6 +1753,8 @@
         _selectedIdentityModelId = KeepSelection(_identityModelChoices, _selectedIdentityModelId);
         if (_identityPackOptions.Count == 0)
             await LoadIdentityPackOptionsAsync();
+        if (_packOwnersByTemplate is null)
+            await LoadPackOwnersAsync();
         if (_identityResolution is null)
             await RefreshIdentityResolutionAsync();
 
@@ -1687,6 +1773,7 @@
             .ToHashSet(StringComparer.Ordinal);
 
         await SeedLocationBackdropIfBoundAsync();
+        await SeedIdentityReferencesAsync();
         await LoadFramingChoicesAsync();
     }
 
@@ -1809,6 +1896,93 @@
         _referenceBindings = [await WithLocationAnalysisAsync(binding)];
         _locationSeededImageId = binding.SceneAssetImageId;
     }
+
+    /// <summary>
+    /// The Composition auto-fill: binds each character's FACE and BODY reference from their newest approved pack, at the
+    /// angle the frozen Moment records, before the first prompt is compiled. This is what removes the
+    /// generate→read→pick→regenerate loop: the stance is already on the Moment, so the reference is bound up front.
+    ///
+    /// <para>
+    /// It fills an EMPTY face/body step once and never overwrites what the operator bound, for the same reason the
+    /// location seed guards emptiness — <c>LoadAsync</c> runs on the 2-second poll. A model change clears the step and
+    /// passes <paramref name="force"/>, which re-runs it on the new model (the location seed does the same).
+    /// </para>
+    /// </summary>
+    private async Task SeedIdentityReferencesAsync(bool force = false)
+    {
+        if (force)
+        {
+            _identityAutoFillDone = false;
+        }
+
+        if (_identityAutoFillDone)
+        {
+            return;
+        }
+
+        // Never overwrite a face or body the operator already bound on a non-forced pass. A forced pass follows a model
+        // change, which has already cleared the whole step.
+        if (!force && _referenceBindings.Any(IsFaceOrBodyBinding))
+        {
+            _identityAutoFillDone = true;
+            return;
+        }
+
+        if (_frozenState is null || _packOwnersByTemplate is null)
+        {
+            return;
+        }
+
+        // A face/body travels as a native reference; without that strategy there is nowhere to put it (and on an
+        // IP-Adapter model it would conflict with 'Identity on create'). Leave the step empty rather than bind a
+        // reference the render would refuse.
+        if (!SelectedModelCarriesNativeReferences)
+        {
+            return;
+        }
+
+        var inputs = new List<CompositionReferenceAutoFill.Input>();
+        var ownerKeys = IdentityOwnerKeys;
+        foreach (var actor in CompositionCast)
+        {
+            var frozen = _frozenState.Characters.FirstOrDefault(character =>
+                string.Equals(character.ProfileKey, actor.ActorKey, StringComparison.OrdinalIgnoreCase));
+            if (frozen is null)
+            {
+                continue;
+            }
+
+            if (!ownerKeys.TryGetValue(actor.ActorKey, out var templateId)
+                || string.IsNullOrWhiteSpace(templateId)
+                || !_packOwnersByTemplate.TryGetValue(templateId, out var owner))
+            {
+                continue;
+            }
+
+            inputs.Add(new CompositionReferenceAutoFill.Input(
+                actor,
+                frozen.Sightline,
+                frozen.Position,
+                frozen.Clothing,
+                owner.PackId,
+                owner.ApprovedAssets));
+        }
+
+        var result = CompositionReferenceAutoFill.Resolve(inputs, _explicitness);
+
+        // Face and body go FIRST (the blueprint's slot order); whatever the location seed already bound stays after
+        // them. The render sends pack images first regardless, but keeping the list in slot order is the same contract
+        // the planner writes.
+        var nonFaceBody = _referenceBindings.Where(binding => !IsFaceOrBodyBinding(binding)).ToList();
+        _referenceBindings = [.. result.Bindings, .. nonFaceBody];
+        _identityAutoFillNotices = result.Notices;
+        _identityAutoFillDone = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static bool IsFaceOrBodyBinding(ReferenceApplicationSelection binding) =>
+        string.Equals(binding.Kind, nameof(ImageStepSlotKind.Face), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(binding.Kind, nameof(ImageStepSlotKind.Body), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The identity model is a RENDER model, not a side setting: with identity-on-create ticked it is the model the
@@ -2290,6 +2464,25 @@
         }
     }
 
+    /// <summary>
+    /// Loads the character roster that has an approved identity pack, keyed by TEMPLATE id, so the auto-fill can resolve
+    /// each frozen character's newest approved pack and its face/body assets in one lookup.
+    /// </summary>
+    private async Task LoadPackOwnersAsync()
+    {
+        try
+        {
+            var owners = await IdentityService.ListPackOwnersAsync();
+            _packOwnersByTemplate = owners.ToDictionary(owner => owner.CharacterProfileId, StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            _packOwnersByTemplate = new Dictionary<string, IdentityPackOwner>();
+            Logger.LogWarning(
+                ex, "Failed to load identity pack owners for composition auto-fill: SessionId={SessionId}", sessionId);
+        }
+    }
+
     // ── Selected Moment / per-character reference (base text) helpers ──────────────────────
 
     private async Task LoadMomentEnrichmentAsync()
@@ -2396,7 +2589,7 @@
                     var value = cluster.Key == "appearance"
                         ? AppearanceTextFor(id, name, profileKey)
                         : StringValue(character, LeafName(cluster.Key));
-                    AddClusterRow(cluster, key, key, primary, value, label);
+                    AddClusterRow(cluster, key, key, primary, value, label, isAutoDerived: cluster.Key == "appearance");
                 }
             }
         }
@@ -2439,7 +2632,8 @@
         string? characterKey,
         string primaryElementKey,
         string value,
-        string? characterLabel = null)
+        string? characterLabel = null,
+        bool isAutoDerived = false)
     {
         _promptRows.Add(new PromptFieldRow
         {
@@ -2451,7 +2645,8 @@
             Scopes = Expand(cluster.EditScopes, characterKey),
             RemoveScopes = Expand(cluster.EffectiveRemoveScopes, characterKey),
             OriginalValue = value ?? string.Empty,
-            Value = value ?? string.Empty
+            Value = value ?? string.Empty,
+            IsAutoDerived = isAutoDerived
         });
     }
 
@@ -2512,10 +2707,32 @@
     {
         var character = ResolveScenarioCharacter(id, name, profileKey);
         if (character is null) return string.Empty;
-        var appearance = PhysicalAttributesFormatter.FormatVisualBlock(character.PhysicalAttributes);
+        // Natural-language descriptors, the same form the deterministic APPEARANCE block states and the form an image
+        // model reads. This row is the AUTO value written into the appearance block (and, when it differs from the
+        // compiled text, an override that wins over the formatter), so it must already be in that form — the labelled
+        // "Age: 21; Iris color: …" block is for the compile LLM, not for the picture.
+        var appearance = PhysicalAttributesFormatter.FormatVisualProse(character.PhysicalAttributes);
         if (!string.IsNullOrWhiteSpace(appearance)) return appearance;
         return string.IsNullOrWhiteSpace(character.Description) ? string.Empty : character.Description.Trim();
     }
+
+    /// <summary>
+    /// True when a stored appearance value is the LEGACY labelled attribute block
+    /// ("Appearance — Age: 21; Height: …; Iris color: …") rather than an operator edit.
+    ///
+    /// <para>
+    /// The old auto value was that block; a genuine override in this box is natural language ("young",
+    /// "middle-aged", …) because that is what the image model reads. So the labelled shape is a reliable marker that
+    /// the stored text is a stale profile snapshot saved before the natural-language formatter — not something the
+    /// operator typed. Comparing it to the CURRENT profile is useless: the profile can have changed since (Age 21 → 51),
+    /// and the stale block would then look like a deliberate edit.
+    /// </para>
+    /// </summary>
+    private static bool IsLegacyAutoAppearance(string? storedValue)
+        => !string.IsNullOrWhiteSpace(storedValue)
+           && (storedValue.TrimStart().StartsWith("Appearance", StringComparison.OrdinalIgnoreCase)
+               || (storedValue.Contains("Age: ", StringComparison.OrdinalIgnoreCase)
+                   && storedValue.Contains("Iris color:", StringComparison.OrdinalIgnoreCase)));
 
     private void SetPromptRowValue(PromptFieldRow row, string value)
     {
@@ -2639,6 +2856,15 @@
                 if (row is null)
                 {
                     stale.Add(field.ElementKey);
+                    continue;
+                }
+
+                // An operator edit to the auto ("Appearance (auto)") row is a real override and IS restored — that is
+                // the point of the Prompt Input. The one exception is the LEGACY auto value: the labelled
+                // "Appearance — Age: 51; …" block saved before the natural-language formatter. It is not an edit, and
+                // re-applying it would pin an old profile snapshot over the current appearance forever.
+                if (row.IsAutoDerived && IsLegacyAutoAppearance(field.Value))
+                {
                     continue;
                 }
 
